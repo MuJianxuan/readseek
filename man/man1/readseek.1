@@ -30,10 +30,17 @@ readseek \- hashline and structural source read tool
 [\fB--language=\fR\fIlanguage\fR]
 \fItarget\fR
 [\fIaddress\fR]
+.P
+.B readseek
+\fBsearch\fR
+[\fB--language=\fR\fIlanguage\fR]
+\fItarget\fR
+\fIpattern\fR
 .SH DESCRIPTION
 .B readseek
 reads UTF-8 source files and emits JSON for file type detection,
-line-hash addressed reads, structural source maps, and symbol reads.
+line-hash addressed reads, structural source maps, symbol reads, and
+AST pattern searches.
 .P
 A
 .I target
@@ -69,8 +76,14 @@ Print a structural source map with symbol kind, name, address, start and end
 lines, and boundary line hashes.
 .TP
 .B symbol
-Print the source range for a mapped symbol.  The symbol can be selected by
+Print the source range for a mapped symbol. The symbol can be selected by
 an address argument, a target symbol suffix, or a target line/hash suffix.
+.TP
+.B search
+Run an AST pattern against a file or every supported source file under a
+directory. Unparseable files are skipped.
+Output is grouped by file and includes file hash, matches, captures, boundary
+line hashes, and hashlines for matched ranges.
 .SS Options
 .TP
 \fB\-h\fR, \fB--help\fR
@@ -175,6 +188,10 @@ Read a symbol by target suffix:
 Read the symbol containing a line:
 .br
 .B "  readseek symbol src/main.rs:270"
+.P
+Search C++ function definitions:
+.br
+.B "  readseek search src 'int $NAME() { return $VALUE; }' --language cpp"
 .SH BUILDING
 See
 .B README.md

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::{env, process};
 use strum_macros::{Display, EnumString};
 use syntect::parsing::SyntaxSet;
+use tree_sitter::{Node, Parser};
 
 mod cache;
 mod symbols;
@@ -36,6 +37,7 @@ enum Command {
     Read(ReadCommand),
     Map(MapCommand),
     Symbol(SymbolCommand),
+    Search(SearchCommand),
 }
 
 /// detect the file type
@@ -108,6 +110,24 @@ struct SymbolCommand {
     /// symbol address or unqualified name
     #[argh(positional)]
     address: Option<String>,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    language: Option<Language>,
+}
+
+/// search files with an AST pattern
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "search")]
+#[argh(help_triggers("-h", "--help"))]
+struct SearchCommand {
+    /// file or directory to search
+    #[argh(positional)]
+    target: PathBuf,
+
+    /// ast-grep-style pattern
+    #[argh(positional)]
+    pattern: String,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -536,6 +556,66 @@ struct SymbolOutput {
 }
 
 #[derive(Debug, Serialize)]
+struct SearchOutput {
+    results: Vec<SearchFileOutput>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchFileOutput {
+    file: PathBuf,
+    language: Language,
+    file_hash: String,
+    matches: Vec<SearchMatch>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchMatch {
+    pattern_index: usize,
+    start_line: usize,
+    end_line: usize,
+    start_hash: String,
+    end_hash: String,
+    hashlines: Vec<HashLine>,
+    captures: Vec<SearchCapture>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchCapture {
+    name: String,
+    start_line: usize,
+    end_line: usize,
+    start_hash: String,
+    end_hash: String,
+    hashlines: Vec<HashLine>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PatternMetaKind {
+    Single,
+    Variadic,
+}
+
+#[derive(Clone, Debug)]
+struct PatternMeta {
+    placeholder: String,
+    name: String,
+    kind: PatternMetaKind,
+}
+
+#[derive(Debug)]
+struct SearchPattern {
+    text: String,
+    metas: Vec<PatternMeta>,
+}
+
+#[derive(Clone, Debug)]
+struct SearchCaptureRange {
+    name: String,
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Serialize)]
 struct HashLine {
     line: usize,
     hash: String,
@@ -656,6 +736,9 @@ fn run() -> Result<()> {
             let target_address = symbol_address(&target, command.address.as_deref())?;
             let output = symbol_command_output(&source, target_address, target_line)?;
             print_json(&output)?;
+        }
+        Command::Search(command) => {
+            print_json(&search_output(&command)?)?;
         }
     }
 
@@ -1134,6 +1217,376 @@ fn symbol_output_for_symbol(source: &SourceFile, symbol: Symbol) -> Result<Symbo
         symbol,
         hashlines: read.hashlines,
     })
+}
+
+fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
+    let mut results = Vec::new();
+
+    for path in search_paths(&command.target)? {
+        let Some(result) = search_file(&path, command.language, &command.pattern)? else {
+            continue;
+        };
+        if !result.matches.is_empty() {
+            results.push(result);
+        }
+    }
+
+    Ok(SearchOutput { results })
+}
+
+fn search_paths(target: &Path) -> Result<Vec<PathBuf>> {
+    let metadata = fs::metadata(target).with_context(|| format!("stat {}", target.display()))?;
+    if metadata.is_file() {
+        return Ok(vec![target.to_path_buf()]);
+    }
+    if !metadata.is_dir() {
+        bail!(
+            "search target is not a file or directory: {}",
+            target.display()
+        );
+    }
+
+    let mut paths = Vec::new();
+    collect_search_paths(target, &mut paths)?;
+    Ok(paths)
+}
+
+fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+    let mut entries = fs::read_dir(directory)
+        .with_context(|| format!("read directory {}", directory.display()))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .with_context(|| format!("read directory entry from {}", directory.display()))?;
+    entries.sort_by_key(std::fs::DirEntry::path);
+
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("read file type for {}", path.display()))?;
+        if file_type.is_dir() {
+            collect_search_paths(&path, paths)?;
+        } else if file_type.is_file() {
+            paths.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn search_file(
+    path: &Path,
+    override_language: Option<Language>,
+    pattern_text: &str,
+) -> Result<Option<SearchFileOutput>> {
+    let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
+        return Ok(None);
+    };
+    let language_id = source.detection.language;
+    let Some(language) = symbols::tree_sitter_language(language_id) else {
+        return Ok(None);
+    };
+
+    let pattern = compile_search_pattern(pattern_text);
+    let mut parser = Parser::new();
+    parser
+        .set_language(&language)
+        .map_err(|error| anyhow::anyhow!("set tree-sitter language: {error}"))?;
+    let tree = parser
+        .parse(&source.text, None)
+        .ok_or_else(|| anyhow::anyhow!("tree-sitter parse failed"))?;
+    let pattern_tree = parser
+        .parse(&pattern.text, None)
+        .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
+    if pattern_tree.root_node().has_error() {
+        bail!("pattern is not valid {} syntax", language_id.id());
+    }
+
+    let mut matches = Vec::new();
+    let pattern_root =
+        search_pattern_root(pattern_tree.root_node()).context("empty search pattern")?;
+    collect_search_matches(
+        &source,
+        &pattern,
+        pattern_root,
+        tree.root_node(),
+        &mut matches,
+    )?;
+
+    Ok(Some(SearchFileOutput {
+        file: source.path,
+        language: language_id,
+        file_hash: source.file_hash,
+        matches,
+    }))
+}
+
+fn compile_search_pattern(pattern: &str) -> SearchPattern {
+    let mut text = String::with_capacity(pattern.len());
+    let mut metas = Vec::new();
+    let bytes = pattern.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'$' {
+            text.push(bytes[index] as char);
+            index += 1;
+            continue;
+        }
+
+        let (kind, name_start) =
+            if bytes.get(index + 1) == Some(&b'$') && bytes.get(index + 2) == Some(&b'$') {
+                (PatternMetaKind::Variadic, index + 3)
+            } else {
+                (PatternMetaKind::Single, index + 1)
+            };
+        let mut name_end = name_start;
+        while name_end < bytes.len()
+            && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'_')
+        {
+            name_end += 1;
+        }
+        if name_end == name_start {
+            text.push('$');
+            index += 1;
+            continue;
+        }
+
+        let name = &pattern[name_start..name_end];
+        let placeholder = match kind {
+            PatternMetaKind::Single => format!("__readseek_meta_{name}"),
+            PatternMetaKind::Variadic => format!("__readseek_variadic_{name}"),
+        };
+        text.push_str(&placeholder);
+        metas.push(PatternMeta {
+            placeholder,
+            name: name.to_owned(),
+            kind,
+        });
+        index = name_end;
+    }
+
+    SearchPattern { text, metas }
+}
+
+fn search_pattern_root(root: Node<'_>) -> Option<Node<'_>> {
+    if root.named_child_count() == 1 {
+        root.named_child(0)
+    } else {
+        Some(root)
+    }
+}
+
+fn collect_search_matches(
+    source: &SourceFile,
+    pattern: &SearchPattern,
+    pattern_node: Node<'_>,
+    source_node: Node<'_>,
+    matches: &mut Vec<SearchMatch>,
+) -> Result<()> {
+    let mut captures = Vec::new();
+    if nodes_match(source, pattern, pattern_node, source_node, &mut captures) {
+        matches.push(search_match(source, source_node, captures)?);
+    }
+
+    let mut cursor = source_node.walk();
+    for child in source_node.named_children(&mut cursor) {
+        collect_search_matches(source, pattern, pattern_node, child, matches)?;
+    }
+
+    Ok(())
+}
+
+fn nodes_match(
+    source: &SourceFile,
+    pattern: &SearchPattern,
+    pattern_node: Node<'_>,
+    source_node: Node<'_>,
+    captures: &mut Vec<SearchCaptureRange>,
+) -> bool {
+    if let Some(meta) = pattern_meta(pattern, pattern_node) {
+        if meta.kind == PatternMetaKind::Single {
+            let (start_line, end_line) = node_line_range(source_node);
+            captures.push(SearchCaptureRange {
+                name: meta.name.clone(),
+                start_line,
+                end_line,
+            });
+        }
+        return true;
+    }
+
+    if pattern_node.kind() != source_node.kind() {
+        return false;
+    }
+
+    let pattern_children = named_children(pattern_node);
+    let source_children = named_children(source_node);
+    if pattern_children.is_empty() {
+        return node_text(pattern_node, &pattern.text) == node_text(source_node, &source.text);
+    }
+
+    child_nodes_match(
+        source,
+        pattern,
+        &pattern_children,
+        &source_children,
+        0,
+        0,
+        captures,
+    )
+}
+
+fn child_nodes_match(
+    source: &SourceFile,
+    pattern: &SearchPattern,
+    pattern_children: &[Node<'_>],
+    source_children: &[Node<'_>],
+    pattern_index: usize,
+    source_index: usize,
+    captures: &mut Vec<SearchCaptureRange>,
+) -> bool {
+    if pattern_index == pattern_children.len() {
+        return source_index == source_children.len();
+    }
+
+    let pattern_child = pattern_children[pattern_index];
+    if let Some(meta) = pattern_meta(pattern, pattern_child)
+        && meta.kind == PatternMetaKind::Variadic
+    {
+        for count in 0..=source_children.len().saturating_sub(source_index) {
+            let mut trial_captures = captures.clone();
+            if count > 0 {
+                let (start_line, _) = node_line_range(source_children[source_index]);
+                let (_, end_line) = node_line_range(source_children[source_index + count - 1]);
+                trial_captures.push(SearchCaptureRange {
+                    name: meta.name.clone(),
+                    start_line,
+                    end_line,
+                });
+            }
+            if child_nodes_match(
+                source,
+                pattern,
+                pattern_children,
+                source_children,
+                pattern_index + 1,
+                source_index + count,
+                &mut trial_captures,
+            ) {
+                *captures = trial_captures;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if source_index >= source_children.len() {
+        return false;
+    }
+
+    let mut trial_captures = captures.clone();
+    if !nodes_match(
+        source,
+        pattern,
+        pattern_child,
+        source_children[source_index],
+        &mut trial_captures,
+    ) {
+        return false;
+    }
+    if !child_nodes_match(
+        source,
+        pattern,
+        pattern_children,
+        source_children,
+        pattern_index + 1,
+        source_index + 1,
+        &mut trial_captures,
+    ) {
+        return false;
+    }
+
+    *captures = trial_captures;
+    true
+}
+
+fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).collect()
+}
+
+fn pattern_meta<'a>(pattern: &'a SearchPattern, node: Node<'_>) -> Option<&'a PatternMeta> {
+    let text = node_text(node, &pattern.text)?;
+    pattern.metas.iter().find(|meta| meta.placeholder == text)
+}
+
+fn node_text<'a>(node: Node<'_>, text: &'a str) -> Option<&'a str> {
+    node.utf8_text(text.as_bytes()).ok()
+}
+
+fn search_match(
+    source: &SourceFile,
+    node: Node<'_>,
+    capture_ranges: Vec<SearchCaptureRange>,
+) -> Result<SearchMatch> {
+    let captures = capture_ranges
+        .into_iter()
+        .map(|capture| {
+            Ok(SearchCapture {
+                name: capture.name,
+                start_line: capture.start_line,
+                end_line: capture.end_line,
+                start_hash: line_hash(source, capture.start_line)?,
+                end_hash: line_hash(source, capture.end_line)?,
+                hashlines: range_hashlines(source, capture.start_line, capture.end_line),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let (start_line, end_line) = node_line_range(node);
+
+    Ok(SearchMatch {
+        pattern_index: 0,
+        start_line,
+        end_line,
+        start_hash: line_hash(source, start_line)?,
+        end_hash: line_hash(source, end_line)?,
+        hashlines: range_hashlines(source, start_line, end_line),
+        captures,
+    })
+}
+
+fn node_line_range(node: tree_sitter::Node<'_>) -> (usize, usize) {
+    let start_line = node.start_position().row + 1;
+    let end_position = node.end_position();
+    let end_line = if end_position.column == 0 && end_position.row + 1 > start_line {
+        end_position.row
+    } else {
+        end_position.row + 1
+    };
+
+    (start_line, end_line)
+}
+
+fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
+    source
+        .lines
+        .get(line.saturating_sub(1))
+        .map(|line| line.hash.clone())
+        .with_context(|| format!("line {line} not found in {}", source.path.display()))
+}
+
+fn range_hashlines(source: &SourceFile, start_line: usize, end_line: usize) -> Vec<HashLine> {
+    let start = start_line.saturating_sub(1);
+    let end = end_line.min(source.lines.len());
+    source.lines[start..end]
+        .iter()
+        .map(|line| HashLine {
+            line: line.number,
+            hash: line.hash.clone(),
+            text: line.text.clone(),
+        })
+        .collect()
 }
 
 fn hash_text(text: &str) -> String {

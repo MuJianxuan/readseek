@@ -40,7 +40,7 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
     Ok(SourceMap { symbols })
 }
 
-fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
+pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
     let parser = match language {
         Language::Assembly => tree_sitter_asm_language,
         Language::Bash => tree_sitter_bash_language,

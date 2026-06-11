@@ -244,6 +244,44 @@ def main():
             ):
                 passed(name)
 
+        name = "search: cpp pattern directory"
+        search_dir = os.path.join(tmpdir, "search")
+        os.mkdir(search_dir)
+        path = write_file(
+            search_dir,
+            "sample.cpp",
+            "int greet() {\n  return 1;\n}\n",
+        )
+        write_file(search_dir, "notes.txt", "int ignored() { return 0; }\n")
+        data = readseek_json(
+            name,
+            [
+                "search",
+                search_dir,
+                "int $NAME() { return $VALUE; }",
+            ],
+        )
+        if data:
+            results = data.get("results", [])
+            matches = results[0].get("matches", []) if results else []
+            captures = matches[0].get("captures", []) if matches else []
+            capture_names = [capture.get("name") for capture in captures]
+            if all(
+                [
+                    assert_equal(name, len(results), 1),
+                    assert_equal(name, results[0].get("file"), path),
+                    assert_equal(name, results[0].get("language"), "cpp"),
+                    assert_equal(name, len(results[0].get("file_hash", "")), 8),
+                    assert_equal(name, len(matches), 1),
+                    assert_equal(name, matches[0].get("start_line"), 1),
+                    assert_equal(name, matches[0].get("end_line"), 3),
+                    assert_equal(name, len(matches[0].get("hashlines", [])), 3),
+                    assert_true(name, "NAME" in capture_names, "NAME capture missing"),
+                    assert_true(name, "VALUE" in capture_names, "VALUE capture missing"),
+                ]
+            ):
+                passed(name)
+
         expect_mapped_symbol(
             "map: makefile target",
             "Makefile",
