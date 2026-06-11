@@ -1,0 +1,26 @@
+{
+  "name": "@jarkkojs/readseek-linux-x64",
+  "version": "0.1.0",
+  "description": "Linux x64 binary for readseek",
+  "license": "LGPL-2.1-or-later",
+  "homepage": "https://github.com/jarkkojs/readseek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jarkkojs/readseek.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "readseek": "bin/readseek"
+  },
+  "files": [
+    "bin/readseek"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

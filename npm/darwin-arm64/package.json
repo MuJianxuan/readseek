@@ -1,0 +1,26 @@
+{
+  "name": "@jarkkojs/readseek-darwin-arm64",
+  "version": "0.1.0",
+  "description": "macOS arm64 binary for readseek",
+  "license": "LGPL-2.1-or-later",
+  "homepage": "https://github.com/jarkkojs/readseek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jarkkojs/readseek.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "readseek": "bin/readseek"
+  },
+  "files": [
+    "bin/readseek"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,187 @@
+.TH READSEEK 1 "2026-06-11" "readseek 0.1.0" "User Commands"
+.SH NAME
+readseek \- hashline and structural source read tool
+.SH SYNOPSIS
+.B readseek
+[\fB\-h\fR]
+[\fB\-V\fR]
+.P
+.B readseek
+\fBfile\fR
+[\fB--language=\fR\fIlanguage\fR]
+\fItarget\fR
+.P
+.B readseek
+\fBread\fR
+[\fB--start=\fR\fIline\fR]
+[\fB--end=\fR\fIline\fR]
+[\fB--offset=\fR\fIline\fR]
+[\fB--limit=\fR\fIn\fR]
+[\fB--language=\fR\fIlanguage\fR]
+\fItarget\fR
+.P
+.B readseek
+\fBmap\fR
+[\fB--language=\fR\fIlanguage\fR]
+\fItarget\fR
+.P
+.B readseek
+\fBsymbol\fR
+[\fB--language=\fR\fIlanguage\fR]
+\fItarget\fR
+[\fIaddress\fR]
+.SH DESCRIPTION
+.B readseek
+reads UTF-8 source files and emits JSON for file type detection,
+line-hash addressed reads, structural source maps, and symbol reads.
+.P
+A
+.I target
+is a file path.  It may include a one-based line number or a 3-character
+xxHash32 line hash suffix, in the form
+.I file:line
+or
+.IR file:hash .
+For
+.BR symbol ,
+it may also include a symbol address or unqualified symbol name in the form
+.IR file:symbol .
+.P
+.B readseek
+recognizes common source and project file types, including C, C++, C#,
+Bash, CSS, Go, HTML, Java, JavaScript, JSON, Just, Make, Meson, PHP,
+Python, Ruby, Rust, Swift, TypeScript, JSX, and TSX.  Unsupported text
+files can still be detected as
+.BR unknown .
+.P
+All command output is JSON.
+.SS Commands
+.TP
+.B file
+Detect the target file language, binary status, MIME type, and syntax name.
+.TP
+.B read
+Print the target file range with line numbers, 3-character line hashes, and
+text.
+.TP
+.B map
+Print a structural source map with symbol kind, name, address, start and end
+lines, and boundary line hashes.
+.TP
+.B symbol
+Print the source range for a mapped symbol.  The symbol can be selected by
+an address argument, a target symbol suffix, or a target line/hash suffix.
+.SS Options
+.TP
+\fB\-h\fR, \fB--help\fR
+Print help and exit.
+.TP
+\fB\-V\fR, \fB--version\fR
+Print version and exit.
+.TP
+\fB--language=\fR\fIlanguage\fR
+Override detected language.  Accepted values are
+.BR bash ,
+.BR c ,
+.BR cpp ,
+.BR csharp ,
+.BR css ,
+.BR go ,
+.BR html ,
+.BR java ,
+.BR javascript ,
+.BR json ,
+.BR jsx ,
+.BR just ,
+.BR make ,
+.BR meson ,
+.BR php ,
+.BR python ,
+.BR ruby ,
+.BR rust ,
+.BR swift ,
+.BR typescript ,
+.BR tsx ,
+and
+.BR unknown .
+Common aliases include
+.BR cxx ,
+.BR cplusplus ,
+.BR cs ,
+.BR golang ,
+.BR htm ,
+.BR js ,
+.BR makefile ,
+.BR py ,
+.BR rb ,
+.BR rs ,
+.BR sh ,
+.BR shell ,
+and
+.BR ts .
+.TP
+\fB--start=\fR\fIline\fR
+First one-based line to include for
+.BR read .
+.TP
+\fB--end=\fR\fIline\fR
+Last one-based line to include for
+.BR read .
+.TP
+\fB--offset=\fR\fIline\fR
+Alias for
+.BR --start .
+.TP
+\fB--limit=\fR\fIn\fR
+Maximum number of lines to include for
+.BR read .
+.SH EXIT STATUS
+.TP
+0
+Success.
+.TP
+1
+Operational error (missing file, unsupported binary file, malformed input,
+cache error, or symbol lookup failure).
+.TP
+2
+Usage error.
+.SH FILES
+.TP
+.B ${XDG_CACHE_HOME:-~/.cache}/readseek/cache.sqlite3
+Source map cache on Linux.  The cache location follows the platform cache
+directory returned by the operating system.
+.SH EXAMPLES
+Detect a file:
+.br
+.B "  readseek file src/main.rs"
+.P
+Read lines 10 through 20:
+.br
+.B "  readseek read src/main.rs --start 10 --end 20"
+.P
+Read a file around a target line:
+.br
+.B "  readseek read src/main.rs:42 --limit 12"
+.P
+Build a structural map:
+.br
+.B "  readseek map src/main.rs"
+.P
+Read a symbol by target suffix:
+.br
+.B "  readseek symbol src/main.rs:run"
+.P
+Read the symbol containing a line:
+.br
+.B "  readseek symbol src/main.rs:270"
+.SH BUILDING
+See
+.B README.md
+in the source distribution for build instructions.
+.SH LICENSE
+.B readseek
+is licensed under the
+.BR "LGPL-2.1-or-later" .
+.SH SEE ALSO
+.BR cargo (1)

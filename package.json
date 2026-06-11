@@ -1,0 +1,32 @@
+{
+  "name": "@jarkkojs/readseek",
+  "version": "0.1.0",
+  "description": "A structural read command",
+  "license": "LGPL-2.1-or-later",
+  "homepage": "https://github.com/jarkkojs/readseek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jarkkojs/readseek.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jarkkojs/readseek/issues"
+  },
+  "bin": {
+    "readseek": "bin/readseek.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@jarkkojs/readseek-darwin-arm64": "0.1.0",
+    "@jarkkojs/readseek-linux-x64": "0.1.0",
+    "@jarkkojs/readseek-win32-x64": "0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

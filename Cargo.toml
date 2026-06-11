@@ -1,0 +1,47 @@
+[package]
+authors = ["Jarkko Sakkinen <jarkko.sakkinen@iki.fi>"]
+description = "A structural read command"
+edition = "2024"
+license = "LGPL-2.1-or-later"
+homepage = "https://github.com/jarkkojs/readseek"
+repository = "https://github.com/jarkkojs/readseek"
+name = "readseek"
+readme = "README.md"
+rust-version = "1.85"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "1.0"
+arborium-meson = "2.18"
+argh = "0.1.13"
+dirs = "6"
+infer = "0.19"
+rusqlite = { version = "0.32", features = ["bundled"] }
+rust-analyzer = "0.0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+strum = "0.27"
+strum_macros = "0.27"
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy"] }
+tree-sitter = "0.25"
+tree-sitter-bash = "0.25"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-html = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-just = "0.2"
+tree-sitter-javascript = "0.25"
+tree-sitter-make = "1.1"
+tree-sitter-python = "0.25"
+tree-sitter-php = "0.24"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-swift = "0.7.3"
+
+[dev-dependencies]
+duct = "1"
