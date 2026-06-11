@@ -269,6 +269,29 @@ def main():
             "meson",
         )
 
+        supported_files = [
+            (
+                "html",
+                "index.html",
+                "<!doctype html><html><body>Hello</body></html>\n",
+            ),
+            (
+                "xml",
+                "sample.xml",
+                "<?xml version=\"1.0\"?><note><body>Hello</body></note>\n",
+            ),
+            ("json", "sample.json", "{\"name\": \"sample\"}\n"),
+            ("yaml", "sample.yaml", "name: sample\n"),
+            ("puppet", "site.pp", "class profile::sample {}\n"),
+        ]
+        for language, file_name, contents in supported_files:
+            expect_supported_file(
+                f"file: {language}",
+                file_name,
+                contents,
+                language,
+            )
+
         name = "symbol: cached mapped address"
         path = os.path.join(tmpdir, "sample.ts")
         data = readseek_json(name, ["symbol", path, "Greeter.greet"])

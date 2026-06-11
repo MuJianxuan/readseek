@@ -52,11 +52,14 @@ fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
         Language::JavaScript | Language::Jsx => tree_sitter_javascript_language,
         Language::Html => tree_sitter_html_language,
         Language::Json => tree_sitter_json_language,
+        Language::Xml => tree_sitter_xml_language,
+        Language::Yaml => tree_sitter_yaml_language,
         Language::Just => tree_sitter_just_language,
         Language::Make => tree_sitter_make_language,
         Language::Meson => tree_sitter_meson_language,
         Language::Python => tree_sitter_python_language,
         Language::Php => tree_sitter_php_language,
+        Language::Puppet => tree_sitter_puppet_language,
         Language::Ruby => tree_sitter_ruby_language,
         Language::Rust => tree_sitter_rust_language,
         Language::Swift => tree_sitter_swift_language,
@@ -104,6 +107,14 @@ fn tree_sitter_json_language() -> tree_sitter::Language {
     tree_sitter_json::LANGUAGE.into()
 }
 
+fn tree_sitter_xml_language() -> tree_sitter::Language {
+    tree_sitter_xml::LANGUAGE_XML.into()
+}
+
+fn tree_sitter_yaml_language() -> tree_sitter::Language {
+    tree_sitter_yaml::LANGUAGE.into()
+}
+
 fn tree_sitter_javascript_language() -> tree_sitter::Language {
     tree_sitter_javascript::LANGUAGE.into()
 }
@@ -126,6 +137,10 @@ fn tree_sitter_php_language() -> tree_sitter::Language {
 
 fn tree_sitter_python_language() -> tree_sitter::Language {
     tree_sitter_python::LANGUAGE.into()
+}
+
+fn tree_sitter_puppet_language() -> tree_sitter::Language {
+    tree_sitter_puppet::LANGUAGE.into()
 }
 
 fn tree_sitter_ruby_language() -> tree_sitter::Language {
@@ -181,7 +196,14 @@ fn collect_symbols(
 fn language_has_symbols(language: Language) -> bool {
     !matches!(
         language,
-        Language::Css | Language::Html | Language::Json | Language::Meson | Language::Unknown
+        Language::Css
+            | Language::Html
+            | Language::Json
+            | Language::Meson
+            | Language::Puppet
+            | Language::Xml
+            | Language::Yaml
+            | Language::Unknown
     )
 }
 
@@ -211,9 +233,14 @@ fn symbol_for_node(
         Language::Php => php_symbol(node, source),
         Language::Ruby => ruby_symbol(node, source),
         Language::Swift => swift_symbol(node, source),
-        Language::Css | Language::Html | Language::Json | Language::Meson | Language::Unknown => {
-            unreachable!()
-        }
+        Language::Css
+        | Language::Html
+        | Language::Json
+        | Language::Meson
+        | Language::Puppet
+        | Language::Xml
+        | Language::Yaml
+        | Language::Unknown => unreachable!(),
     }?;
 
     let start_line = node.start_position().row + 1;
