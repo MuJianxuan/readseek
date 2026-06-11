@@ -1,6 +1,6 @@
 {
   "name": "@jarkkojs/readseek-win32-x64",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Windows x64 binary for readseek",
   "license": "LGPL-2.1-or-later",
   "homepage": "https://github.com/jarkkojs/readseek#readme",
