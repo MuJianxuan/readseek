@@ -1,6 +1,6 @@
 {
   "name": "@jarkkojs/readseek-darwin-arm64",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "macOS arm64 binary for readseek",
   "license": "LGPL-2.1-or-later",
   "homepage": "https://github.com/jarkkojs/readseek#readme",
