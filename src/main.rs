@@ -630,7 +630,6 @@ fn is_line_hash(value: &str) -> bool {
 
 fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<usize>> {
     match target.address.as_ref() {
-        None => Ok(None),
         Some(TargetAddress::Line(line)) => Ok(Some(*line)),
         Some(TargetAddress::Hash(hash)) => source
             .lines
@@ -638,7 +637,7 @@ fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<us
             .find_map(|line| (line.hash == *hash).then_some(line.number))
             .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
             .map(Some),
-        Some(TargetAddress::Symbol(_)) => Ok(None),
+        None | Some(TargetAddress::Symbol(_)) => Ok(None),
     }
 }
 
