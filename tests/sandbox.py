@@ -20,6 +20,7 @@ def main():
 
     pass_count = 0
     fail_count = 0
+    sandbox_home = None
     cache_home = None
 
     def passed(name):
@@ -34,8 +35,9 @@ def main():
 
     def run(args):
         env = os.environ.copy()
-        if cache_home is not None:
-            env["XDG_CACHE_HOME"] = cache_home
+        if sandbox_home is not None:
+            env["HOME"] = sandbox_home
+            env.pop("XDG_CACHE_HOME", None)
         return subprocess.run(
             [readseek_bin] + args,
             capture_output=True,
@@ -113,8 +115,12 @@ def main():
             passed(name)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        cache_home = os.path.join(tmpdir, "cache")
-
+        sandbox_home = os.path.join(tmpdir, "home")
+        os.mkdir(sandbox_home)
+        if sys.platform == "darwin":
+            cache_home = os.path.join(sandbox_home, "Library", "Caches")
+        else:
+            cache_home = os.path.join(sandbox_home, ".cache")
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
         data = readseek_json(name, ["file", path])
