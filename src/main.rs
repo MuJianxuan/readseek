@@ -117,17 +117,22 @@ struct SymbolCommand {
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
 enum Language {
+    Assembly,
     C,
     Bash,
     Cpp,
     CSharp,
     Css,
     Go,
+    Gdscript,
     Java,
     JavaScript,
     Jsx,
     Html,
     Json,
+    Kconfig,
+    Latex,
+    Markdown,
     Xml,
     Yaml,
     Just,
@@ -137,9 +142,13 @@ enum Language {
     Php,
     Puppet,
     Ruby,
+    Riscv,
     Rust,
     Swift,
+    Sql,
     TypeScript,
+    Typst,
+    Toml,
     Tsx,
     Unknown,
 }
@@ -161,6 +170,14 @@ struct LanguageSpec {
 }
 
 const LANGUAGE_SPECS: &[LanguageSpec] = &[
+    LanguageSpec {
+        language: Language::Assembly,
+        id: "assembly",
+        aliases: &["assembly", "asm", "x86", "arm"],
+        extensions: &["asm", "s", "S"],
+        file_names: &[],
+        syntax_names: &["Assembly", "ARM Assembly", "x86 Assembly"],
+    },
     LanguageSpec {
         language: Language::C,
         id: "c",
@@ -212,6 +229,14 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         extensions: &["go"],
         file_names: &["go.mod"],
         syntax_names: &["Go"],
+    },
+    LanguageSpec {
+        language: Language::Gdscript,
+        id: "gdscript",
+        aliases: &["gdscript", "gd"],
+        extensions: &["gd"],
+        file_names: &[],
+        syntax_names: &["GDScript"],
     },
     LanguageSpec {
         language: Language::Java,
@@ -278,12 +303,36 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         syntax_names: &["Just"],
     },
     LanguageSpec {
+        language: Language::Kconfig,
+        id: "kconfig",
+        aliases: &["kconfig"],
+        extensions: &[],
+        file_names: &["Kconfig"],
+        syntax_names: &["Kconfig"],
+    },
+    LanguageSpec {
         language: Language::Make,
         id: "make",
         aliases: &["make", "makefile"],
         extensions: &["mk", "mak", "make"],
         file_names: &["Makefile", "makefile", "GNUmakefile"],
         syntax_names: &["Makefile"],
+    },
+    LanguageSpec {
+        language: Language::Latex,
+        id: "latex",
+        aliases: &["latex", "tex"],
+        extensions: &["tex", "ltx", "latex"],
+        file_names: &[],
+        syntax_names: &["LaTeX", "TeX"],
+    },
+    LanguageSpec {
+        language: Language::Markdown,
+        id: "markdown",
+        aliases: &["markdown", "md"],
+        extensions: &["md", "markdown", "mdown", "mkd"],
+        file_names: &[],
+        syntax_names: &["Markdown"],
     },
     LanguageSpec {
         language: Language::Meson,
@@ -326,6 +375,14 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         syntax_names: &["Ruby"],
     },
     LanguageSpec {
+        language: Language::Riscv,
+        id: "riscv",
+        aliases: &["riscv", "risc-v", "riscv64"],
+        extensions: &["riscv"],
+        file_names: &[],
+        syntax_names: &["RISC-V"],
+    },
+    LanguageSpec {
         language: Language::Rust,
         id: "rust",
         aliases: &["rust", "rs"],
@@ -342,6 +399,14 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         syntax_names: &["Swift"],
     },
     LanguageSpec {
+        language: Language::Sql,
+        id: "sql",
+        aliases: &["sql"],
+        extensions: &["sql"],
+        file_names: &[],
+        syntax_names: &["SQL"],
+    },
+    LanguageSpec {
         language: Language::TypeScript,
         id: "typescript",
         aliases: &["typescript", "ts"],
@@ -356,6 +421,22 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         extensions: &["tsx"],
         file_names: &[],
         syntax_names: &[],
+    },
+    LanguageSpec {
+        language: Language::Toml,
+        id: "toml",
+        aliases: &["toml"],
+        extensions: &["toml"],
+        file_names: &["Cargo.lock"],
+        syntax_names: &["TOML"],
+    },
+    LanguageSpec {
+        language: Language::Typst,
+        id: "typst",
+        aliases: &["typst", "typ"],
+        extensions: &["typ"],
+        file_names: &[],
+        syntax_names: &["Typst"],
     },
 ];
 

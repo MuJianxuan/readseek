@@ -395,6 +395,83 @@ def main():
         ):
             passed(name)
 
+        name = "file: tex language"
+        path = write_file(tmpdir, "paper.tex", "\\section{Intro}\nText.\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "latex"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: typst language"
+        path = write_file(tmpdir, "paper.typ", "= Intro\nText.\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "typst"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: assembly language"
+        path = write_file(tmpdir, "boot.S", "_start:\n    mov %rsp, %rbp\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "assembly"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: riscv language"
+        path = write_file(tmpdir, "boot.riscv", "_start:\n    addi sp, sp, -16\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "riscv"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: gdscript language"
+        path = write_file(tmpdir, "player.gd", "func _ready():\n    pass\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "gdscript"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: sql language"
+        path = write_file(tmpdir, "query.sql", "select * from users;\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "sql"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
+        name = "file: toml language"
+        path = write_file(tmpdir, "config.toml", "name = \"demo\"\n")
+        data = readseek_json(name, ["file", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "toml"),
+                assert_equal(name, data.get("supported"), True),
+            ]
+        ):
+            passed(name)
+
         name = "file: binary rejected"
         path = write_file(tmpdir, "blob.bin", bytes([0, 1, 2, 3]))
         expect_failure(name, ["file", path])
@@ -421,6 +498,43 @@ def main():
             ]
         ):
             passed(name)
+
+        name = "map: markdown headings"
+        path = write_file(
+            tmpdir,
+            "notes.md",
+            "# Title\n\nSome text.\n\n## Details ##\n",
+        )
+        data = readseek_json(name, ["map", path])
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("language"), "markdown"),
+                    assert_symbol(name, symbols, "heading", "Title"),
+                    assert_symbol(name, symbols, "heading", "Details"),
+                ]
+            ):
+                passed(name)
+
+        name = "map: kconfig symbols"
+        path = write_file(
+            tmpdir,
+            "Kconfig",
+            "menu \"Drivers\"\n\nconfig USB_SUPPORT\n    bool \"USB support\"\n\nmenuconfig NET\n    bool \"Networking support\"\n\nendmenu\n",
+        )
+        data = readseek_json(name, ["map", path])
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("language"), "kconfig"),
+                    assert_symbol(name, symbols, "menu", "Drivers"),
+                    assert_symbol(name, symbols, "config", "USB_SUPPORT"),
+                    assert_symbol(name, symbols, "menuconfig", "NET"),
+                ]
+            ):
+                passed(name)
 
         name = "map: swift symbols"
         path = write_file(

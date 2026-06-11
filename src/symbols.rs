@@ -42,12 +42,14 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
 
 fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
     let parser = match language {
+        Language::Assembly => tree_sitter_asm_language,
         Language::Bash => tree_sitter_bash_language,
         Language::C => tree_sitter_c_language,
         Language::Cpp => tree_sitter_cpp_language,
         Language::CSharp => tree_sitter_csharp_language,
         Language::Css => tree_sitter_css_language,
         Language::Go => tree_sitter_go_language,
+        Language::Gdscript => tree_sitter_gdscript_language,
         Language::Java => tree_sitter_java_language,
         Language::JavaScript | Language::Jsx => tree_sitter_javascript_language,
         Language::Html => tree_sitter_html_language,
@@ -55,22 +57,32 @@ fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
         Language::Xml => tree_sitter_xml_language,
         Language::Yaml => tree_sitter_yaml_language,
         Language::Just => tree_sitter_just_language,
+        Language::Kconfig => tree_sitter_kconfig_language,
+        Language::Latex => tree_sitter_latex_language,
         Language::Make => tree_sitter_make_language,
+        Language::Markdown => tree_sitter_markdown_language,
         Language::Meson => tree_sitter_meson_language,
         Language::Python => tree_sitter_python_language,
         Language::Php => tree_sitter_php_language,
         Language::Puppet => tree_sitter_puppet_language,
         Language::Ruby => tree_sitter_ruby_language,
+        Language::Riscv => tree_sitter_riscv_language,
         Language::Rust => tree_sitter_rust_language,
         Language::Swift => tree_sitter_swift_language,
+        Language::Sql => tree_sitter_sql_language,
+        Language::Typst => tree_sitter_typst_language,
         Language::TypeScript => tree_sitter_typescript_language,
         Language::Tsx => tree_sitter_tsx_language,
+        Language::Toml => tree_sitter_toml_language,
         Language::Unknown => return None,
     };
 
     Some(parser())
 }
 
+fn tree_sitter_asm_language() -> tree_sitter::Language {
+    tree_sitter_asm::LANGUAGE.into()
+}
 fn tree_sitter_bash_language() -> tree_sitter::Language {
     tree_sitter_bash::LANGUAGE.into()
 }
@@ -93,6 +105,10 @@ fn tree_sitter_css_language() -> tree_sitter::Language {
 
 fn tree_sitter_go_language() -> tree_sitter::Language {
     tree_sitter_go::LANGUAGE.into()
+}
+
+fn tree_sitter_gdscript_language() -> tree_sitter::Language {
+    tree_sitter_gdscript::LANGUAGE.into()
 }
 
 fn tree_sitter_java_language() -> tree_sitter::Language {
@@ -123,8 +139,20 @@ fn tree_sitter_just_language() -> tree_sitter::Language {
     tree_sitter_just::LANGUAGE.into()
 }
 
+fn tree_sitter_kconfig_language() -> tree_sitter::Language {
+    tree_sitter_kconfig::LANGUAGE.into()
+}
+
+fn tree_sitter_latex_language() -> tree_sitter::Language {
+    codebook_tree_sitter_latex::LANGUAGE.into()
+}
+
 fn tree_sitter_make_language() -> tree_sitter::Language {
     tree_sitter_make::LANGUAGE.into()
+}
+
+fn tree_sitter_markdown_language() -> tree_sitter::Language {
+    tree_sitter_md_025::LANGUAGE.into()
 }
 
 fn tree_sitter_meson_language() -> tree_sitter::Language {
@@ -147,6 +175,10 @@ fn tree_sitter_ruby_language() -> tree_sitter::Language {
     tree_sitter_ruby::LANGUAGE.into()
 }
 
+fn tree_sitter_riscv_language() -> tree_sitter::Language {
+    tree_sitter_riscv::LANGUAGE.into()
+}
+
 fn tree_sitter_rust_language() -> tree_sitter::Language {
     tree_sitter_rust::LANGUAGE.into()
 }
@@ -155,12 +187,24 @@ fn tree_sitter_swift_language() -> tree_sitter::Language {
     tree_sitter_swift::LANGUAGE.into()
 }
 
+fn tree_sitter_sql_language() -> tree_sitter::Language {
+    tree_sitter_sequel::LANGUAGE.into()
+}
+
+fn tree_sitter_typst_language() -> tree_sitter::Language {
+    codebook_tree_sitter_typst::LANGUAGE.into()
+}
+
 fn tree_sitter_typescript_language() -> tree_sitter::Language {
     tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
 }
 
 fn tree_sitter_tsx_language() -> tree_sitter::Language {
     tree_sitter_typescript::LANGUAGE_TSX.into()
+}
+
+fn tree_sitter_toml_language() -> tree_sitter::Language {
+    tree_sitter_toml_ng::LANGUAGE.into()
 }
 
 fn collect_symbols(
@@ -196,12 +240,19 @@ fn collect_symbols(
 fn language_has_symbols(language: Language) -> bool {
     !matches!(
         language,
-        Language::Css
+        Language::Assembly
+            | Language::Css
             | Language::Html
+            | Language::Gdscript
             | Language::Json
+            | Language::Latex
             | Language::Meson
             | Language::Puppet
+            | Language::Riscv
+            | Language::Sql
             | Language::Xml
+            | Language::Typst
+            | Language::Toml
             | Language::Yaml
             | Language::Unknown
     )
@@ -229,16 +280,25 @@ fn symbol_for_node(
         Language::Go => go_symbol(node, source),
         Language::Java => java_symbol(node, source),
         Language::Just => just_symbol(node, source),
+        Language::Kconfig => kconfig_symbol(node, source),
+        Language::Markdown => markdown_symbol(node, source),
         Language::Make => make_symbol(node, source),
         Language::Php => php_symbol(node, source),
         Language::Ruby => ruby_symbol(node, source),
         Language::Swift => swift_symbol(node, source),
-        Language::Css
+        Language::Assembly
+        | Language::Css
         | Language::Html
+        | Language::Gdscript
         | Language::Json
+        | Language::Latex
         | Language::Meson
         | Language::Puppet
+        | Language::Riscv
+        | Language::Sql
         | Language::Xml
+        | Language::Typst
+        | Language::Toml
         | Language::Yaml
         | Language::Unknown => unreachable!(),
     }?;
@@ -299,11 +359,43 @@ fn just_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     }
 }
 
+fn kconfig_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+    match node.kind() {
+        "config" | "menuconfig" => named_symbol(node, source, "name", node.kind()),
+        "menu" => child_text(node, source, "name")
+            .map(|name| ("menu".to_owned(), name.trim_matches('"').to_owned())),
+        _ => None,
+    }
+}
+
 fn make_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
         "rule" => descendant_identifier(node, source).map(|name| ("target".to_owned(), name)),
         _ => None,
     }
+}
+
+fn markdown_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+    match node.kind() {
+        "atx_heading" | "setext_heading" => {
+            markdown_heading_name(node, source).map(|name| ("heading".to_owned(), name))
+        }
+        _ => None,
+    }
+}
+
+fn markdown_heading_name(node: Node<'_>, source: &str) -> Option<String> {
+    let text = node.utf8_text(source.as_bytes()).ok()?.trim();
+    let name = text
+        .trim_start_matches('#')
+        .trim()
+        .trim_end_matches('#')
+        .trim();
+    name.lines()
+        .next()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn bash_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
