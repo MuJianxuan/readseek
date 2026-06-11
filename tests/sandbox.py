@@ -221,10 +221,10 @@ def main():
             ):
                 passed(name)
 
-        name = "map: typescript symbols"
+        name = "map: javascript symbols"
         path = write_file(
             tmpdir,
-            "sample.ts",
+            "sample.js",
             "class Greeter {\n  greet() { return 'hello'; }\n}\nconst make = () => new Greeter();\n",
         )
         data = readseek_json(name, ["map", path])
@@ -232,6 +232,44 @@ def main():
             symbols = data.get("symbols", [])
             if all(
                 [
+                    assert_equal(name, data.get("language"), "javascript"),
+                    assert_symbol(name, symbols, "class", "Greeter"),
+                    assert_symbol(name, symbols, "method", "greet"),
+                    assert_symbol(name, symbols, "function", "make"),
+                ]
+            ):
+                passed(name)
+
+        name = "map: jsx symbols"
+        path = write_file(
+            tmpdir,
+            "sample.jsx",
+            "export function App() {\n  return <main>Hello</main>;\n}\n",
+        )
+        data = readseek_json(name, ["map", path])
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("language"), "jsx"),
+                    assert_symbol(name, symbols, "function", "App"),
+                ]
+            ):
+                passed(name)
+
+        name = "map: typescript symbols"
+        path = write_file(
+            tmpdir,
+            "sample.ts",
+            "interface Named { name: string; }\nclass Greeter implements Named {\n  name = 'reader';\n  greet() { return 'hello'; }\n}\nconst make = (): Greeter => new Greeter();\n",
+        )
+        data = readseek_json(name, ["map", path])
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("language"), "typescript"),
+                    assert_symbol(name, symbols, "interface", "Named"),
                     assert_symbol(name, symbols, "class", "Greeter"),
                     assert_symbol(name, symbols, "method", "greet"),
                     assert_symbol(name, symbols, "function", "make"),
@@ -240,6 +278,24 @@ def main():
                         os.path.exists(os.path.join(cache_home, "readseek", "cache.sqlite3")),
                         "cache database missing",
                     ),
+                ]
+            ):
+                passed(name)
+
+        name = "map: tsx symbols"
+        path = write_file(
+            tmpdir,
+            "sample.tsx",
+            "type Props = { name: string };\nexport function App(props: Props) {\n  return <main>{props.name}</main>;\n}\n",
+        )
+        data = readseek_json(name, ["map", path])
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("language"), "tsx"),
+                    assert_symbol(name, symbols, "type", "Props"),
+                    assert_symbol(name, symbols, "function", "App"),
                 ]
             ):
                 passed(name)
