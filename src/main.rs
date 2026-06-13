@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read as _};
@@ -187,6 +187,7 @@ struct IdentifyCommand {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "definition")]
 #[argh(help_triggers("-h", "--help"))]
+#[allow(clippy::struct_excessive_bools)]
 struct DefinitionCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -194,7 +195,11 @@ struct DefinitionCommand {
 
     /// qualified symbol name or unqualified name
     #[argh(positional)]
-    name: String,
+    name: Option<String>,
+
+    /// read identify output from stdin to choose the symbol name
+    #[argh(switch)]
+    stdin: bool,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -759,6 +764,22 @@ struct IdentifierOutput {
     text: String,
     start_column: usize,
     end_column: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentifyInput {
+    identifier: Option<IdentifierInput>,
+    symbol: Option<SymbolInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentifierInput {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SymbolInput {
+    qualified_name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1701,6 +1722,7 @@ fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Option<Symbol> 
 }
 
 fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
+    let name = definition_name(command)?;
     let mut definitions = Vec::new();
     for path in command_paths(
         &command.target,
@@ -1715,18 +1737,39 @@ fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
             continue;
         };
         definitions.extend(source_map.symbols.into_iter().filter_map(|symbol| {
-            (symbol.address == command.name || symbol.name == command.name).then(|| {
-                DefinitionLocation {
-                    file: source.path.clone(),
-                    language: source.detection.language,
-                    file_hash: source.file_hash.clone(),
-                    symbol,
-                }
+            (symbol.address == name || symbol.name == name).then(|| DefinitionLocation {
+                file: source.path.clone(),
+                language: source.detection.language,
+                file_hash: source.file_hash.clone(),
+                symbol,
             })
         }));
     }
 
     Ok(DefinitionOutput { definitions })
+}
+
+fn definition_name(command: &DefinitionCommand) -> Result<String> {
+    match (command.name.as_ref(), command.stdin) {
+        (Some(name), _) => Ok(name.clone()),
+        (None, false) => bail!("definition requires a name or --stdin identify context"),
+        (None, true) => definition_name_from_stdin(),
+    }
+}
+
+fn definition_name_from_stdin() -> Result<String> {
+    let mut text = String::new();
+    io::stdin()
+        .read_to_string(&mut text)
+        .context("read identify context from stdin")?;
+    let input: IdentifyInput = serde_json::from_str(&text).context("parse identify context")?;
+    if let Some(symbol) = input.symbol {
+        return Ok(symbol.qualified_name);
+    }
+    if let Some(identifier) = input.identifier {
+        return Ok(identifier.text);
+    }
+    bail!("identify context has no symbol or identifier")
 }
 
 fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {

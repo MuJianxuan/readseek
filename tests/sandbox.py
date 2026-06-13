@@ -711,6 +711,50 @@ def main():
             ):
                 passed(name)
 
+        name = "definition: identify context prefers qualified name"
+        qualified_definition_path = write_file(
+            definitions_dir,
+            "qualified.ts",
+            "class First {\n  greet() { return 1; }\n}\nclass Second {\n  greet() { return 2; }\n}\n",
+        )
+        data = readseek_json(
+            name,
+            ["definition", "--stdin", definitions_dir],
+            stdin=json.dumps(
+                {
+                    "identifier": {"text": "greet"},
+                    "symbol": {"qualified_name": "Second.greet"},
+                }
+            ),
+        )
+        if data:
+            definitions = data.get("definitions", [])
+            if all(
+                [
+                    assert_equal(name, len(definitions), 1),
+                    assert_equal(name, definitions[0].get("file"), qualified_definition_path),
+                    assert_equal(name, definitions[0]["symbol"].get("qualified_name"), "Second.greet"),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: identify context falls back to identifier"
+        data = readseek_json(
+            name,
+            ["definition", "--stdin", definitions_dir],
+            stdin=json.dumps({"identifier": {"text": "target"}, "symbol": None}),
+        )
+        if data:
+            definitions = data.get("definitions", [])
+            if all(
+                [
+                    assert_equal(name, len(definitions), 1),
+                    assert_equal(name, definitions[0].get("file"), definition_path),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "target"),
+                ]
+            ):
+                passed(name)
+
         name = "references: project identifier lookup"
         references_dir = os.path.join(tmpdir, "references")
         os.mkdir(references_dir)

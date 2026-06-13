@@ -24,9 +24,9 @@ readseek \- structural source reader with stable line hashes
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
     (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
 
-\fBreadseek definition\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek definition\fR [\fB--stdin\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
-    \fItarget\fR \fIname\fR
+    \fItarget\fR [\fIname\fR]
 
 \fBreadseek references\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
@@ -102,6 +102,16 @@ The symbol can also be supplied as a separate
 .I qualified-name
 argument. Qualified names and unqualified names are matched against the
 structural source map; ambiguous names produce an error.
+.PP
+For
+.BR definition ,
+.B --stdin
+reads JSON emitted by
+.BR identify .
+The lookup uses
+.I symbol.qualified_name
+when present and falls back to
+.IR identifier.text .
 .SH LANGUAGES
 .B readseek
 detects languages from file names, extensions, shebangs, and syntax metadata.
@@ -192,8 +202,14 @@ is omitted, column 1 is used. Columns are one-based byte offsets.
 .B definition
 Find mapped symbol definitions in a file or directory. The
 .I name
-argument matches either a full qualified symbol name or an unqualified name. Directory
-traversal uses the same file selection rules as
+argument matches either a full qualified symbol name or an unqualified name. If
+.B --stdin
+is used and
+.I name
+is omitted, the name is selected from an
+.B identify
+JSON object read from standard input. Directory traversal uses the same file
+selection rules as
 .BR search .
 .TP
 .B references
@@ -229,6 +245,11 @@ Override language detection for commands that parse source text. See
 Read document contents from standard input instead of opening a target path.
 Requires
 .BR --path .
+For
+.BR definition ,
+read an
+.B identify
+JSON object from standard input instead.
 .TP
 \fB--path\fR \fIpath\fR
 Document path to associate with
