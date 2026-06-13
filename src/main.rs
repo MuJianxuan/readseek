@@ -1312,31 +1312,50 @@ fn git_search_paths(command: &SearchCommand) -> Result<Option<Vec<PathBuf>>> {
     let scope = target
         .strip_prefix(&workdir)
         .with_context(|| format!("{} is outside Git work tree", target.display()))?;
+    let output_root = output_root_for_scope(&command.target, scope)?;
     let default_selection = !has_git_selection_flags(command);
     let cached = command.cached || default_selection;
     let others = command.others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_paths(&repository, &workdir, scope, &mut paths)?;
+        collect_cached_paths(&repository, &workdir, &output_root, scope, &mut paths)?;
     }
     if others {
-        collect_other_paths(&repository, &workdir, scope, command.ignored, &mut paths)?;
+        collect_other_paths(
+            &repository,
+            &workdir,
+            &output_root,
+            scope,
+            command.ignored,
+            &mut paths,
+        )?;
     }
 
     Ok(Some(paths.into_iter().collect()))
 }
 
+fn output_root_for_scope(target: &Path, scope: &Path) -> Result<PathBuf> {
+    let mut output_root = target.to_path_buf();
+    for _ in scope.components() {
+        if !output_root.pop() {
+            bail!("{} is outside Git work tree", target.display());
+        }
+    }
+    Ok(output_root)
+}
+
 fn collect_cached_paths(
     repository: &git2::Repository,
     workdir: &Path,
+    output_root: &Path,
     scope: &Path,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
     let index = repository.index().context("read Git index")?;
     for entry in index.iter() {
         let relative = git_path(&entry.path)?;
-        insert_scoped_file(workdir, scope, &relative, paths);
+        insert_scoped_file(workdir, output_root, scope, &relative, paths);
     }
 
     Ok(())
@@ -1345,6 +1364,7 @@ fn collect_cached_paths(
 fn collect_other_paths(
     repository: &git2::Repository,
     workdir: &Path,
+    output_root: &Path,
     scope: &Path,
     ignored: bool,
     paths: &mut BTreeSet<PathBuf>,
@@ -1366,7 +1386,7 @@ fn collect_other_paths(
         let Some(relative) = entry.path().map(PathBuf::from) else {
             continue;
         };
-        insert_scoped_file(workdir, scope, &relative, paths);
+        insert_scoped_file(workdir, output_root, scope, &relative, paths);
     }
 
     Ok(())
@@ -1378,6 +1398,7 @@ fn has_git_selection_flags(command: &SearchCommand) -> bool {
 
 fn insert_scoped_file(
     workdir: &Path,
+    output_root: &Path,
     scope: &Path,
     relative: &Path,
     paths: &mut BTreeSet<PathBuf>,
@@ -1388,7 +1409,7 @@ fn insert_scoped_file(
 
     let path = workdir.join(relative);
     if path.is_file() {
-        paths.insert(path);
+        paths.insert(output_root.join(relative));
     }
 }
 
