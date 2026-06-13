@@ -8,7 +8,6 @@ use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const DB_SCHEMA_VERSION: i64 = 1;
-const MAP_CACHE_VERSION: i64 = 2;
 
 pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
     let Some(mut connection) = connection()? else {
@@ -19,7 +18,7 @@ pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> 
             "SELECT id, symbol_count FROM map_cache \
              WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
             params![
-                MAP_CACHE_VERSION,
+                DB_SCHEMA_VERSION,
                 source.file_hash,
                 source.detection.language.id()
             ],
@@ -117,7 +116,7 @@ fn entry(tx: &Transaction<'_>, source: &SourceFile) -> Result<Option<(i64, i64)>
         "SELECT id, symbol_count FROM map_cache \
          WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
         params![
-            MAP_CACHE_VERSION,
+            DB_SCHEMA_VERSION,
             source.file_hash,
             source.detection.language.id()
         ],
@@ -196,7 +195,7 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
     tx.execute(
         "DELETE FROM map_cache WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
         params![
-            MAP_CACHE_VERSION,
+            DB_SCHEMA_VERSION,
             source.file_hash,
             source.detection.language.id()
         ],
@@ -206,7 +205,7 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
          (cache_version, file_hash, language, symbol_count, created_at, last_used_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            MAP_CACHE_VERSION,
+            DB_SCHEMA_VERSION,
             source.file_hash,
             source.detection.language.id(),
             i64::try_from(source_map.symbols.len())?,

@@ -327,7 +327,7 @@ def main():
                     assert_equal(name, len(results), 1),
                     assert_equal(name, results[0].get("file"), path),
                     assert_equal(name, results[0].get("language"), "cpp"),
-                    assert_equal(name, len(results[0].get("file_hash", "")), 8),
+                    assert_equal(name, len(results[0].get("file_hash", "")), 64),
                     assert_equal(name, len(matches), 1),
                     assert_equal(name, matches[0].get("start_line"), 1),
                     assert_equal(name, matches[0].get("end_line"), 3),

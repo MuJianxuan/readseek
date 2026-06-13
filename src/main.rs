@@ -1590,7 +1590,7 @@ fn range_hashlines(source: &SourceFile, start_line: usize, end_line: usize) -> V
 }
 
 fn hash_text(text: &str) -> String {
-    format!("{:08x}", xxhash32(text.as_bytes(), 0))
+    blake3::hash(text.as_bytes()).to_hex().to_string()
 }
 
 fn hash_line(_line: usize, text: &str) -> String {
