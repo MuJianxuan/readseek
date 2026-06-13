@@ -38,11 +38,14 @@ def main():
         if sandbox_home is not None:
             env["HOME"] = sandbox_home
             env.pop("XDG_CACHE_HOME", None)
+        if cache_home is not None:
+            env["READSEEK_CACHE_DIR"] = cache_home
         return subprocess.run(
             [readseek_bin] + args,
             capture_output=True,
             env=env,
             text=True,
+            encoding="utf-8",
         )
 
     def readseek_json(name, args):
@@ -65,9 +68,12 @@ def main():
 
     def write_file(directory, name, contents):
         path = os.path.join(directory, name)
-        mode = "wb" if isinstance(contents, bytes) else "w"
-        with open(path, mode) as file:
-            file.write(contents)
+        if isinstance(contents, bytes):
+            with open(path, "wb") as file:
+                file.write(contents)
+        else:
+            with open(path, "w", encoding="utf-8", newline="") as file:
+                file.write(contents)
         return path
 
     def assert_equal(name, actual, expected):
@@ -88,6 +94,7 @@ def main():
             capture_output=True,
             env=os.environ.copy(),
             text=True,
+            encoding="utf-8",
         )
         if result.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr[:200]}")
@@ -130,10 +137,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         sandbox_home = os.path.join(tmpdir, "home")
         os.mkdir(sandbox_home)
-        if sys.platform == "darwin":
-            cache_home = os.path.join(sandbox_home, "Library", "Caches")
-        else:
-            cache_home = os.path.join(sandbox_home, ".cache")
+        cache_home = os.path.join(tmpdir, "cache")
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
         data = readseek_json(name, ["file", path])
@@ -567,21 +571,22 @@ def main():
         ):
             passed(name)
 
-        name = "symbol: colon filename with address argument"
-        path = write_file(
-            tmpdir,
-            "colon:symbol.ts",
-            "class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n",
-        )
-        data = readseek_json(name, ["symbol", path, "Greeter.greet"])
-        if data and all(
-            [
-                assert_equal(name, data.get("file"), path),
-                assert_equal(name, data["symbol"].get("kind"), "method"),
-                assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
-            ]
-        ):
-            passed(name)
+        if os.name != "nt":
+            name = "symbol: colon filename with address argument"
+            path = write_file(
+                tmpdir,
+                "colon:symbol.ts",
+                "class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n",
+            )
+            data = readseek_json(name, ["symbol", path, "Greeter.greet"])
+            if data and all(
+                [
+                    assert_equal(name, data.get("file"), path),
+                    assert_equal(name, data["symbol"].get("kind"), "method"),
+                    assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
+                ]
+            ):
+                passed(name)
 
         name = "cli: no arguments"
         result = run([])

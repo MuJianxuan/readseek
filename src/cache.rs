@@ -4,8 +4,9 @@
 use crate::{SourceFile, SourceMap, Symbol, SymbolLookup};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use std::fs;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, fs};
 
 const DB_SCHEMA_VERSION: i64 = 1;
 
@@ -238,19 +239,26 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
 }
 
 fn connection() -> Result<Option<Connection>> {
-    let Some(mut directory) = dirs::cache_dir() else {
+    let Some(mut cache_dir) = cache_base_dir() else {
         return Ok(None);
     };
-    directory.push("readseek");
-    fs::create_dir_all(&directory)
-        .with_context(|| format!("create cache directory {}", directory.display()))?;
-    let path = directory.join("cache.sqlite3");
-    let connection =
-        Connection::open(&path).with_context(|| format!("open cache {}", path.display()))?;
+    cache_dir.push("readseek");
+    fs::create_dir_all(&cache_dir)
+        .with_context(|| format!("create cache directory {}", cache_dir.display()))?;
+    let database_path = cache_dir.join("cache.sqlite3");
+    let connection = Connection::open(&database_path)
+        .with_context(|| format!("open cache {}", database_path.display()))?;
     connection.pragma_update(None, "foreign_keys", true)?;
     initialize_schema(&connection)?;
 
     Ok(Some(connection))
+}
+
+fn cache_base_dir() -> Option<PathBuf> {
+    env::var_os("READSEEK_CACHE_DIR")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::cache_dir)
 }
 
 fn initialize_schema(connection: &Connection) -> Result<()> {
