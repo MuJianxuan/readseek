@@ -24,11 +24,11 @@ readseek \- structural source reader with stable line hashes
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
     (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
 
-\fBreadseek definition\fR [\fB--stdin\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek definition\fR [\fB--stdin\fR] [\fB--compact\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fIname\fR]
 
-\fBreadseek references\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek references\fR [\fB--compact\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
 
@@ -52,6 +52,16 @@ later calls.
 .B readseek
 is intended for scripts, editors, and coding agents. Human-facing diagnostics
 are written separately from JSON output.
+.PP
+.B definition
+and
+.B references
+support
+.B --compact
+to emit a flat
+.I locations
+array for editor quickfix/location lists. Compact locations include file, line,
+column, line hash, line text, and symbol metadata when available.
 .SH INPUTS AND TARGETS
 Most commands read a
 .I target
@@ -211,6 +221,9 @@ is omitted, the name is selected from an
 JSON object read from standard input. Directory traversal uses the same file
 selection rules as
 .BR search .
+Use
+.B --compact
+to emit quickfix-friendly locations instead of the default definition objects.
 .TP
 .B references
 Find whole-identifier references in a file or directory. Output is a flat list
@@ -218,6 +231,9 @@ of locations with file, line, column, line hash, line text, and the enclosing
 mapped symbol when available. Directory traversal uses the same file selection
 rules as
 .BR search .
+Use
+.B --compact
+to emit the same locations with symbol metadata flattened into each item.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file below a
@@ -250,6 +266,16 @@ For
 read an
 .B identify
 JSON object from standard input instead.
+.TP
+\fB--compact\fR
+For
+.BR definition
+and
+.BR references ,
+emit
+.I locations
+with flattened, editor-friendly fields instead of the default command-specific
+JSON shape.
 .TP
 \fB--path\fR \fIpath\fR
 Document path to associate with

@@ -711,6 +711,25 @@ def main():
             ):
                 passed(name)
 
+        name = "definition: compact locations"
+        data = readseek_json(name, ["definition", "--compact", definitions_dir, "target"])
+        if data:
+            locations = data.get("locations", [])
+            if all(
+                [
+                    assert_equal(name, data.get("definitions"), None),
+                    assert_equal(name, len(locations), 1),
+                    assert_equal(name, locations[0].get("file"), definition_path),
+                    assert_equal(name, locations[0].get("line"), 1),
+                    assert_equal(name, locations[0].get("column"), 1),
+                    assert_equal(name, locations[0].get("text"), "fn target() {}"),
+                    assert_equal(name, locations[0].get("kind"), "function"),
+                    assert_equal(name, locations[0].get("name"), "target"),
+                    assert_equal(name, locations[0].get("qualified_name"), "target"),
+                ]
+            ):
+                passed(name)
+
         name = "definition: identify context prefers qualified name"
         qualified_definition_path = write_file(
             definitions_dir,
@@ -781,6 +800,28 @@ def main():
                         references[1].get("symbol", {}).get("qualified_name"),
                         "caller",
                     ),
+                ]
+            ):
+                passed(name)
+
+        name = "references: compact locations"
+        data = readseek_json(name, ["references", "--compact", references_dir, "target"])
+        if data:
+            locations = data.get("locations", [])
+            if all(
+                [
+                    assert_equal(name, data.get("references"), None),
+                    assert_equal(name, len(locations), 2),
+                    assert_equal(name, locations[0].get("file"), reference_path),
+                    assert_equal(name, locations[0].get("line"), 1),
+                    assert_equal(name, locations[0].get("column"), 4),
+                    assert_equal(name, locations[0].get("text"), "fn target() {}"),
+                    assert_equal(name, locations[0].get("kind"), "function"),
+                    assert_equal(name, locations[0].get("name"), "target"),
+                    assert_equal(name, locations[1].get("file"), reference_path),
+                    assert_equal(name, locations[1].get("line"), 3),
+                    assert_equal(name, locations[1].get("column"), 3),
+                    assert_equal(name, locations[1].get("qualified_name"), "caller"),
                 ]
             ):
                 passed(name)

@@ -201,6 +201,10 @@ struct DefinitionCommand {
     #[argh(switch)]
     stdin: bool,
 
+    /// emit flat quickfix-friendly locations
+    #[argh(switch)]
+    compact: bool,
+
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     language: Option<Language>,
@@ -222,6 +226,7 @@ struct DefinitionCommand {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "references")]
 #[argh(help_triggers("-h", "--help"))]
+#[allow(clippy::struct_excessive_bools)]
 struct ReferencesCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -230,6 +235,10 @@ struct ReferencesCommand {
     /// identifier to search for
     #[argh(positional)]
     name: String,
+
+    /// emit flat quickfix-friendly locations
+    #[argh(switch)]
+    compact: bool,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -793,6 +802,10 @@ struct DefinitionLocation {
     language: Language,
     file_hash: String,
     symbol: Symbol,
+    #[serde(skip_serializing)]
+    line_hash: String,
+    #[serde(skip_serializing)]
+    text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -810,6 +823,23 @@ struct ReferenceLocation {
     line_hash: String,
     text: String,
     symbol: Option<Symbol>,
+}
+
+#[derive(Debug, Serialize)]
+struct CompactOutput {
+    locations: Vec<CompactLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct CompactLocation {
+    file: PathBuf,
+    line: usize,
+    column: usize,
+    line_hash: String,
+    text: String,
+    kind: Option<String>,
+    name: Option<String>,
+    qualified_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1048,10 +1078,10 @@ fn run() -> Result<()> {
             print_json(&output)?;
         }
         Command::Definition(command) => {
-            print_json(&definition_output(&command)?)?;
+            print_definition_output(&command)?;
         }
         Command::References(command) => {
-            print_json(&references_output(&command)?)?;
+            print_references_output(&command)?;
         }
         Command::Search(command) => {
             print_json(&search_output(&command)?)?;
@@ -1059,6 +1089,24 @@ fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn print_definition_output(command: &DefinitionCommand) -> Result<()> {
+    let output = definition_output(command)?;
+    if command.compact {
+        print_json(&compact_definitions(&output))
+    } else {
+        print_json(&output)
+    }
+}
+
+fn print_references_output(command: &ReferencesCommand) -> Result<()> {
+    let output = references_output(command)?;
+    if command.compact {
+        print_json(&compact_references(&output))
+    } else {
+        print_json(&output)
+    }
 }
 
 fn parse_language(value: &str) -> std::result::Result<Language, String> {
@@ -1736,17 +1784,45 @@ fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
         let Ok(source_map) = source_map(&source) else {
             continue;
         };
-        definitions.extend(source_map.symbols.into_iter().filter_map(|symbol| {
-            (symbol.address == name || symbol.name == name).then(|| DefinitionLocation {
+        for symbol in source_map.symbols {
+            if symbol.address != name && symbol.name != name {
+                continue;
+            }
+            let line = source
+                .lines
+                .get(symbol.start_line.saturating_sub(1))
+                .context("definition symbol line is out of range")?;
+            definitions.push(DefinitionLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
                 file_hash: source.file_hash.clone(),
+                line_hash: line.hash.clone(),
+                text: line.text.clone(),
                 symbol,
-            })
-        }));
+            });
+        }
     }
 
     Ok(DefinitionOutput { definitions })
+}
+
+fn compact_definitions(output: &DefinitionOutput) -> CompactOutput {
+    CompactOutput {
+        locations: output
+            .definitions
+            .iter()
+            .map(|definition| CompactLocation {
+                file: definition.file.clone(),
+                line: definition.symbol.start_line,
+                column: 1,
+                line_hash: definition.line_hash.clone(),
+                text: definition.text.clone(),
+                kind: Some(definition.symbol.kind.clone()),
+                name: Some(definition.symbol.name.clone()),
+                qualified_name: Some(definition.symbol.address.clone()),
+            })
+            .collect(),
+    }
 }
 
 fn definition_name(command: &DefinitionCommand) -> Result<String> {
@@ -1788,6 +1864,28 @@ fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {
     }
 
     Ok(ReferencesOutput { references })
+}
+
+fn compact_references(output: &ReferencesOutput) -> CompactOutput {
+    CompactOutput {
+        locations: output
+            .references
+            .iter()
+            .map(|reference| {
+                let symbol = reference.symbol.as_ref();
+                CompactLocation {
+                    file: reference.file.clone(),
+                    line: reference.line,
+                    column: reference.column,
+                    line_hash: reference.line_hash.clone(),
+                    text: reference.text.clone(),
+                    kind: symbol.map(|symbol| symbol.kind.clone()),
+                    name: symbol.map(|symbol| symbol.name.clone()),
+                    qualified_name: symbol.map(|symbol| symbol.address.clone()),
+                }
+            })
+            .collect(),
+    }
 }
 
 fn validate_reference_name(name: &str) -> Result<()> {
