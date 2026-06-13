@@ -1,6 +1,6 @@
 [package]
 authors = ["Jarkko Sakkinen <jarkko.sakkinen@iki.fi>"]
-description = "A structural read command"
+description = "structural source reader with stable line hashes"
 edition = "2024"
 license = "LGPL-2.1-or-later"
 homepage = "https://github.com/jarkkojs/readseek"

@@ -1,6 +1,6 @@
-.TH READSEEK 1 "2026-06-13" "readseek 0.1.0" "User Commands"
+.TH READSEEK 1 "2026-06-13" "readseek 0.1.6" "User Commands"
 .SH NAME
-readseek \- hashline and structural source read tool
+readseek \- structural source reader with stable line hashes
 .SH SYNOPSIS
 .B readseek
 [\fB\-h\fR]
@@ -41,54 +41,67 @@ readseek \- hashline and structural source read tool
 \fIpattern\fR
 .SH DESCRIPTION
 .B readseek
-reads UTF-8 source files and emits JSON for file type detection,
-line-hash addressed reads, structural source maps, symbol reads, and
-AST pattern searches.
+reads source files and emits JSON for language detection, line-hash addressed
+reads, structural source maps, symbol reads, and AST pattern searches. It is
+intended for scripts and coding agents that need stable references to source
+locations.
 .P
+All command output is JSON.
+.SS Targets
 A
 .I target
-is a file path.  It may include a one-based line number or a 3-character
-xxHash32 line hash suffix, in the form
+is a file path. It may include a one-based line number or a 3-character line
+hash suffix in the form
 .I file:line
 or
 .IR file:hash .
+.P
 For
 .BR symbol ,
-it may also include a symbol address or unqualified symbol name in the form
+the target may also include a symbol address or unqualified symbol name in the
+form
 .IR file:symbol .
 .P
+Line hashes are the 3-character hashes shown in
+.BR read ,
+.BR map ,
+and
+.B search
+output.
+.SS Languages
 .B readseek
-recognizes common source and project file types, including C, C++, C#,
-Bash, CSS, Go, HTML, Java, JavaScript, JSON, Just, Make, Meson, PHP,
-Python, Ruby, Rust, Swift, TypeScript, JSX, and TSX.  Unsupported text
-files can still be detected as
+detects supported languages from file names, extensions, shebangs, and syntax
+metadata. Use
+.B --language
+when a file is ambiguous or has no useful extension. The override accepts the
+built-in language identifiers and aliases; unsupported text files are reported
+as
 .BR unknown .
-.P
-All command output is JSON.
 .SS Commands
 .TP
 .B file
-Detect the target file language, binary status, MIME type, and syntax name.
+Emit target file detection information: language, support status, binary
+status, MIME type, and syntax name.
 .TP
 .B read
-Print the target file range with line numbers, 3-character line hashes, and
-text.
+Emit a target file range with line numbers, 3-character line hashes, and text.
 .TP
 .B map
-Print a structural source map with symbol kind, name, address, start and end
-lines, and boundary line hashes.
+Emit a structural source map with each symbol kind, name, address, start and
+end lines, and boundary line hashes.
 .TP
 .B symbol
-Print the source range for a mapped symbol. The symbol can be selected by
-an address argument, a target symbol suffix, or a target line/hash suffix.
+Emit the source range for a mapped symbol. Select the symbol by address
+argument, target symbol suffix, or target line/hash suffix.
 .TP
 .B search
-Run an AST pattern against a file or every supported source file under a
-directory. Unparseable files are skipped. Directory searches inside Git
-repositories use Git-style file selection by default: tracked files plus
-untracked, non-ignored files.
-Output is grouped by file and includes file hash, matches, captures, boundary
-line hashes, and hashlines for matched ranges.
+Run an AST pattern against a file or every supported source file below a
+directory. Unparseable files are skipped.
+.P
+Directory searches inside Git repositories use Git-style file selection by
+default: tracked files plus untracked, non-ignored files. Search output is
+grouped by file and includes file hashes, matches, captures, boundary line
+hashes, and hashlines for matched ranges.
 .SS Options
 .TP
 \fB\-h\fR, \fB--help\fR
@@ -98,45 +111,8 @@ Print help and exit.
 Print version and exit.
 .TP
 \fB--language=\fR\fIlanguage\fR
-Override detected language.  Accepted values are
-.BR bash ,
-.BR c ,
-.BR cpp ,
-.BR csharp ,
-.BR css ,
-.BR go ,
-.BR html ,
-.BR java ,
-.BR javascript ,
-.BR json ,
-.BR jsx ,
-.BR just ,
-.BR make ,
-.BR meson ,
-.BR php ,
-.BR python ,
-.BR ruby ,
-.BR rust ,
-.BR swift ,
-.BR typescript ,
-.BR tsx ,
-and
-.BR unknown .
-Common aliases include
-.BR cxx ,
-.BR cplusplus ,
-.BR cs ,
-.BR golang ,
-.BR htm ,
-.BR js ,
-.BR makefile ,
-.BR py ,
-.BR rb ,
-.BR rs ,
-.BR sh ,
-.BR shell ,
-and
-.BR ts .
+Override language detection for commands that parse source text. This is useful
+for extensionless files, generated files, or ambiguous syntax.
 .TP
 \fB--start=\fR\fIline\fR
 First one-based line to include for
@@ -171,22 +147,33 @@ with
 .BR --others ,
 include ignored untracked files. Outside Git repositories, Git file selection
 flags are ignored and directory search falls back to normal recursive traversal.
+.SH ENVIRONMENT
+.TP
+.B READSEEK_CACHE_DIR
+Override the base cache directory. When set,
+.B readseek
+stores the source map cache below
+.IR READSEEK_CACHE_DIR/readseek .
 .SH EXIT STATUS
 .TP
 0
 Success.
 .TP
 1
-Operational error (missing file, unsupported binary file, malformed input,
-cache error, or symbol lookup failure).
+Operational error, such as a missing file, unsupported binary file, malformed
+input, cache error, or symbol lookup failure.
 .TP
 2
 Usage error.
 .SH FILES
 .TP
-.B ${XDG_CACHE_HOME:-~/.cache}/readseek/cache.sqlite3
-Source map cache on Linux.  The cache location follows the platform cache
-directory returned by the operating system.
+.I readseek/cache.sqlite3
+Source map cache below
+.B READSEEK_CACHE_DIR
+or the platform cache directory.
+.TP
+.I ${XDG_CACHE_HOME:-~/.cache}/readseek/cache.sqlite3
+Typical Linux cache location.
 .SH EXAMPLES
 Detect a file:
 .br
@@ -212,7 +199,7 @@ Read the symbol containing a line:
 .br
 .B "  readseek symbol src/main.rs:270"
 .P
-Search C++ function definitions:
+Search with an explicit language override:
 .br
 .B "  readseek search src 'int $NAME() { return $VALUE; }' --language cpp"
 .P
