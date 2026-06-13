@@ -48,6 +48,9 @@ export interface ContextHygieneSearchRehydrateInput {
   pattern: string;
   lang?: string;
   path?: string;
+  cached?: true;
+  others?: true;
+  ignored?: true;
 }
 
 export interface ContextHygieneReadRehydrateDescriptor {
@@ -200,6 +203,9 @@ export interface BuildSearchRehydrateDescriptorInput {
   pattern: string;
   lang?: string;
   path?: string;
+  cached?: boolean;
+  others?: boolean;
+  ignored?: boolean;
 }
 
 export function buildSearchRehydrateDescriptor(
@@ -208,6 +214,9 @@ export function buildSearchRehydrateDescriptor(
   const descriptorInput: ContextHygieneSearchRehydrateInput = { pattern: input.pattern };
   if (input.lang !== undefined) descriptorInput.lang = input.lang;
   if (input.path !== undefined) descriptorInput.path = input.path;
+  if (input.cached === true) descriptorInput.cached = true;
+  if (input.others === true) descriptorInput.others = true;
+  if (input.ignored === true) descriptorInput.ignored = true;
   return { tool: "search", input: descriptorInput };
 }
 

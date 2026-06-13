@@ -72,6 +72,14 @@ interface ReadseekSearchOutput {
 	results: ReadseekSearchFileOutput[];
 }
 
+export interface ReadseekSearchOptions {
+	language?: string;
+	cached?: boolean;
+	others?: boolean;
+	ignored?: boolean;
+	signal?: AbortSignal;
+}
+
 function normalizeLanguage(language: string): string {
 	return language === "java" ? "Java" : language;
 }
@@ -293,15 +301,11 @@ function parseSearchOutput(value: unknown): ReadseekSearchOutput {
 	};
 }
 
-export async function readseekRead(filePath: string, startLine: number, endLine: number): Promise<ReadseekReadOutput> {
-	return parseReadOutput(await runReadseek([
-		"read",
-		filePath,
-		"--start",
-		String(startLine),
-		"--end",
-		String(endLine),
-	]));
+export async function readseekRead(filePath: string, startLine?: number, endLine?: number): Promise<ReadseekReadOutput> {
+	const args = ["read", filePath];
+	if (startLine !== undefined) args.push("--start", String(startLine));
+	if (endLine !== undefined) args.push("--end", String(endLine));
+	return parseReadOutput(await runReadseek(args));
 }
 
 export async function readseekMap(filePath: string, totalBytes: number): Promise<FileMap | null> {
@@ -321,12 +325,14 @@ export async function readseekMap(filePath: string, totalBytes: number): Promise
 export async function readseekSearch(
 	target: string,
 	pattern: string,
-	language?: string,
-	signal?: AbortSignal,
+	options: ReadseekSearchOptions = {},
 ): Promise<ReadseekSearchFileOutput[]> {
 	const args = ["search", target, pattern];
-	if (language) args.push("--language", language);
-	return parseSearchOutput(await runReadseek(args, { signal })).results;
+	if (options.language) args.push("--language", options.language);
+	if (options.cached) args.push("--cached");
+	if (options.others) args.push("--others");
+	if (options.ignored) args.push("--ignored");
+	return parseSearchOutput(await runReadseek(args, { signal: options.signal })).results;
 }
 
 export async function readseekMapContent(filePath: string, content: string): Promise<FileMap | null> {

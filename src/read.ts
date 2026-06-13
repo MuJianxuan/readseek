@@ -52,6 +52,12 @@ interface ReadToolOptions {
 	onSuccessfulRead?: (absolutePath: string) => void;
 }
 
+function splitReadseekLines(text: string): string[] {
+	if (text.length === 0) return [];
+	const withoutTrailingTerminator = text.endsWith("\n") ? text.slice(0, -1) : text;
+	return withoutTrailingTerminator.split("\n");
+}
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 function startsWithBytes(buffer: Buffer, bytes: number[]): boolean {
@@ -386,7 +392,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 			const hasBinaryContent = looksLikeBinary(rawBuffer);
 			throwIfAborted(signal);
 			const normalized = normalizeToLF(stripBom(rawBuffer.toString("utf-8")).text);
-			const allLines = normalized.split("\n");
+			const allLines = splitReadseekLines(normalized);
 			const total = allLines.length;
 			const structuredWarnings: ReadseekWarning[] = [];
 			let startLine = p.offset !== undefined ? p.offset : 1;
@@ -538,7 +544,9 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 			throwIfAborted(signal);
 			let readseekOutput: Awaited<ReturnType<typeof readseekRead>>;
 			try {
-				readseekOutput = await readseekRead(absolutePath, startLine, endIdx);
+				readseekOutput = total === 0
+					? await readseekRead(absolutePath)
+					: await readseekRead(absolutePath, startLine, endIdx);
 			} catch (err: any) {
 				const detail = err?.message ? ` — ${err.message}` : "";
 				const message = `readseek failed while reading ${rawPath}${detail}`;

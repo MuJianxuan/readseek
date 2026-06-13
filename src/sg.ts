@@ -12,7 +12,7 @@ import { buildSgOutput } from "./sg-output.js";
 import { buildSearchRehydrateDescriptor } from "./context-hygiene.js";
 import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, renderToolLabel, summaryLine } from "./tui-render-utils.js";
 
-type SgParams = { pattern: string; lang?: string; path?: string };
+type SgParams = { pattern: string; lang?: string; path?: string; cached?: boolean; others?: boolean; ignored?: boolean };
 
 export interface SgRange {
   startLine: number;
@@ -113,15 +113,35 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       pattern: Type.String({ description: "AST pattern" }),
       lang: Type.Optional(Type.String({ description: "Language hint" })),
       path: Type.Optional(Type.String({ description: "Search path" })),
+      cached: Type.Optional(Type.Boolean({ description: "In a Git repository, search tracked/indexed files" })),
+      others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
+      ignored: Type.Optional(Type.Boolean({ description: "With others=true, include ignored untracked files" })),
     }),
     ptc: toolConfig,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       await ensureHashInit();
       const p = params as SgParams;
+      if (p.ignored && !p.others) {
+        const message = "Error: search parameter 'ignored' requires 'others'";
+        return {
+          content: [{ type: "text", text: message }],
+          isError: true,
+          details: {
+            readseekValue: {
+              tool: "search",
+              ok: false,
+              error: buildReadseekError("invalid-parameter", message),
+            },
+          },
+        };
+      }
       const rehydrate = buildSearchRehydrateDescriptor({
         pattern: p.pattern,
         lang: p.lang,
         path: p.path,
+        cached: p.cached,
+        others: p.others,
+        ignored: p.ignored,
       });
 
       const searchPath = resolveToCwd(p.path ?? ".", ctx.cwd);
@@ -178,7 +198,13 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
 
       try {
         const effectiveLang = readseekLanguageForPath(p.lang, searchPath, searchPathIsFile);
-        const results = await readseekSearch(searchPath, p.pattern, effectiveLang, signal);
+        const results = await readseekSearch(searchPath, p.pattern, {
+          language: effectiveLang,
+          cached: p.cached,
+          others: p.others,
+          ignored: p.ignored,
+          signal,
+        });
         if (results.length === 0) {
           const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [], rehydrate });
           return {
@@ -262,6 +288,8 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       let text = `${renderToolLabel(theme, "search")} ${theme.fg("accent", `/${args.pattern}/`)}`;
       text += theme.fg("dim", ` in ${args.path ?? "."}`);
       if (args.lang) text += theme.fg("dim", ` (${args.lang})`);
+      const flags = [args.cached && "cached", args.others && "others", args.ignored && "ignored"].filter(Boolean);
+      if (flags.length > 0) text += theme.fg("dim", ` [${flags.join(",")}]`);
       return new Text(clampLineToWidth(text, context.width), 0, 0);
     },
     renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
