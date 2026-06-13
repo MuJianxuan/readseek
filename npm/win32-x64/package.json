@@ -2,7 +2,7 @@
   "name": "@jarkkojs/readseek-win32-x64",
   "version": "0.1.5",
   "description": "Windows x64 binary for readseek",
-  "license": "LGPL-2.1-or-later",
+  "license": "Apache-2.0 AND LGPL-2.1-or-later",
   "homepage": "https://github.com/jarkkojs/readseek#readme",
   "repository": {
     "type": "git",
@@ -18,7 +18,9 @@
     "readseek": "bin/readseek.exe"
   },
   "files": [
-    "bin/readseek.exe"
+    "bin/readseek.exe",
+    "LICENSE-APACHE-2.0",
+    "LICENSE-LGPL-2.1"
   ],
   "publishConfig": {
     "access": "public"

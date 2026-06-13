@@ -2,7 +2,7 @@
   "name": "@jarkkojs/readseek",
   "version": "0.1.5",
   "description": "A structural read command",
-  "license": "LGPL-2.1-or-later",
+  "license": "Apache-2.0 AND LGPL-2.1-or-later",
   "homepage": "https://github.com/jarkkojs/readseek#readme",
   "repository": {
     "type": "git",
@@ -16,7 +16,9 @@
   },
   "files": [
     "bin",
-    "README.md"
+    "README.md",
+    "LICENSE-APACHE-2.0",
+    "LICENSE-LGPL-2.1"
   ],
   "optionalDependencies": {
     "@jarkkojs/readseek-darwin-arm64": "0.1.5",
