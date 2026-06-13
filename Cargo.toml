@@ -63,6 +63,5 @@ tree-sitter-sequel = "0.3.11"
 tree-sitter-toml-ng = "0.7.0"
 tree-sitter-zig = "1.1"
 ts-parser-perl = "1.1"
-
 [dev-dependencies]
 duct = "1"

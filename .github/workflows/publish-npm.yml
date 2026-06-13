@@ -221,19 +221,26 @@ jobs:
           ref: ${{ needs.metadata.outputs.tag }}
 
       - name: Install Rust toolchain
+        if: runner.os != 'Linux'
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ runner.os == 'Linux' && 'x86_64-unknown-linux-musl' || '' }}
-
-      - name: Install musl tools (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
 
       - name: Build (Linux musl-static)
         if: runner.os == 'Linux'
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm \
+            -e HOST_UID="$uid" \
+            -e HOST_GID="$gid" \
+            -v "$PWD:/work" \
+            -w /work \
+            rust:1.85-alpine sh -euxc '
+              apk add --no-cache build-base openssl-dev openssl-libs-static pkgconf
+              rustup target add x86_64-unknown-linux-musl
+              OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
+                cargo build --release --target x86_64-unknown-linux-musl
+              chown -R "$HOST_UID:$HOST_GID" target
+            '
 
       - name: Build (macOS / Windows)
         if: runner.os != 'Linux'
