@@ -38,7 +38,7 @@ export async function generateMapWithIdentity(
   throwIfAborted(options.signal);
   const fileStat = await stat(filePath);
   throwIfAborted(options.signal);
-  const map = await readseekMap(filePath, fileStat.size);
+  const map = await readseekMap(filePath, fileStat.size, { signal: options.signal });
   throwIfAborted(options.signal);
   return { map, ...READSEEK_MAPPER_IDENTITY };
 }
@@ -56,7 +56,7 @@ export async function generateMapFromContent(
   options: MapOptions = {},
 ): Promise<FileMap | null> {
   throwIfAborted(options.signal);
-  const map = await readseekMapContent(filePath, content);
+  const map = await readseekMapContent(filePath, content, { signal: options.signal });
   throwIfAborted(options.signal);
   return map;
 }

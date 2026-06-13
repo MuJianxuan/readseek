@@ -1,7 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, type StdioOptions } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { DetailLevel } from "./readseek/enums.js";
@@ -156,14 +154,29 @@ export function isReadseekAvailable(): boolean {
 	}
 }
 
-async function runReadseek(args: string[], options: { signal?: AbortSignal } = {}): Promise<unknown> {
-	const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-		const child = spawn(readseekBinaryPath(), args, { stdio: ["ignore", "pipe", "pipe"], signal: options.signal });
+interface RunReadseekOptions {
+	signal?: AbortSignal;
+	stdin?: string;
+}
+
+async function runReadseek(args: string[], options: RunReadseekOptions = {}): Promise<unknown> {
+	const stdout = await new Promise<string>((resolve, reject) => {
+		const stdin = options.stdin;
+		const stdio: StdioOptions = [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"];
+		const child = spawn(readseekBinaryPath(), args, { stdio, signal: options.signal });
+		const childStdout = child.stdout;
+		const childStderr = child.stderr;
+		const childStdin = child.stdin;
+		if (!childStdout || !childStderr) {
+			child.kill();
+			reject(new Error("readseek stdio streams are unavailable"));
+			return;
+		}
 		const stdoutChunks: Buffer[] = [];
 		const stderrChunks: Buffer[] = [];
 		let stdoutBytes = 0;
 
-		child.stdout.on("data", (chunk: Buffer) => {
+		childStdout.on("data", (chunk: Buffer) => {
 			stdoutBytes += chunk.length;
 			if (stdoutBytes > 32 * 1024 * 1024) {
 				child.kill();
@@ -172,16 +185,26 @@ async function runReadseek(args: string[], options: { signal?: AbortSignal } = {
 			}
 			stdoutChunks.push(chunk);
 		});
-		child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+		childStderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 		child.on("error", (error: any) => reject(error));
+		if (stdin !== undefined) {
+			if (!childStdin) {
+				child.kill();
+				reject(new Error("readseek stdin stream is unavailable"));
+				return;
+			}
+			childStdin.on("error", (error: any) => {
+				if (error?.code !== "EPIPE") reject(error);
+			});
+			childStdin.end(stdin, "utf-8");
+		}
 		child.on("close", (code) => {
 			const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
 			const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-			if (code === 0) resolve({ stdout, stderr });
+			if (code === 0) resolve(stdout);
 			else reject(new Error((stderr || `readseek exited with status ${code}`).replace(/^error:\s*/i, "")));
 		});
 	});
-	void stderr;
 	return JSON.parse(stdout) as unknown;
 }
 
@@ -308,8 +331,7 @@ export async function readseekRead(filePath: string, startLine?: number, endLine
 	return parseReadOutput(await runReadseek(args));
 }
 
-export async function readseekMap(filePath: string, totalBytes: number): Promise<FileMap | null> {
-	const output = parseMapOutput(await runReadseek(["map", filePath]));
+function fileMapFromReadseekOutput(output: ReadseekMapOutput, filePath: string, totalBytes: number): FileMap | null {
 	if (output.language === "unknown" && output.symbols.length === 0) return null;
 	return {
 		path: filePath,
@@ -320,6 +342,15 @@ export async function readseekMap(filePath: string, totalBytes: number): Promise
 		imports: [],
 		symbols: symbolsFromReadseek(output.symbols),
 	};
+}
+
+export async function readseekMap(
+	filePath: string,
+	totalBytes: number,
+	options: { signal?: AbortSignal } = {},
+): Promise<FileMap | null> {
+	const output = parseMapOutput(await runReadseek(["map", filePath], { signal: options.signal }));
+	return fileMapFromReadseekOutput(output, filePath, totalBytes);
 }
 
 export async function readseekSearch(
@@ -335,15 +366,13 @@ export async function readseekSearch(
 	return parseSearchOutput(await runReadseek(args, { signal: options.signal })).results;
 }
 
-export async function readseekMapContent(filePath: string, content: string): Promise<FileMap | null> {
-	const tempDir = await mkdtemp(path.join(tmpdir(), "readseek-map-"));
-	const tempPath = path.join(tempDir, path.basename(filePath) || `content${path.extname(filePath)}` || "content");
-	try {
-		await writeFile(tempPath, content, "utf8");
-		const map = await readseekMap(tempPath, Buffer.byteLength(content, "utf8"));
-		if (!map) return null;
-		return { ...map, path: filePath };
-	} finally {
-		await rm(tempDir, { recursive: true, force: true });
-	}
+export async function readseekMapContent(
+	filePath: string,
+	content: string,
+	options: { signal?: AbortSignal } = {},
+): Promise<FileMap | null> {
+	const output = parseMapOutput(
+		await runReadseek(["map", "--stdin", "--path", filePath], { signal: options.signal, stdin: content }),
+	);
+	return fileMapFromReadseekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
 }

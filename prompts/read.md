@@ -1,13 +1,21 @@
-Read text files with `LINE:HASH|content` anchors usable by `edit`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}. Images return attachments, not edit anchors.
+Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `edit`; supported images return attachments instead of anchors. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+
+## Choose the right read
+
+- Normal read: inspect a whole small file or a targeted `offset` / `limit` range.
+- `map: true`: append a structural map for navigation before reading more code.
+- `symbol: "Name"`: read one function, class, method, interface, type, enum, or similar symbol.
+- `bundle: "local"`: with `symbol`, include direct same-file local support when readseek can identify it.
 
 ## Parameters
 
-- `offset` / `limit` — positive line numbers for targeted reads; `offset` is 1-indexed.
-- `map: true` — append a full-file structural map even for small files. May combine with `offset` / `limit`; cannot combine with `symbol` or `bundle`.
-- `symbol: "Name"` — read one symbol range by name, with hash anchors. Supports `ClassName.method`, Java package-relative names, and `Name@<line>` disambiguation. Cannot combine with `offset` / `limit`.
-- `bundle: "local"` — with `symbol`, also include direct same-file local support when available. Cannot combine with `map`.
+- `path` — file path.
+- `offset` / `limit` — positive line numbers; `offset` is 1-indexed.
+- `map` — append the full-file structural map; cannot combine with `symbol` or `bundle`.
+- `symbol` — symbol query; supports `Class.method`, package-relative Java names, and `Name@<line>` disambiguation; cannot combine with `offset` / `limit`.
+- `bundle` — only `"local"`; requires `symbol` and cannot combine with `map`.
 
-When a full-file read is truncated, a readseek structural map is appended automatically when available. Use that map's line ranges for follow-up `read({ offset, limit })`. Map and symbol coverage depends on readseek language support.
+When a full-file read is truncated, readseek appends a structural map automatically when available. Use map line ranges for follow-up `read({ offset, limit })` calls.
 
 ## Symbol examples
 
@@ -16,18 +24,18 @@ When a full-file read is truncated, a readseek structural map is appended automa
 | `{ "symbol": "processEvent" }` | function or top-level symbol |
 | `{ "symbol": "EventEmitter" }` | class/interface/type/enum/etc. |
 | `{ "symbol": "EventEmitter.emit" }` | child method/member |
-| `{ "symbol": "Foo.bar@42" }` | specific overload/definition near line 42 |
-| `{ "symbol": "handleRequest", "bundle": "local" }` | symbol plus direct local support |
+| `{ "symbol": "Foo.bar@42" }` | overload/definition near line 42 |
+| `{ "symbol": "handleRequest", "bundle": "local" }` | symbol plus direct same-file support |
 
 ## Symbol resolution
 
-`@<line>` only applies as a trailing suffix like `Foo.bar@42`; names such as `foo@bar` are ordinary queries. Resolution order: containing range → nearest symbol starting at/after the requested line → nearest symbol above it. If unresolved but same-name candidates exist, the response lists retry hints like `name@<startLine>`.
+`@<line>` only applies as a trailing suffix like `Foo.bar@42`; names such as `foo@bar` are ordinary queries. Resolution order: containing range → nearest symbol starting at/after the requested line → nearest symbol above it.
 
 Result behavior:
-- **Found**: returns only the symbol range with `[Symbol: name (kind), lines X-Y of Z]`.
-- **Ambiguous**: returns candidate names/kinds/ranges; retry with dot notation or `@<line>`.
-- **Fuzzy**: returns the best camelCase/substring match with a warning banner and confirmation hint. Verify before editing from fuzzy-match anchors.
-- **Not found**: falls back to normal read with a warning listing available symbols.
-- **Unmappable**: falls back to normal read with a warning.
 
-Hash anchors from symbol and bundled reads are valid for `edit`.
+- **Found**: returns only the symbol range with `[Symbol: name (kind), lines X-Y of Z]`.
+- **Ambiguous**: lists candidates and retry hints such as `name@<startLine>`.
+- **Fuzzy**: returns the best camelCase/substring match with a warning; verify before editing from those anchors.
+- **Not found** or **unmappable**: falls back to normal read with a warning and, when available, symbol suggestions.
+
+Hash anchors from normal, symbol, and bundled reads are valid for `edit` until the file changes.

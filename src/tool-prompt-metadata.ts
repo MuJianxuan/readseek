@@ -5,37 +5,39 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
   "read.md": "Read text files/images by path; text has LINE:HASH anchors, images return attachments.",
   "edit.md": "Edit existing text files using fresh LINE:HASH anchors from read, grep, search, or write.",
   "grep.md": "Search file contents; non-summary results include LINE:HASH anchors for edits.",
-  "find.md": "Find files by glob, respecting .gitignore.",
-  "ls.md": "List one directory.",
-  "write.md": "Create or overwrite a file and return anchors.",
+  "find.md": "Find files recursively by basename glob, respecting .gitignore.",
+  "ls.md": "List one directory with directories first and dotfiles included.",
+  "write.md": "Create or overwrite a complete file and return anchors.",
   "sg.md": "Search code by AST pattern and return anchored matches.",
 };
 
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
     "Use read for file contents, images/screenshots, ranges, symbols, and edit anchors.",
+    "Use map or symbol mode before pulling large code files into context.",
     "Use read for images; it returns attachments, so avoid OCR tools unless explicitly needed.",
   ],
   "edit.md": [
     "Use edit with fresh LINE:HASH anchors for existing files.",
-    "Use edit replace only when anchored edits are impractical.",
+    "Prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
   ],
   "grep.md": [
     "Use grep for text search and edit-ready matching anchors.",
-    "Use grep summary mode when only file counts are needed.",
+    "Use grep summary mode for broad count/file discovery before narrowing.",
   ],
   "find.md": [
-    "Use find for recursive file discovery by glob.",
+    "Use find for recursive file discovery by basename glob.",
   ],
   "ls.md": [
-    "Use ls to list one directory, optionally with a glob filter.",
+    "Use ls to inspect one directory; use find for recursion.",
   ],
   "write.md": [
     "Use write to create files or intentionally overwrite whole files.",
-    "Use edit rather than write for small changes to existing files.",
+    "Use edit rather than write for small changes or appends to existing files.",
   ],
   "sg.md": [
     "Use search for AST-shaped code patterns.",
+    "Use grep instead of search for plain text.",
   ],
 };
 

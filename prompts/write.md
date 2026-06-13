@@ -1,24 +1,24 @@
-Write full file content. Creates new files and parent directories, overwrites existing files, and returns `LINE:HASH` anchors for immediate `edit` use.
+Create or overwrite a whole file and return `LINE:HASH` anchors for immediate follow-up `edit` calls.
 
 ## Use / avoid
 
-Use `write` to create a file or intentionally replace a whole file. For small changes or appends, `read` first and use `edit` (`insert_after` for appends).
+Use `write` for new files, generated files, or intentional full-file replacement. For small changes or appends to an existing file, read or search first and use `edit` (`insert_after` for appends).
 
-Existing files are overwritten without confirmation. Binary-looking content is written, but hashlines are not generated, so there are no anchors to feed into `edit`.
+Existing files are overwritten without confirmation. Binary-looking content can be written, but hashlines are not generated, so there are no anchors for `edit`.
 
 ## Parameters
 
 - `path` — relative or absolute file path.
 - `content` — complete file contents.
-- `map` — optional; append a structural map when possible. Map append is best-effort and write still succeeds if map generation fails.
+- `map` — optional; append a structural map when possible. Map generation is best-effort and does not make the write fail.
 
 ## Output
 
-Successful text writes return `LINE:HASH|content`; display hashlines escape control characters for safe rendering. Visible output is capped at 2000 lines or 50 KB, but full anchors remain available in `readseekValue`.
+Successful text writes return `LINE:HASH|content`. Display hashlines escape control characters for safe rendering. Visible output is capped at 2000 lines or 50 KB, but full anchors remain available in `readseekValue`.
 
 ## Diff data contract
 
-Successful text `write` results include additive final `details.diff`, `details.readseekValue.diff`, `details.diffData`, and `details.readseekValue.diffData` fields. The string fields remain the backward-compatible human-readable fallback.
+Successful text `write` results include additive final `details.diff`, `details.readseekValue.diff`, `details.diffData`, and `details.readseekValue.diffData` fields. String diff fields remain the backward-compatible human-readable fallback.
 
 `diffData` is a stable versioned contract:
 
@@ -43,4 +43,4 @@ type DiffData = {
 };
 ```
 
-For compact one-line hashline diffs, `details.diff` remains compact, while `diffData.entries` uses expanded remove/add rows so renderers can show inline word changes without breaking hashline output.
+For compact one-line hashline diffs, `details.diff` remains compact while `diffData.entries` uses expanded remove/add rows so renderers can show inline word changes without breaking hashline output.

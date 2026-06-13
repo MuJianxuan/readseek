@@ -1,4 +1,4 @@
-Find files recursively by name. Uses glob patterns by default, respects nested `.gitignore`, includes hidden files, and returns relative paths.
+Find files or directories recursively by basename. Uses glob patterns by default, respects nested `.gitignore`, includes hidden entries, and returns relative paths.
 
 ## Parameters
 
@@ -9,11 +9,10 @@ Find files recursively by name. Uses glob patterns by default, respects nested `
 - `maxDepth` — non-negative directory depth limit.
 - `sortBy` — `"name"` default, `"mtime"`, or `"size"`; use `reverse: true` for descending/newest/largest first.
 - `modifiedSince` — keep entries modified strictly after an ISO date/time or relative age like `30m`, `1h`, `24h`, `7d`.
-- `minSize` / `maxSize` — file-size filters, inclusive; numbers are bytes, strings accept 1024-based `KB`, `MB`, `GB`, etc. Directories are not removed by size filters.
+- `minSize` / `maxSize` — inclusive file-size filters; numbers are bytes, strings accept 1024-based `KB`, `MB`, `GB`, etc. Directories are not removed by size filters.
 
 ## Output and usage
 
-One relative path per line. Directories end with `/`. If results exceed `limit` or 50 KB, output says it was truncated.
-Filtering and sorting happen before `limit`, so queries like largest/newest files work as expected.
+Output is one relative path per line. Directories end with `/`. Filtering and sorting happen before `limit`, so newest/largest queries work as expected.
 
-Use `find` for recursive file-name discovery, `ls` for one directory, and `grep` for file contents. Remember: `pattern` matches basenames, not full paths.
+Use `find` for recursive name discovery, `ls` for one directory, `grep` or `search` for contents, and `read` for file content. Remember: `pattern` matches basenames, not full paths.
