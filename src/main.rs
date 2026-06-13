@@ -851,7 +851,7 @@ fn load_source(
     let kind = document_kind(language);
     let lines = document
         .text
-        .split('\n')
+        .lines()
         .enumerate()
         .map(|(index, text)| {
             let number = index + 1;
@@ -1087,13 +1087,24 @@ fn read_output(
     if start_line == 0 {
         bail!("start line must be greater than zero");
     }
+    if line_count == 0 && start.is_none() && end.is_none() {
+        return Ok(ReadOutput {
+            file: source.path.clone(),
+            language: source.detection.language,
+            line_count,
+            file_hash: source.file_hash.clone(),
+            start_line,
+            end_line,
+            hashlines: Vec::new(),
+        });
+    }
     if requested_end_line < start_line {
         bail!("end line must be greater than or equal to start line");
     }
-    if start_line > line_count && !(line_count == 0 && start_line == 1) {
+    if start_line > line_count {
         bail!("start line {start_line} exceeds line count {line_count}");
     }
-    let slice_start = if line_count == 0 { 0 } else { start_line - 1 };
+    let slice_start = start_line - 1;
 
     let hashlines = source.lines[slice_start..end_line]
         .iter()

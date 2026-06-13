@@ -139,7 +139,7 @@ def main():
         if data and all(
             [
                 assert_equal(name, data.get("language"), "python"),
-                assert_equal(name, data.get("line_count"), 4),
+                assert_equal(name, data.get("line_count"), 3),
                 assert_equal(name, data.get("start_line"), 2),
                 assert_equal(name, data.get("end_line"), 3),
                 assert_equal(name, len(data.get("hashlines", [])), 2),
@@ -155,7 +155,7 @@ def main():
         data = readseek_json(name, ["read", path, "--offset", "2", "--limit", "2"])
         if data and all(
             [
-                assert_equal(name, data.get("line_count"), 5),
+                assert_equal(name, data.get("line_count"), 4),
                 assert_equal(name, data.get("start_line"), 2),
                 assert_equal(name, data.get("end_line"), 3),
                 assert_equal(name, len(data.get("hashlines", [])), 2),
@@ -172,10 +172,10 @@ def main():
         data = readseek_json(name, ["read", path, "--offset", "2", "--limit", "99"])
         if data and all(
             [
-                assert_equal(name, data.get("line_count"), 4),
+                assert_equal(name, data.get("line_count"), 3),
                 assert_equal(name, data.get("start_line"), 2),
-                assert_equal(name, data.get("end_line"), 4),
-                assert_equal(name, len(data.get("hashlines", [])), 3),
+                assert_equal(name, data.get("end_line"), 3),
+                assert_equal(name, len(data.get("hashlines", [])), 2),
             ]
         ):
             passed(name)
@@ -186,10 +186,36 @@ def main():
         if data and all(
             [
                 assert_equal(name, data.get("language"), "unknown"),
-                assert_equal(name, data.get("line_count"), 4),
+                assert_equal(name, data.get("line_count"), 3),
                 assert_equal(name, data["hashlines"][0].get("text"), "one"),
                 assert_equal(name, data["hashlines"][1].get("text"), "two"),
                 assert_equal(name, data["hashlines"][2].get("text"), "three"),
+            ]
+        ):
+            passed(name)
+
+        name = "read: preserves interior blank lines"
+        path = write_file(tmpdir, "blank-lines.txt", "one\n\nthree\n")
+        data = readseek_json(name, ["read", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("line_count"), 3),
+                assert_equal(name, len(data.get("hashlines", [])), 3),
+                assert_equal(name, data["hashlines"][1].get("line"), 2),
+                assert_equal(name, data["hashlines"][1].get("text"), ""),
+            ]
+        ):
+            passed(name)
+
+        name = "read: empty file has zero lines"
+        path = write_file(tmpdir, "empty.txt", "")
+        data = readseek_json(name, ["read", path])
+        if data and all(
+            [
+                assert_equal(name, data.get("line_count"), 0),
+                assert_equal(name, data.get("start_line"), 1),
+                assert_equal(name, data.get("end_line"), 0),
+                assert_equal(name, data.get("hashlines"), []),
             ]
         ):
             passed(name)
@@ -576,7 +602,7 @@ def main():
         if data and all(
             [
                 assert_equal(name, data.get("language"), "unknown"),
-                assert_equal(name, data.get("line_count"), 2),
+                assert_equal(name, data.get("line_count"), 1),
                 assert_equal(name, data["hashlines"][0].get("text"), "\x00A�"),
             ]
         ):
