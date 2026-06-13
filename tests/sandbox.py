@@ -454,6 +454,22 @@ def main():
         ):
             passed(name)
 
+        name = "symbol: colon filename with address argument"
+        path = write_file(
+            tmpdir,
+            "colon:symbol.ts",
+            "class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n",
+        )
+        data = readseek_json(name, ["symbol", path, "Greeter.greet"])
+        if data and all(
+            [
+                assert_equal(name, data.get("file"), path),
+                assert_equal(name, data["symbol"].get("kind"), "method"),
+                assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
+            ]
+        ):
+            passed(name)
+
         name = "cli: no arguments"
         result = run([])
         if all(

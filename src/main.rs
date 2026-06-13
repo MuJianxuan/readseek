@@ -798,7 +798,7 @@ fn parse_target(value: &str) -> Result<Target> {
 
 fn parse_symbol_target(value: &str) -> Result<Target> {
     let target = parse_target(value)?;
-    if target.address.is_some() {
+    if target.address.is_some() || Path::new(value).exists() {
         return Ok(target);
     }
 
