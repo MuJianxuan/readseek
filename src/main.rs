@@ -693,9 +693,10 @@ const HASHLINE_MODULUS: u32 = 0x1000;
 
 fn main() {
     if env::args_os().len() == 1 {
-        let early_exit = Cli::from_args(&["readseek"], &["--help"])
-            .expect_err("argh help should exit before parsing");
-        eprintln!("{}", early_exit.output);
+        match Cli::from_args(&["readseek"], &["--help"]) {
+            Err(early_exit) => eprintln!("{}", early_exit.output),
+            Ok(_) => eprintln!("readseek: help output unavailable"),
+        }
         process::exit(2);
     }
     if let Err(error) = run() {
@@ -1338,19 +1339,22 @@ fn compile_search_pattern(pattern: &str) -> SearchPattern {
     let bytes = pattern.as_bytes();
     let mut index = 0;
 
-    while index < bytes.len() {
-        if bytes[index] != b'$' {
-            text.push(bytes[index] as char);
-            index += 1;
+    while index < pattern.len() {
+        let rest = &pattern[index..];
+        if !rest.starts_with('$') {
+            let Some(ch) = rest.chars().next() else {
+                break;
+            };
+            text.push(ch);
+            index += ch.len_utf8();
             continue;
         }
 
-        let (kind, name_start) =
-            if bytes.get(index + 1) == Some(&b'$') && bytes.get(index + 2) == Some(&b'$') {
-                (PatternMetaKind::Variadic, index + 3)
-            } else {
-                (PatternMetaKind::Single, index + 1)
-            };
+        let (kind, name_start) = if rest.starts_with("$$$") {
+            (PatternMetaKind::Variadic, index + 3)
+        } else {
+            (PatternMetaKind::Single, index + 1)
+        };
         let mut name_end = name_start;
         while name_end < bytes.len()
             && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'_')
@@ -1674,7 +1678,14 @@ fn xxhash32(bytes: &[u8], seed: u32) -> u32 {
         hash = seed.wrapping_add(XXHASH32_PRIME_5);
     }
 
-    hash = hash.wrapping_add(u32::try_from(bytes.len()).expect("input length fits in u32"));
+    let length_bytes = bytes.len().to_le_bytes();
+    let length = u32::from_le_bytes([
+        length_bytes[0],
+        length_bytes[1],
+        length_bytes[2],
+        length_bytes[3],
+    ]);
+    hash = hash.wrapping_add(length);
 
     while index + 4 <= bytes.len() {
         hash = hash

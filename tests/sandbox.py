@@ -391,6 +391,25 @@ def main():
             ):
                 passed(name)
 
+        name = "search: unicode pattern"
+        path = write_file(
+            search_dir,
+            "unicode.rs",
+            "fn main() { let greeting = \"café\"; }\n",
+        )
+        data = readseek_json(name, ["search", path, "let greeting = \"café\";"])
+        if data:
+            results = data.get("results", [])
+            matches = results[0].get("matches", []) if results else []
+            if all(
+                [
+                    assert_equal(name, len(results), 1),
+                    assert_equal(name, len(matches), 1),
+                    assert_equal(name, matches[0].get("start_line"), 1),
+                ]
+            ):
+                passed(name)
+
         expect_mapped_symbol(
             "map: makefile target",
             "Makefile",
