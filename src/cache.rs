@@ -8,29 +8,16 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-const DB_SCHEMA_VERSION: i64 = 1;
+const DB_SCHEMA_VERSION: i64 = 2;
 
 pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
     let Some(mut connection) = connection()? else {
         return Ok(None);
     };
-    let Some((cache_id, symbol_count)) = connection
-        .query_row(
-            "SELECT id, symbol_count FROM map_cache \
-             WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
-            params![
-                DB_SCHEMA_VERSION,
-                source.file_hash,
-                source.detection.language.id()
-            ],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()?
-    else {
+    let tx = connection.transaction()?;
+    let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
         return Ok(None);
     };
-
-    let tx = connection.transaction()?;
     let symbols = load_symbols(&tx, cache_id)?;
     if i64::try_from(symbols.len())? != symbol_count {
         tx.execute("DELETE FROM map_cache WHERE id = ?1", params![cache_id])?;
@@ -294,7 +281,7 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS map_symbols_address_idx ON map_symbols(cache_id, address);
         CREATE INDEX IF NOT EXISTS map_symbols_name_idx ON map_symbols(cache_id, name);
         CREATE INDEX IF NOT EXISTS map_symbols_line_idx ON map_symbols(cache_id, start_line, end_line);
-        PRAGMA user_version = 1;",
+        PRAGMA user_version = 2;",
     )?;
 
     Ok(())

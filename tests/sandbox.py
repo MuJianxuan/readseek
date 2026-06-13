@@ -109,6 +109,16 @@ def main():
         failed(name, f"missing {kind} symbol {symbol_name}: {symbols!r}")
         return False
 
+    def find_symbol(symbols, kind, symbol_name):
+        return next(
+            (
+                symbol
+                for symbol in symbols
+                if symbol.get("kind") == kind and symbol.get("name") == symbol_name
+            ),
+            {},
+        )
+
     def expect_mapped_symbol(name, file_name, contents, language, kind, symbol_name):
         path = write_file(tmpdir, file_name, contents)
         data = readseek_json(name, ["map", path])
@@ -892,11 +902,15 @@ def main():
         data = readseek_json(name, ["map", path])
         if data:
             symbols = data.get("symbols", [])
+            title = find_symbol(symbols, "heading", "Title")
             if all(
                 [
                     assert_equal(name, data.get("language"), "markdown"),
                     assert_symbol(name, symbols, "heading", "Title"),
                     assert_symbol(name, symbols, "heading", "Details"),
+                    assert_equal(name, title.get("start_line"), 1),
+                    assert_equal(name, title.get("end_line"), 1),
+                    assert_equal(name, title.get("end_hash"), title.get("start_hash")),
                 ]
             ):
                 passed(name)

@@ -338,8 +338,9 @@ fn symbol_for_node(
         | Language::Unknown => unreachable!(),
     }?;
 
-    let start_line = node.start_position().row + 1;
-    let end_line = node.end_position().row + 1;
+    let (start_line, end_line) = symbol_line_range(language, node);
+    let start_hash = line_hash(lines, start_line)?;
+    let end_hash = line_hash(lines, end_line)?;
     let address = parent.map_or_else(|| name.clone(), |parent| format!("{parent}.{name}"));
 
     Some(Symbol {
@@ -348,9 +349,34 @@ fn symbol_for_node(
         address,
         start_line,
         end_line,
-        start_hash: line_hash(lines, start_line).unwrap_or_default(),
-        end_hash: line_hash(lines, end_line).unwrap_or_default(),
+        start_hash,
+        end_hash,
     })
+}
+
+fn node_line_range(node: Node<'_>) -> (usize, usize) {
+    let start_line = node_start_line(node);
+    let end_position = node.end_position();
+    let end_line = if end_position.column == 0 && end_position.row + 1 > start_line {
+        end_position.row
+    } else {
+        end_position.row + 1
+    };
+
+    (start_line, end_line)
+}
+
+fn node_start_line(node: Node<'_>) -> usize {
+    node.start_position().row + 1
+}
+
+fn symbol_line_range(language: Language, node: Node<'_>) -> (usize, usize) {
+    if language == Language::Markdown && node.kind() == "atx_heading" {
+        let start_line = node_start_line(node);
+        return (start_line, start_line);
+    }
+
+    node_line_range(node)
 }
 
 fn rust_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
