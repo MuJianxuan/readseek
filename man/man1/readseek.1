@@ -1,222 +1,387 @@
-.TH READSEEK 1 "2026-06-14" "readseek 0.1.6" "User Commands"
+.TH READSEEK 1 "2026-06-14" "readseek 0.2.2" "User Commands"
 .SH NAME
 readseek \- structural source reader with stable line hashes
 .SH SYNOPSIS
-.B readseek
-[\fB\-h\fR]
-[\fB\-V\fR]
-.P
-.B readseek
-\fBfile\fR
-[\fB--language=\fR\fIlanguage\fR]
-\fItarget\fR
-.P
-.B readseek
-\fBread\fR
-[\fB--start=\fR\fIline\fR]
-[\fB--end=\fR\fIline\fR]
-[\fB--offset=\fR\fIline\fR]
-[\fB--limit=\fR\fIn\fR]
-[\fB--language=\fR\fIlanguage\fR]
-\fItarget\fR
-.P
-.B readseek
-\fBmap\fR
-[\fB--language=\fR\fIlanguage\fR]
-\fItarget\fR
-.P
-.B readseek
-\fBsymbol\fR
-[\fB--language=\fR\fIlanguage\fR]
-\fItarget\fR
-[\fIaddress\fR]
-.P
-.B readseek
-\fBsearch\fR
-[\fB-c\fR|\fB--cached\fR]
-[\fB-o\fR|\fB--others\fR]
-[\fB-i\fR|\fB--ignored\fR]
-[\fB--language=\fR\fIlanguage\fR]
-\fItarget\fR
-\fIpattern\fR
+.nf
+\fBreadseek\fR [\fB\-h\fR|\fB--help\fR]
+\fBreadseek\fR [\fB\-V\fR|\fB--version\fR]
+
+\fBreadseek file\fR [\fB--language\fR \fIlanguage\fR]
+    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+
+\fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
+    [\fB--start\fR \fIline\fR|\fB--offset\fR \fIline\fR]
+    [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR]
+    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+
+\fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
+    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+
+\fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
+    (\fB--stdin --path\fR \fIpath\fR [\fIqualified-name\fR] | \fItarget\fR [\fIqualified-name\fR])
+
+\fBreadseek identify\fR [\fB--language\fR \fIlanguage\fR]
+    [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
+    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+
+\fBreadseek definition\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+    \fItarget\fR \fIname\fR
+
+\fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+    \fItarget\fR \fIpattern\fR
+.fi
 .SH DESCRIPTION
 .B readseek
-reads source files and emits JSON for language detection, line-hash addressed
-reads, structural source maps, symbol reads, and AST pattern searches. It is
-intended for scripts and coding agents that need stable references to source
-locations.
-.P
-All command output is JSON.
-.SS Targets
-A
+reads source files and emits pretty-printed JSON for tools that need stable,
+line-addressable source context. It can detect file languages, return hashed
+line ranges, build structural source maps, read symbols, identify cursor
+context, find definitions, and run AST pattern searches.
+.PP
+Source-bearing output uses
+.I hashlines:
+a one-based line number, a 3-character line hash, and the original line text.
+Line hashes are short stable references that can be used as target suffixes in
+later calls.
+.PP
+.B readseek
+is intended for scripts, editors, and coding agents. Human-facing diagnostics
+are written separately from JSON output.
+.SH INPUTS AND TARGETS
+Most commands read a
 .I target
-is a file path. It may include a one-based line number or a 3-character line
-hash suffix in the form
-.I file:line
-or
-.IR file:hash .
-.P
-For
+path. The
+.BR file ,
+.BR read ,
+.BR map ,
 .BR symbol ,
-the target may also include a symbol address or unqualified symbol name in the
-form
-.IR file:symbol .
-.P
-Line hashes are the 3-character hashes shown in
+and
+.B identify
+commands can instead read unsaved buffer text from standard input with
+.B --stdin
+and
+.BR --path .
+With
+.BR --stdin ,
+.B --path
+is required, supplies the document name used for language detection, and is
+reported in JSON output. A positional target cannot be combined with
+.BR --stdin .
+.PP
+A target may include a line or hash suffix:
+.PP
+.nf
+.RS
+\fIfile\fR:\fIline\fR
+\fIfile\fR:\fIhash\fR
+.RE
+.fi
+.PP
+Line numbers are one-based. Hash suffixes are the 3-character hashes emitted by
 .BR read ,
 .BR map ,
 and
-.B search
-output.
-.SS Languages
+.BR search .
+.PP
+For
+.BR symbol ,
+a target may also name a symbol:
+.PP
+.nf
+.RS
+\fIfile\fR:\fIsymbol\fR
+.RE
+.fi
+.PP
+The symbol can also be supplied as a separate
+.I qualified-name
+argument. Qualified names and unqualified names are matched against the
+structural source map; ambiguous names produce an error.
+.SH LANGUAGES
 .B readseek
-detects supported languages from file names, extensions, shebangs, and syntax
-metadata. Use
+detects languages from file names, extensions, shebangs, and syntax metadata.
+Use
 .B --language
-when a file is ambiguous or has no useful extension. The override accepts the
-built-in language identifiers and aliases; unsupported text files are reported
-as
-.BR unknown .
-.SS Commands
+when detection is ambiguous, when input comes from a synthetic path, or when a
+file lacks a useful extension.
+.PP
+Accepted language identifiers are:
+.BR assembly ,
+.BR bash ,
+.BR c ,
+.BR cpp ,
+.BR csharp ,
+.BR css ,
+.BR dockerfile ,
+.BR gdscript ,
+.BR go ,
+.BR html ,
+.BR java ,
+.BR javascript ,
+.BR json ,
+.BR jsx ,
+.BR just ,
+.BR kconfig ,
+.BR latex ,
+.BR lua ,
+.BR make ,
+.BR markdown ,
+.BR meson ,
+.BR nix ,
+.BR perl ,
+.BR php ,
+.BR puppet ,
+.BR python ,
+.BR riscv ,
+.BR ruby ,
+.BR rust ,
+.BR sql ,
+.BR swift ,
+.BR toml ,
+.BR tsx ,
+.BR typescript ,
+.BR typst ,
+.BR xml ,
+.BR yaml ,
+and
+.BR zig .
+The special value
+.B unknown
+forces text-only handling and disables parser-backed features.
+.SH COMMANDS
 .TP
 .B file
-Emit target file detection information: language, support status, binary
-status, MIME type, and syntax name.
+Print detection metadata for the input, including file name, language, parser
+support, binary flag, MIME type, and syntax name.
 .TP
 .B read
-Emit a target file range with line numbers, 3-character line hashes, and text.
+Print a line range with line numbers, line hashes, and text. Without a range,
+the whole file is returned. A target line or hash,
+.BR --start ,
+or
+.B --offset
+sets the first line. Use
+.B --end
+for an inclusive final line or
+.B --limit
+for a count.
 .TP
 .B map
-Emit a structural source map with each symbol kind, name, address, start and
-end lines, and boundary line hashes.
+Print the structural source map: symbol kind, name, qualified name, start and end
+lines, and boundary hashes. Languages without symbol extraction return an empty
+symbol list.
 .TP
 .B symbol
-Emit the source range for a mapped symbol. Select the symbol by address
-argument, target symbol suffix, or target line/hash suffix.
+Print the source range for one symbol. Select it by qualified name, by unqualified
+name, by
+.IR file:symbol ,
+by target line or hash, or by
+.BR --line .
+.TP
+.B identify
+Print the requested cursor line, line hash, identifier at the cursor, and the
+enclosing mapped symbol. If
+.B --column
+is omitted, column 1 is used. Columns are one-based byte offsets.
+.TP
+.B definition
+Find mapped symbol definitions in a file or directory. The
+.I name
+argument matches either a full qualified symbol name or an unqualified name. Directory
+traversal uses the same file selection rules as
+.BR search .
 .TP
 .B search
 Run an AST pattern against a file or every supported source file below a
-directory. Unparseable files are skipped.
-.P
-Directory searches inside Git repositories use Git-style file selection by
-default: tracked files plus untracked, non-ignored files. Search output is
-grouped by file and includes file hashes, matches, captures, boundary line
-hashes, and hashlines for matched ranges.
-.SS Options
+directory. Unparseable and unsupported files are skipped. Pattern variables use
+.BI $ NAME
+for one node and
+.BI $$$ NAME
+for zero or more sibling nodes.
+.PP
+Search output is grouped by file and includes the file hash, matched ranges,
+captures, boundary hashes, and hashlines for each match.
+.SH OPTIONS
 .TP
 \fB\-h\fR, \fB--help\fR
-Print help and exit.
+Display usage information and exit.
 .TP
 \fB\-V\fR, \fB--version\fR
-Print version and exit.
+Print the program version and exit.
 .TP
-\fB--language=\fR\fIlanguage\fR
-Override language detection for commands that parse source text. This is useful
-for extensionless files, generated files, or ambiguous syntax.
+\fB--language\fR \fIlanguage\fR
+Override language detection for commands that parse source text. See
+.BR LANGUAGES .
 .TP
-\fB--start=\fR\fIline\fR
+\fB--stdin\fR
+Read document contents from standard input instead of opening a target path.
+Requires
+.BR --path .
+.TP
+\fB--path\fR \fIpath\fR
+Document path to associate with
+.BR --stdin .
+The path is used for language detection and appears in JSON output.
+.TP
+\fB--line\fR \fIline\fR
+One-based target line for
+.B symbol
+or
+.BR identify .
+.TP
+\fB--column\fR \fIcolumn\fR
+One-based byte column for
+.BR identify .
+Identifier ranges in JSON use a one-based inclusive start column and a
+one-based exclusive end column.
+.TP
+\fB--start\fR \fIline\fR
 First one-based line to include for
 .BR read .
 .TP
-\fB--end=\fR\fIline\fR
-Last one-based line to include for
-.BR read .
-.TP
-\fB--offset=\fR\fIline\fR
+\fB--offset\fR \fIline\fR
 Alias for
 .BR --start .
 .TP
-\fB--limit=\fR\fIn\fR
+\fB--end\fR \fIline\fR
+Last one-based line to include for
+.BR read .
+Cannot be combined with
+.BR --limit .
+.TP
+\fB--limit\fR \fIn\fR
 Maximum number of lines to include for
 .BR read .
+Cannot be combined with
+.BR --end .
 .TP
-\fB-c\fR, \fB--cached\fR
-For
-.BR search
-on a directory inside a Git repository, search tracked/indexed files.
+\fB\-c\fR, \fB--cached\fR
+When searching a directory inside a Git repository, include tracked/indexed
+files.
 .TP
-\fB-o\fR, \fB--others\fR
-For
-.BR search
-on a directory inside a Git repository, search untracked non-ignored files.
+\fB\-o\fR, \fB--others\fR
+When searching a directory inside a Git repository, include untracked,
+non-ignored files.
 .TP
-\fB-i\fR, \fB--ignored\fR
-For
-.BR search
-with
+\fB\-i\fR, \fB--ignored\fR
+With
 .BR --others ,
-include ignored untracked files. Outside Git repositories, Git file selection
-flags are ignored and directory search falls back to normal recursive traversal.
+also include ignored untracked files. Inside a Git repository,
+.B --ignored
+requires
+.BR --others .
+.SH DIRECTORY SEARCH
+The
+.B definition
+and
+.B search
+commands accept either a file or a directory. A file target is searched
+directly. A directory target is searched recursively.
+.PP
+Inside a Git work tree, directory searches use Git-aware selection. With no
+selection flags,
+.B readseek
+searches tracked/indexed files and untracked, non-ignored files. Use
+.B --cached
+or
+.B --others
+to restrict the selection. Outside Git work trees, selection flags are ignored
+and normal recursive traversal is used.
 .SH ENVIRONMENT
 .TP
 .B READSEEK_CACHE_DIR
 Override the base cache directory. When set,
 .B readseek
-stores the source map cache below
+stores the source-map cache below
 .IR READSEEK_CACHE_DIR/readseek .
 .SH EXIT STATUS
 .TP
-0
+.B 0
 Success.
 .TP
-1
-Operational error, such as a missing file, unsupported binary file, malformed
+.B 1
+Operational error, such as a missing file, unsupported binary input, malformed
 input, cache error, or symbol lookup failure.
 .TP
-2
+.B 2
 Usage error.
 .SH FILES
 .TP
-.I readseek/cache.sqlite3
-Source map cache below
+.I READSEEK_CACHE_DIR/readseek/cache.sqlite3
+Source-map cache when
 .B READSEEK_CACHE_DIR
-or the platform cache directory.
+is set.
 .TP
 .I ${XDG_CACHE_HOME:-~/.cache}/readseek/cache.sqlite3
 Typical Linux cache location.
 .SH EXAMPLES
 Detect a file:
-.br
-.B "  readseek file src/main.rs"
-.P
+.PP
+.EX
+readseek file src/main.rs
+.EE
+.PP
 Read lines 10 through 20:
-.br
-.B "  readseek read src/main.rs --start 10 --end 20"
-.P
-Read a file around a target line:
-.br
-.B "  readseek read src/main.rs:42 --limit 12"
-.P
+.PP
+.EX
+readseek read src/main.rs --start 10 --end 20
+.EE
+.PP
+Read 12 lines starting near a target line:
+.PP
+.EX
+readseek read src/main.rs:42 --limit 12
+.EE
+.PP
+Read unsaved buffer text from standard input:
+.PP
+.EX
+printf '%s\\n' 'fn main() {}' | readseek read --stdin --path scratch.rs
+.EE
+.PP
 Build a structural map:
-.br
-.B "  readseek map src/main.rs"
-.P
-Read a symbol by target suffix:
-.br
-.B "  readseek symbol src/main.rs:run"
-.P
-Read the symbol containing a line:
-.br
-.B "  readseek symbol src/main.rs:270"
-.P
-Search with an explicit language override:
-.br
-.B "  readseek search src 'int $NAME() { return $VALUE; }' --language cpp"
-.P
-Search tracked files in a Git repository:
-.br
-.B "  readseek search -c src 'fn $NAME() { $$$BODY }' --language rust"
-.P
-Search untracked files, including ignored files:
-.br
-.B "  readseek search -o -i . 'fn $NAME() { $$$BODY }' --language rust"
+.PP
+.EX
+readseek map src/main.rs
+.EE
+.PP
+Read a symbol by suffix or by containing line:
+.PP
+.EX
+readseek symbol src/main.rs:run
+readseek symbol src/main.rs:270
+.EE
+.PP
+Identify cursor context:
+.PP
+.EX
+readseek identify src/main.rs:42 --column 8
+.EE
+.PP
+Find definitions in tracked files:
+.PP
+.EX
+readseek definition -c src run --language rust
+.EE
+.PP
+Search Rust functions with an AST pattern:
+.PP
+.EX
+readseek search -c src 'fn $NAME() { $$$BODY }' --language rust
+.EE
 .SH BUILDING
-See
-.B README.md
-in the source distribution for build instructions.
+Build from source with:
+.PP
+.EX
+cargo build --release
+.EE
+.PP
+The included Makefile also provides install and uninstall targets.
 .SH LICENSE
+The native
 .B readseek
-is licensed under the
-.BR "LGPL-2.1-or-later" .
+program is licensed under
+.BR LGPL-2.1-or-later .
 .SH SEE ALSO
 .BR cargo (1)

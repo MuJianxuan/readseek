@@ -9,6 +9,7 @@ use argh::FromArgs;
 use serde::{Serialize, Serializer};
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::{env, process};
 use strum_macros::{Display, EnumString};
@@ -38,6 +39,8 @@ enum Command {
     Read(ReadCommand),
     Map(MapCommand),
     Symbol(SymbolCommand),
+    Identify(IdentifyCommand),
+    Definition(DefinitionCommand),
     Search(SearchCommand),
 }
 
@@ -48,7 +51,15 @@ enum Command {
 struct FileCommand {
     /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
-    target: String,
+    target: Option<String>,
+
+    /// read document contents from stdin
+    #[argh(switch)]
+    stdin: bool,
+
+    /// document path to use with --stdin
+    #[argh(option)]
+    path: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -62,7 +73,15 @@ struct FileCommand {
 struct ReadCommand {
     /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
-    target: String,
+    target: Option<String>,
+
+    /// read document contents from stdin
+    #[argh(switch)]
+    stdin: bool,
+
+    /// document path to use with --stdin
+    #[argh(option)]
+    path: Option<PathBuf>,
 
     /// first line to include
     #[argh(option)]
@@ -92,7 +111,15 @@ struct ReadCommand {
 struct MapCommand {
     /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
-    target: String,
+    target: Option<String>,
+
+    /// read document contents from stdin
+    #[argh(switch)]
+    stdin: bool,
+
+    /// document path to use with --stdin
+    #[argh(option)]
+    path: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -104,17 +131,85 @@ struct MapCommand {
 #[argh(subcommand, name = "symbol")]
 #[argh(help_triggers("-h", "--help"))]
 struct SymbolCommand {
-    /// takes <file>, <file>:<line>, <file>:<hash> or <file>:<symbol>
+    /// takes [<file>, <file>:<line>, <file>:<hash> or <file>:<symbol>] [qualified-name]
     #[argh(positional)]
-    target: String,
+    args: Vec<String>,
 
-    /// symbol address or unqualified name
-    #[argh(positional)]
-    address: Option<String>,
+    /// read document contents from stdin
+    #[argh(switch)]
+    stdin: bool,
+
+    /// document path to use with --stdin
+    #[argh(option)]
+    path: Option<PathBuf>,
+
+    /// one-based target line
+    #[argh(option)]
+    line: Option<usize>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     language: Option<Language>,
+}
+
+/// identify the cursor token and enclosing symbol
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "identify")]
+#[argh(help_triggers("-h", "--help"))]
+struct IdentifyCommand {
+    /// takes <file>, <file>:<line> or <file>:<hash>
+    #[argh(positional)]
+    target: Option<String>,
+
+    /// read document contents from stdin
+    #[argh(switch)]
+    stdin: bool,
+
+    /// document path to use with --stdin
+    #[argh(option)]
+    path: Option<PathBuf>,
+
+    /// one-based cursor line
+    #[argh(option)]
+    line: Option<usize>,
+
+    /// one-based cursor byte column
+    #[argh(option)]
+    column: Option<usize>,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    language: Option<Language>,
+}
+
+/// find structural symbol definitions
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "definition")]
+#[argh(help_triggers("-h", "--help"))]
+struct DefinitionCommand {
+    /// file or directory to search
+    #[argh(positional)]
+    target: PathBuf,
+
+    /// qualified symbol name or unqualified name
+    #[argh(positional)]
+    name: String,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    language: Option<Language>,
+
+    /// search tracked/indexed files when searching a Git repository
+    #[argh(switch, short = 'c')]
+    cached: bool,
+
+    /// search untracked files when searching a Git repository
+    #[argh(switch, short = 'o')]
+    others: bool,
+
+    /// include ignored untracked files when searching a Git repository
+    #[argh(switch, short = 'i')]
+    ignored: bool,
 }
 
 /// search files with an AST pattern
@@ -615,6 +710,40 @@ struct SymbolOutput {
 }
 
 #[derive(Debug, Serialize)]
+struct IdentifyOutput {
+    file: PathBuf,
+    language: Language,
+    line_count: usize,
+    file_hash: String,
+    line: usize,
+    column: usize,
+    line_hash: String,
+    hashlines: Vec<HashLine>,
+    identifier: Option<IdentifierOutput>,
+    symbol: Option<Symbol>,
+}
+
+#[derive(Debug, Serialize)]
+struct IdentifierOutput {
+    text: String,
+    start_column: usize,
+    end_column: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct DefinitionOutput {
+    definitions: Vec<DefinitionLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct DefinitionLocation {
+    file: PathBuf,
+    language: Language,
+    file_hash: String,
+    symbol: Symbol,
+}
+
+#[derive(Debug, Serialize)]
 struct SearchOutput {
     results: Vec<SearchFileOutput>,
 }
@@ -686,6 +815,7 @@ struct HashLine {
 struct Symbol {
     kind: String,
     name: String,
+    #[serde(rename = "qualified_name")]
     address: String,
     start_line: usize,
     end_line: usize,
@@ -705,7 +835,6 @@ struct SourceFile {
 
 #[derive(Debug)]
 struct LoadedDocument {
-    path: PathBuf,
     text: String,
     binary: bool,
     mime: Option<String>,
@@ -774,30 +903,83 @@ fn run() -> Result<()> {
 
     match cli.command.context("command required")? {
         Command::Detect(command) => {
-            let target = parse_target(&command.target)?;
-            let source = load_source(&target.path, command.language, BinaryMode::Reject)?;
+            let target = parse_input_target(
+                command.target.as_deref(),
+                command.stdin,
+                command.path.as_deref(),
+            )?;
+            let source = load_source_for_input(
+                &target.path,
+                command.stdin,
+                command.language,
+                BinaryMode::Reject,
+            )?;
             print_json(&source.detection)?;
         }
         Command::Read(command) => {
-            let target = parse_target(&command.target)?;
-            let source = load_source(&target.path, command.language, BinaryMode::Lossy)?;
+            let target = parse_input_target(
+                command.target.as_deref(),
+                command.stdin,
+                command.path.as_deref(),
+            )?;
+            let source = load_source_for_input(
+                &target.path,
+                command.stdin,
+                command.language,
+                BinaryMode::Lossy,
+            )?;
             let target_line = resolve_target_line(&source, &target)?;
             let (start, end) = resolve_read_range(&command, target_line)?;
             let output = read_output(&source, start, end)?;
             print_json(&output)?;
         }
         Command::Map(command) => {
-            let target = parse_target(&command.target)?;
-            let source = load_source(&target.path, command.language, BinaryMode::Reject)?;
+            let target = parse_input_target(
+                command.target.as_deref(),
+                command.stdin,
+                command.path.as_deref(),
+            )?;
+            let source = load_source_for_input(
+                &target.path,
+                command.stdin,
+                command.language,
+                BinaryMode::Reject,
+            )?;
             print_json(&map_output(&source)?)?;
         }
         Command::Symbol(command) => {
-            let target = parse_symbol_target(&command.target)?;
-            let source = load_source(&target.path, command.language, BinaryMode::Reject)?;
-            let target_line = resolve_target_line(&source, &target)?;
-            let target_address = symbol_address(&target, command.address.as_deref())?;
+            let (target_arg, address_arg) = symbol_args(&command.args, command.stdin)?;
+            let target =
+                parse_symbol_input_target(target_arg, command.stdin, command.path.as_deref())?;
+            let source = load_source_for_input(
+                &target.path,
+                command.stdin,
+                command.language,
+                BinaryMode::Reject,
+            )?;
+            let target_line = resolve_explicit_target_line(&source, &target, command.line)?;
+            let target_address = symbol_address(&target, address_arg)?;
             let output = symbol_command_output(&source, target_address, target_line)?;
             print_json(&output)?;
+        }
+        Command::Identify(command) => {
+            let target = parse_input_target(
+                command.target.as_deref(),
+                command.stdin,
+                command.path.as_deref(),
+            )?;
+            let source = load_source_for_input(
+                &target.path,
+                command.stdin,
+                command.language,
+                BinaryMode::Reject,
+            )?;
+            let target_line = resolve_explicit_target_line(&source, &target, command.line)?;
+            let output = identify_output(&source, target_line, command.column)?;
+            print_json(&output)?;
+        }
+        Command::Definition(command) => {
+            print_json(&definition_output(&command)?)?;
         }
         Command::Search(command) => {
             print_json(&search_output(&command)?)?;
@@ -821,6 +1003,52 @@ fn parse_language(value: &str) -> std::result::Result<Language, String> {
                 .then_some(spec.language)
         })
         .ok_or_else(|| format!("unknown language: {value}"))
+}
+
+fn parse_input_target(target: Option<&str>, stdin: bool, path: Option<&Path>) -> Result<Target> {
+    parse_input_target_with(target, stdin, path, parse_target)
+}
+
+fn parse_symbol_input_target(
+    target: Option<&str>,
+    stdin: bool,
+    path: Option<&Path>,
+) -> Result<Target> {
+    parse_input_target_with(target, stdin, path, parse_symbol_target)
+}
+
+fn parse_input_target_with(
+    target: Option<&str>,
+    stdin: bool,
+    path: Option<&Path>,
+    parse: fn(&str) -> Result<Target>,
+) -> Result<Target> {
+    if stdin {
+        if target.is_some() {
+            bail!("target cannot be combined with --stdin");
+        }
+        let path = path.context("--stdin requires --path")?;
+        return Ok(Target {
+            path: path.to_path_buf(),
+            address: None,
+        });
+    }
+    if path.is_some() {
+        bail!("--path requires --stdin");
+    }
+    parse(target.context("target required")?)
+}
+
+fn symbol_args(args: &[String], stdin: bool) -> Result<(Option<&str>, Option<&str>)> {
+    match (stdin, args) {
+        (true, []) => Ok((None, None)),
+        (true, [address]) => Ok((None, Some(address.as_str()))),
+        (true, _) => bail!("symbol with --stdin accepts at most one qualified name argument"),
+        (false, [target]) => Ok((Some(target.as_str()), None)),
+        (false, [target, address]) => Ok((Some(target.as_str()), Some(address.as_str()))),
+        (false, []) => bail!("target required"),
+        (false, _) => bail!("symbol accepts at most target and qualified name arguments"),
+    }
 }
 
 fn parse_target(value: &str) -> Result<Target> {
@@ -894,25 +1122,78 @@ fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<us
     }
 }
 
+fn resolve_explicit_target_line(
+    source: &SourceFile,
+    target: &Target,
+    line: Option<usize>,
+) -> Result<Option<usize>> {
+    if matches!(target.address, Some(TargetAddress::Symbol(_))) {
+        return resolve_target_line(source, target);
+    }
+    let target_line = resolve_target_line(source, target)?;
+    match (target_line, line) {
+        (Some(target_line), Some(line)) if target_line != line => {
+            bail!("target line conflicts with --line")
+        }
+        (Some(line), _) | (_, Some(line)) => Ok(Some(line)),
+        (None, None) => Ok(None),
+    }
+}
+
+fn load_source_for_input(
+    path: &Path,
+    stdin: bool,
+    override_language: Option<Language>,
+    binary_mode: BinaryMode,
+) -> Result<SourceFile> {
+    if stdin {
+        let mut text = String::new();
+        io::stdin()
+            .read_to_string(&mut text)
+            .context("read stdin")?;
+        return source_from_text(
+            path,
+            normalize_source_text(&text),
+            override_language,
+            false,
+            None,
+        );
+    }
+    load_source(path, override_language, binary_mode)
+}
+
 fn load_source(
     path: &Path,
     override_language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
     let document = load_document(path, binary_mode)?;
+    source_from_text(
+        path,
+        document.text,
+        override_language,
+        document.binary,
+        document.mime,
+    )
+}
+
+fn source_from_text(
+    path: &Path,
+    text: String,
+    override_language: Option<Language>,
+    binary: bool,
+    mime: Option<String>,
+) -> Result<SourceFile> {
     let path_language = detect_by_path(path);
-    let (detected_language, syntax) = if binary_mode == BinaryMode::Lossy
-        && override_language.is_none()
-        && path_language.is_none()
-    {
-        (Language::Unknown, None)
-    } else {
-        detect_language(path, &document.text)?
-    };
+    let (detected_language, syntax) =
+        if binary && override_language.is_none() && path_language.is_none() {
+            (Language::Unknown, None)
+        } else {
+            detect_language(path, &text)?
+        };
     let language = override_language.unwrap_or(detected_language);
     let kind = document_kind(language);
-    let lines = document
-        .text
+    let lines = text
         .lines()
         .enumerate()
         .map(|(index, text)| {
@@ -924,19 +1205,19 @@ fn load_source(
             }
         })
         .collect();
-    let file_hash = hash_text(&document.text);
+    let file_hash = hash_text(&text);
     let detection = Detection {
-        file: document.path.clone(),
+        file: path.to_path_buf(),
         language,
         supported: language != Language::Unknown,
-        binary: document.binary,
-        mime: document.mime,
+        binary,
+        mime,
         syntax,
     };
 
     Ok(SourceFile {
-        path: document.path,
-        text: document.text,
+        path: path.to_path_buf(),
+        text,
         kind,
         detection,
         lines,
@@ -961,12 +1242,7 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
     let text = (extractor.extract)(path, &bytes, binary_mode)
         .with_context(|| format!("extract {} from {}", extractor.format.id(), path.display()))?;
 
-    Ok(LoadedDocument {
-        path: path.to_path_buf(),
-        text,
-        binary,
-        mime,
-    })
+    Ok(LoadedDocument { text, binary, mime })
 }
 
 fn document_extractor(path: &Path, mime: Option<&str>) -> &'static DocumentExtractor {
@@ -1218,7 +1494,7 @@ fn source_map(source: &SourceFile) -> Result<SourceMap> {
 fn symbol_address<'a>(target: &'a Target, address: Option<&'a str>) -> Result<Option<&'a str>> {
     match (target.address.as_ref(), address) {
         (Some(TargetAddress::Symbol(_)), Some(_)) => {
-            bail!("symbol address specified both in target and as argument")
+            bail!("qualified symbol name specified both in target and as argument")
         }
         (Some(TargetAddress::Symbol(symbol)), None) => Ok(Some(symbol.as_str())),
         (_, address) => Ok(address),
@@ -1230,7 +1506,7 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
         return match lookup {
             SymbolLookup::Found(symbol) => symbol_output_for_symbol(source, symbol),
             SymbolLookup::NotFound => bail!("symbol not found: {address}"),
-            SymbolLookup::Ambiguous => bail!("symbol address is ambiguous: {address}"),
+            SymbolLookup::Ambiguous => bail!("qualified symbol name is ambiguous: {address}"),
         };
     }
 
@@ -1244,7 +1520,7 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
     let symbol = match matches.as_slice() {
         [] => bail!("symbol not found: {address}"),
         [symbol] => (*symbol).clone(),
-        _ => bail!("symbol address is ambiguous: {address}"),
+        _ => bail!("qualified symbol name is ambiguous: {address}"),
     };
 
     symbol_output_for_symbol(source, symbol)
@@ -1259,7 +1535,7 @@ fn symbol_command_output(
         return symbol_output(source, address);
     }
 
-    let line = target_line.context("symbol requires address or target line/hash")?;
+    let line = target_line.context("symbol requires qualified name or target line/hash")?;
     if let Some(lookup) = cache::symbol_at_line(source, line)? {
         return match lookup {
             SymbolLookup::Found(symbol) => symbol_output_for_symbol(source, symbol),
@@ -1268,13 +1544,7 @@ fn symbol_command_output(
         };
     }
 
-    let source_map = source_map(source)?;
-    let symbol = source_map
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.start_line <= line && line <= symbol.end_line)
-        .min_by_key(|symbol| symbol.end_line - symbol.start_line)
-        .cloned()
+    let symbol = symbol_at_line_uncached(source, line)?
         .with_context(|| format!("symbol not found at line {line}"))?;
     symbol_output_for_symbol(source, symbol)
 }
@@ -1292,10 +1562,127 @@ fn symbol_output_for_symbol(source: &SourceFile, symbol: Symbol) -> Result<Symbo
     })
 }
 
+fn identify_output(
+    source: &SourceFile,
+    target_line: Option<usize>,
+    column: Option<usize>,
+) -> Result<IdentifyOutput> {
+    let line = target_line.context("identify requires --line or target line/hash")?;
+    let column = column.unwrap_or(1);
+    if line == 0 {
+        bail!("line must be greater than zero");
+    }
+    if column == 0 {
+        bail!("column must be greater than zero");
+    }
+
+    let source_line = source
+        .lines
+        .get(line - 1)
+        .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
+    let identifier = identifier_at_column(&source_line.text, column);
+    let symbol = symbol_at_line_uncached(source, line)?;
+
+    Ok(IdentifyOutput {
+        file: source.path.clone(),
+        language: source.detection.language,
+        line_count: source.lines.len(),
+        file_hash: source.file_hash.clone(),
+        line,
+        column,
+        line_hash: source_line.hash.clone(),
+        hashlines: vec![HashLine {
+            line: source_line.number,
+            hash: source_line.hash.clone(),
+            text: source_line.text.clone(),
+        }],
+        identifier,
+        symbol,
+    })
+}
+
+fn identifier_at_column(text: &str, column: usize) -> Option<IdentifierOutput> {
+    let bytes = text.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
+    if !is_identifier_byte(bytes[index]) {
+        if index > 0 && is_identifier_byte(bytes[index - 1]) {
+            index -= 1;
+        } else {
+            return None;
+        }
+    }
+
+    let mut start = index;
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < bytes.len() && is_identifier_byte(bytes[end]) {
+        end += 1;
+    }
+
+    Some(IdentifierOutput {
+        text: text[start..end].to_owned(),
+        start_column: start + 1,
+        end_column: end + 1,
+    })
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {
+    let source_map = source_map(source)?;
+    Ok(source_map
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.start_line <= line && line <= symbol.end_line)
+        .min_by_key(|symbol| symbol.end_line - symbol.start_line)
+        .cloned())
+}
+
+fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
+    let mut definitions = Vec::new();
+    for path in command_paths(
+        &command.target,
+        command.cached,
+        command.others,
+        command.ignored,
+    )? {
+        let Ok(source) = load_source(&path, command.language, BinaryMode::Reject) else {
+            continue;
+        };
+        let Ok(source_map) = source_map(&source) else {
+            continue;
+        };
+        definitions.extend(source_map.symbols.into_iter().filter_map(|symbol| {
+            (symbol.address == command.name || symbol.name == command.name).then(|| {
+                DefinitionLocation {
+                    file: source.path.clone(),
+                    language: source.detection.language,
+                    file_hash: source.file_hash.clone(),
+                    symbol,
+                }
+            })
+        }));
+    }
+
+    Ok(DefinitionOutput { definitions })
+}
+
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     let mut results = Vec::new();
 
-    for path in search_paths(command)? {
+    for path in command_paths(
+        &command.target,
+        command.cached,
+        command.others,
+        command.ignored,
+    )? {
         let Some(result) = search_file(&path, command.language, &command.pattern)? else {
             continue;
         };
@@ -1307,60 +1694,64 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     Ok(SearchOutput { results })
 }
 
-fn search_paths(command: &SearchCommand) -> Result<Vec<PathBuf>> {
-    let metadata = fs::metadata(&command.target)
-        .with_context(|| format!("stat {}", command.target.display()))?;
+fn command_paths(target: &Path, cached: bool, others: bool, ignored: bool) -> Result<Vec<PathBuf>> {
+    let metadata = fs::metadata(target).with_context(|| format!("stat {}", target.display()))?;
     if metadata.is_file() {
-        return Ok(vec![command.target.clone()]);
+        return Ok(vec![target.to_path_buf()]);
     }
     if !metadata.is_dir() {
         bail!(
             "search target is not a file or directory: {}",
-            command.target.display()
+            target.display()
         );
     }
 
-    if let Some(paths) = git_search_paths(command)? {
+    if let Some(paths) = git_search_paths(target, cached, others, ignored)? {
         return Ok(paths);
     }
 
-    if has_git_selection_flags(command) {
+    if has_git_selection_flags(cached, others, ignored) {
         log::debug!(
             "ignoring Git file selection flags outside repository: {}",
-            command.target.display()
+            target.display()
         );
     }
 
     let mut paths = Vec::new();
-    collect_search_paths(&command.target, &mut paths)?;
+    collect_search_paths(target, &mut paths)?;
     Ok(paths)
 }
 
-fn git_search_paths(command: &SearchCommand) -> Result<Option<Vec<PathBuf>>> {
-    let Ok(repository) = git2::Repository::discover(&command.target) else {
+fn git_search_paths(
+    target: &Path,
+    cached: bool,
+    others: bool,
+    ignored: bool,
+) -> Result<Option<Vec<PathBuf>>> {
+    let original_target = target;
+    let Ok(repository) = git2::Repository::discover(target) else {
         return Ok(None);
     };
 
-    if command.ignored && !command.others {
+    if ignored && !others {
         bail!("--ignored requires --others");
     }
     let workdir = repository
         .workdir()
         .context("Git repository has no work tree")?;
-    let target = command
-        .target
+    let target = target
         .canonicalize()
-        .with_context(|| format!("canonicalize {}", command.target.display()))?;
+        .with_context(|| format!("canonicalize {}", target.display()))?;
     let workdir = workdir
         .canonicalize()
         .with_context(|| format!("canonicalize {}", workdir.display()))?;
     let scope = target
         .strip_prefix(&workdir)
         .with_context(|| format!("{} is outside Git work tree", target.display()))?;
-    let output_root = output_root_for_scope(&command.target, scope)?;
-    let default_selection = !has_git_selection_flags(command);
-    let cached = command.cached || default_selection;
-    let others = command.others || default_selection;
+    let output_root = output_root_for_scope(original_target, scope)?;
+    let default_selection = !has_git_selection_flags(cached, others, ignored);
+    let cached = cached || default_selection;
+    let others = others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
@@ -1372,7 +1763,7 @@ fn git_search_paths(command: &SearchCommand) -> Result<Option<Vec<PathBuf>>> {
             &workdir,
             &output_root,
             scope,
-            command.ignored,
+            ignored,
             &mut paths,
         )?;
     }
@@ -1437,8 +1828,8 @@ fn collect_other_paths(
     Ok(())
 }
 
-fn has_git_selection_flags(command: &SearchCommand) -> bool {
-    command.cached || command.others || command.ignored
+fn has_git_selection_flags(cached: bool, others: bool, ignored: bool) -> bool {
+    cached || others || ignored
 }
 
 fn insert_scoped_file(

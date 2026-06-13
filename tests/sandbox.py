@@ -33,7 +33,7 @@ def main():
         fail_count += 1
         print(f"FAIL {name} -- {reason}")
 
-    def run(args):
+    def run(args, stdin=None):
         env = os.environ.copy()
         if sandbox_home is not None:
             env["HOME"] = sandbox_home
@@ -44,12 +44,13 @@ def main():
             [readseek_bin] + args,
             capture_output=True,
             env=env,
+            input=stdin,
             text=True,
             encoding="utf-8",
         )
 
-    def readseek_json(name, args):
-        result = run(args)
+    def readseek_json(name, args, stdin=None):
+        result = run(args, stdin=stdin)
         if result.returncode != 0:
             failed(name, f"expected status 0, got {result.returncode} stderr={result.stderr[:200]}")
             return None
@@ -555,14 +556,14 @@ def main():
                 language,
             )
 
-        name = "symbol: cached mapped address"
+        name = "symbol: cached mapped qualified name"
         path = os.path.join(tmpdir, "sample.ts")
         data = readseek_json(name, ["symbol", path, "Greeter.greet"])
         if data and all(
             [
                 assert_equal(name, data["symbol"].get("kind"), "method"),
                 assert_equal(name, data["symbol"].get("name"), "greet"),
-                assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
+                assert_equal(name, data["symbol"].get("qualified_name"), "Greeter.greet"),
             ]
         ):
             passed(name)
@@ -579,7 +580,7 @@ def main():
                 assert_equal(name, data.get("language"), "typescript"),
                 assert_equal(name, data["symbol"].get("kind"), "method"),
                 assert_equal(name, data["symbol"].get("name"), "greet"),
-                assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
+                assert_equal(name, data["symbol"].get("qualified_name"), "Greeter.greet"),
                 assert_equal(name, len(data.get("hashlines", [])), 3),
                 assert_equal(name, data["hashlines"][0].get("line"), 2),
             ]
@@ -597,8 +598,111 @@ def main():
         ):
             passed(name)
 
+        name = "file: stdin path"
+        data = readseek_json(
+            name,
+            ["file", "--stdin", "--path", "buffer.ts"],
+            stdin="class BufferGreeter {}\n",
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("file"), "buffer.ts"),
+                assert_equal(name, data.get("language"), "typescript"),
+                assert_equal(name, data.get("binary"), False),
+            ]
+        ):
+            passed(name)
+
+        name = "read: stdin path"
+        data = readseek_json(
+            name,
+            ["read", "--stdin", "--path", "buffer.ts", "--start", "2", "--end", "2"],
+            stdin="one\ntwo\nthree\n",
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("file"), "buffer.ts"),
+                assert_equal(name, data.get("start_line"), 2),
+                assert_equal(name, data.get("end_line"), 2),
+                assert_equal(name, data["hashlines"][0].get("text"), "two"),
+            ]
+        ):
+            passed(name)
+
+        buffer_source = "class BufferGreeter {\n  greet() { return 'hello'; }\n}\n"
+
+        name = "map: stdin path"
+        data = readseek_json(
+            name,
+            ["map", "--stdin", "--path", "buffer.ts"],
+            stdin=buffer_source,
+        )
+        if data:
+            symbols = data.get("symbols", [])
+            if all(
+                [
+                    assert_equal(name, data.get("file"), "buffer.ts"),
+                    assert_equal(name, data.get("language"), "typescript"),
+                    assert_symbol(name, symbols, "class", "BufferGreeter"),
+                    assert_symbol(name, symbols, "method", "greet"),
+                ]
+            ):
+                passed(name)
+
+        name = "symbol: stdin target line"
+        data = readseek_json(
+            name,
+            ["symbol", "--stdin", "--path", "buffer.ts", "--line", "2"],
+            stdin=buffer_source,
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("file"), "buffer.ts"),
+                assert_equal(name, data["symbol"].get("qualified_name"), "BufferGreeter.greet"),
+                assert_equal(name, data["hashlines"][0].get("line"), 2),
+            ]
+        ):
+            passed(name)
+
+        name = "identify: cursor identifier and symbol"
+        data = readseek_json(
+            name,
+            ["identify", "--stdin", "--path", "buffer.ts", "--line", "2", "--column", "3"],
+            stdin=buffer_source,
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("file"), "buffer.ts"),
+                assert_equal(name, data.get("line"), 2),
+                assert_equal(name, data.get("line_hash"), data["hashlines"][0].get("hash")),
+                assert_equal(name, data["identifier"].get("text"), "greet"),
+                assert_equal(name, data["identifier"].get("start_column"), 3),
+                assert_equal(name, data["identifier"].get("end_column"), 8),
+                assert_equal(name, data["symbol"].get("qualified_name"), "BufferGreeter.greet"),
+            ]
+        ):
+            passed(name)
+
+        name = "definition: project symbol lookup"
+        definitions_dir = os.path.join(tmpdir, "definitions")
+        os.mkdir(definitions_dir)
+        definition_path = write_file(definitions_dir, "defs.rs", "fn target() {}\nfn other() {}\n")
+        data = readseek_json(name, ["definition", definitions_dir, "target"])
+        if data:
+            definitions = data.get("definitions", [])
+            if all(
+                [
+                    assert_equal(name, len(definitions), 1),
+                    assert_equal(name, definitions[0].get("file"), definition_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "function"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "target"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 1),
+                ]
+            ):
+                passed(name)
+
         if os.name != "nt":
-            name = "symbol: colon filename with address argument"
+            name = "symbol: colon filename with qualified name argument"
             path = write_file(
                 tmpdir,
                 "colon:symbol.ts",
@@ -609,7 +713,7 @@ def main():
                 [
                     assert_equal(name, data.get("file"), path),
                     assert_equal(name, data["symbol"].get("kind"), "method"),
-                    assert_equal(name, data["symbol"].get("address"), "Greeter.greet"),
+                    assert_equal(name, data["symbol"].get("qualified_name"), "Greeter.greet"),
                 ]
             ):
                 passed(name)
