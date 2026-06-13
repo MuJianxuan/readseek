@@ -7,6 +7,7 @@
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use serde::{Serialize, Serializer};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::{env, process};
@@ -120,6 +121,7 @@ struct SymbolCommand {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "search")]
 #[argh(help_triggers("-h", "--help"))]
+#[allow(clippy::struct_excessive_bools)]
 struct SearchCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -132,6 +134,18 @@ struct SearchCommand {
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     language: Option<Language>,
+
+    /// search tracked/indexed files when searching a Git repository
+    #[argh(switch, short = 'c')]
+    cached: bool,
+
+    /// search untracked files when searching a Git repository
+    #[argh(switch, short = 'o')]
+    others: bool,
+
+    /// include ignored untracked files when searching a Git repository
+    #[argh(switch, short = 'i')]
+    ignored: bool,
 }
 
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
@@ -692,6 +706,7 @@ const XXHASH32_PRIME_5: u32 = 374_761_393;
 const HASHLINE_MODULUS: u32 = 0x1000;
 
 fn main() {
+    env_logger::init();
     if env::args_os().len() == 1 {
         match Cli::from_args(&["readseek"], &["--help"]) {
             Err(early_exit) => eprintln!("{}", early_exit.output),
@@ -1235,7 +1250,7 @@ fn symbol_output_for_symbol(source: &SourceFile, symbol: Symbol) -> Result<Symbo
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     let mut results = Vec::new();
 
-    for path in search_paths(&command.target)? {
+    for path in search_paths(command)? {
         let Some(result) = search_file(&path, command.language, &command.pattern)? else {
             continue;
         };
@@ -1247,21 +1262,143 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     Ok(SearchOutput { results })
 }
 
-fn search_paths(target: &Path) -> Result<Vec<PathBuf>> {
-    let metadata = fs::metadata(target).with_context(|| format!("stat {}", target.display()))?;
+fn search_paths(command: &SearchCommand) -> Result<Vec<PathBuf>> {
+    let metadata = fs::metadata(&command.target)
+        .with_context(|| format!("stat {}", command.target.display()))?;
     if metadata.is_file() {
-        return Ok(vec![target.to_path_buf()]);
+        return Ok(vec![command.target.clone()]);
     }
     if !metadata.is_dir() {
         bail!(
             "search target is not a file or directory: {}",
-            target.display()
+            command.target.display()
+        );
+    }
+
+    if let Some(paths) = git_search_paths(command)? {
+        return Ok(paths);
+    }
+
+    if has_git_selection_flags(command) {
+        log::debug!(
+            "ignoring Git file selection flags outside repository: {}",
+            command.target.display()
         );
     }
 
     let mut paths = Vec::new();
-    collect_search_paths(target, &mut paths)?;
+    collect_search_paths(&command.target, &mut paths)?;
     Ok(paths)
+}
+
+fn git_search_paths(command: &SearchCommand) -> Result<Option<Vec<PathBuf>>> {
+    let Ok(repository) = git2::Repository::discover(&command.target) else {
+        return Ok(None);
+    };
+
+    if command.ignored && !command.others {
+        bail!("--ignored requires --others");
+    }
+    let workdir = repository
+        .workdir()
+        .context("Git repository has no work tree")?;
+    let target = command
+        .target
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", command.target.display()))?;
+    let workdir = workdir
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", workdir.display()))?;
+    let scope = target
+        .strip_prefix(&workdir)
+        .with_context(|| format!("{} is outside Git work tree", target.display()))?;
+    let default_selection = !has_git_selection_flags(command);
+    let cached = command.cached || default_selection;
+    let others = command.others || default_selection;
+
+    let mut paths = BTreeSet::new();
+    if cached {
+        collect_cached_paths(&repository, &workdir, scope, &mut paths)?;
+    }
+    if others {
+        collect_other_paths(&repository, &workdir, scope, command.ignored, &mut paths)?;
+    }
+
+    Ok(Some(paths.into_iter().collect()))
+}
+
+fn collect_cached_paths(
+    repository: &git2::Repository,
+    workdir: &Path,
+    scope: &Path,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let index = repository.index().context("read Git index")?;
+    for entry in index.iter() {
+        let relative = git_path(&entry.path)?;
+        insert_scoped_file(workdir, scope, &relative, paths);
+    }
+
+    Ok(())
+}
+
+fn collect_other_paths(
+    repository: &git2::Repository,
+    workdir: &Path,
+    scope: &Path,
+    ignored: bool,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let mut options = git2::StatusOptions::new();
+    options.include_untracked(true).recurse_untracked_dirs(true);
+    if ignored {
+        options.include_ignored(true).recurse_ignored_dirs(true);
+    }
+
+    for entry in repository.statuses(Some(&mut options))?.iter() {
+        let status = entry.status();
+        let include = status.contains(git2::Status::WT_NEW)
+            || (ignored && status.contains(git2::Status::IGNORED));
+        if !include {
+            continue;
+        }
+
+        let Some(relative) = entry.path().map(PathBuf::from) else {
+            continue;
+        };
+        insert_scoped_file(workdir, scope, &relative, paths);
+    }
+
+    Ok(())
+}
+
+fn has_git_selection_flags(command: &SearchCommand) -> bool {
+    command.cached || command.others || command.ignored
+}
+
+fn insert_scoped_file(
+    workdir: &Path,
+    scope: &Path,
+    relative: &Path,
+    paths: &mut BTreeSet<PathBuf>,
+) {
+    if !path_is_in_scope(relative, scope) {
+        return;
+    }
+
+    let path = workdir.join(relative);
+    if path.is_file() {
+        paths.insert(path);
+    }
+}
+
+fn git_path(path: &[u8]) -> Result<PathBuf> {
+    let path = std::str::from_utf8(path).context("Git index path is not UTF-8")?;
+    Ok(PathBuf::from(path))
+}
+
+fn path_is_in_scope(path: &Path, scope: &Path) -> bool {
+    scope.as_os_str().is_empty() || path.starts_with(scope)
 }
 
 fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {

@@ -33,6 +33,9 @@ readseek \- hashline and structural source read tool
 .P
 .B readseek
 \fBsearch\fR
+[\fB-c\fR|\fB--cached\fR]
+[\fB-o\fR|\fB--others\fR]
+[\fB-i\fR|\fB--ignored\fR]
 [\fB--language=\fR\fIlanguage\fR]
 \fItarget\fR
 \fIpattern\fR
@@ -81,7 +84,9 @@ an address argument, a target symbol suffix, or a target line/hash suffix.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file under a
-directory. Unparseable files are skipped.
+directory. Unparseable files are skipped. Directory searches inside Git
+repositories use Git-style file selection by default: tracked files plus
+untracked, non-ignored files.
 Output is grouped by file and includes file hash, matches, captures, boundary
 line hashes, and hashlines for matched ranges.
 .SS Options
@@ -148,6 +153,24 @@ Alias for
 \fB--limit=\fR\fIn\fR
 Maximum number of lines to include for
 .BR read .
+.TP
+\fB-c\fR, \fB--cached\fR
+For
+.BR search
+on a directory inside a Git repository, search tracked/indexed files.
+.TP
+\fB-o\fR, \fB--others\fR
+For
+.BR search
+on a directory inside a Git repository, search untracked non-ignored files.
+.TP
+\fB-i\fR, \fB--ignored\fR
+For
+.BR search
+with
+.BR --others ,
+include ignored untracked files. Outside Git repositories, Git file selection
+flags are ignored and directory search falls back to normal recursive traversal.
 .SH EXIT STATUS
 .TP
 0
@@ -192,6 +215,14 @@ Read the symbol containing a line:
 Search C++ function definitions:
 .br
 .B "  readseek search src 'int $NAME() { return $VALUE; }' --language cpp"
+.P
+Search tracked files in a Git repository:
+.br
+.B "  readseek search -c src 'fn $NAME() { $$$BODY }' --language rust"
+.P
+Search untracked files, including ignored files:
+.br
+.B "  readseek search -o -i . 'fn $NAME() { $$$BODY }' --language rust"
 .SH BUILDING
 See
 .B README.md

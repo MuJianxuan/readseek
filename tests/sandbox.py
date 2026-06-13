@@ -82,6 +82,19 @@ def main():
             return False
         return True
 
+    def git(directory, args):
+        result = subprocess.run(
+            ["git", "-C", directory] + args,
+            capture_output=True,
+            env=os.environ.copy(),
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr[:200]}")
+
+    def result_files(data):
+        return sorted(result.get("file") for result in data.get("results", []))
+
     def assert_symbol(name, symbols, kind, symbol_name):
         if any(symbol.get("kind") == kind and symbol.get("name") == symbol_name for symbol in symbols):
             return True
@@ -409,6 +422,60 @@ def main():
                 ]
             ):
                 passed(name)
+
+        git_dir = os.path.join(tmpdir, "git-search")
+        os.makedirs(git_dir)
+        subprocess.run(["git", "init"], check=True, capture_output=True, cwd=git_dir, text=True)
+        tracked = write_file(git_dir, "tracked.rs", "fn marker() { let git = \"tracked\"; }\n")
+        untracked = write_file(git_dir, "untracked.rs", "fn marker() { let git = \"untracked\"; }\n")
+        ignored = write_file(git_dir, "ignored.rs", "fn marker() { let git = \"ignored\"; }\n")
+        write_file(git_dir, ".gitignore", "ignored.rs\n")
+        git(git_dir, ["add", "tracked.rs", ".gitignore"])
+
+        git_cases = [
+            ("search git: default", [], [tracked, untracked]),
+            ("search git: cached", ["--cached"], [tracked]),
+            ("search git: cached short", ["-c"], [tracked]),
+            ("search git: others", ["--others"], [untracked]),
+            ("search git: others short", ["-o"], [untracked]),
+            (
+                "search git: others ignored short",
+                ["-o", "-i"],
+                [ignored, untracked],
+            ),
+            (
+                "search git: others ignored",
+                ["--others", "--ignored"],
+                [ignored, untracked],
+            ),
+        ]
+        for case_name, options, expected in git_cases:
+            data = readseek_json(
+                case_name,
+                ["search"] + options + [git_dir, "fn marker() { let git = $VALUE; }"],
+            )
+            if data and assert_equal(case_name, result_files(data), sorted(expected)):
+                passed(case_name)
+
+        name = "search git: explicit ignored file"
+        data = readseek_json(name, ["search", ignored, "fn marker() { let git = $VALUE; }"])
+        if data and assert_equal(name, result_files(data), [ignored]):
+            passed(name)
+
+        name = "search non-git: git flags fall back"
+        non_git_dir = os.path.join(tmpdir, "non-git-search")
+        os.makedirs(non_git_dir)
+        non_git_file = write_file(
+            non_git_dir,
+            "plain.rs",
+            "fn marker() { let git = \"plain\"; }\n",
+        )
+        data = readseek_json(
+            name,
+            ["search", "-c", "-o", "-i", non_git_dir, "fn marker() { let git = $VALUE; }"],
+        )
+        if data and assert_equal(name, result_files(data), [non_git_file]):
+            passed(name)
 
         expect_mapped_symbol(
             "map: makefile target",

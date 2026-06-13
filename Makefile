@@ -7,7 +7,7 @@ MANDIR ?= $(PREFIX)/share/man
 CARGO ?= cargo
 INSTALL ?= install
 
-.PHONY: all check clippy install clean
+.PHONY: all check clippy install uninstall clean
 
 all:
 	$(CARGO) build
@@ -24,6 +24,9 @@ install:
 	$(INSTALL) -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MANDIR)/man1"
 	$(INSTALL) -m 755 target/release/readseek "$(DESTDIR)$(BINDIR)/readseek"
 	$(INSTALL) -m 644 man/man1/readseek.1 "$(DESTDIR)$(MANDIR)/man1/readseek.1"
+
+uninstall:
+	$(RM) "$(DESTDIR)$(BINDIR)/readseek" "$(DESTDIR)$(MANDIR)/man1/readseek.1"
 
 clean:
 	$(CARGO) clean
