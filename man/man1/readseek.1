@@ -28,6 +28,10 @@ readseek \- structural source reader with stable line hashes
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
 
+\fBreadseek references\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+    \fItarget\fR \fIname\fR
+
 \fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIpattern\fR
@@ -37,7 +41,7 @@ readseek \- structural source reader with stable line hashes
 reads source files and emits pretty-printed JSON for tools that need stable,
 line-addressable source context. It can detect file languages, return hashed
 line ranges, build structural source maps, read symbols, identify cursor
-context, find definitions, and run AST pattern searches.
+context, find definitions and references, and run AST pattern searches.
 .PP
 Source-bearing output uses
 .I hashlines:
@@ -192,6 +196,13 @@ argument matches either a full qualified symbol name or an unqualified name. Dir
 traversal uses the same file selection rules as
 .BR search .
 .TP
+.B references
+Find whole-identifier references in a file or directory. Output is a flat list
+of locations with file, line, column, line hash, line text, and the enclosing
+mapped symbol when available. Directory traversal uses the same file selection
+rules as
+.BR search .
+.TP
 .B search
 Run an AST pattern against a file or every supported source file below a
 directory. Unparseable and unsupported files are skipped. Pattern variables use
@@ -273,7 +284,8 @@ requires
 .BR --others .
 .SH DIRECTORY SEARCH
 The
-.B definition
+.BR definition ,
+.BR references ,
 and
 .B search
 commands accept either a file or a directory. A file target is searched
@@ -363,6 +375,12 @@ Find definitions in tracked files:
 .PP
 .EX
 readseek definition -c src run --language rust
+.EE
+.PP
+Find references in tracked files:
+.PP
+.EX
+readseek references -c src run --language rust
 .EE
 .PP
 Search Rust functions with an AST pattern:

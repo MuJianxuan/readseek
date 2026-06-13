@@ -711,6 +711,36 @@ def main():
             ):
                 passed(name)
 
+        name = "references: project identifier lookup"
+        references_dir = os.path.join(tmpdir, "references")
+        os.mkdir(references_dir)
+        reference_path = write_file(
+            references_dir,
+            "refs.rs",
+            "fn target() {}\nfn caller() {\n  target();\n  let target_value = 1;\n}\n",
+        )
+        data = readseek_json(name, ["references", references_dir, "target"])
+        if data:
+            references = data.get("references", [])
+            if all(
+                [
+                    assert_equal(name, len(references), 2),
+                    assert_equal(name, references[0].get("file"), reference_path),
+                    assert_equal(name, references[0].get("line"), 1),
+                    assert_equal(name, references[0].get("column"), 4),
+                    assert_equal(name, references[0].get("text"), "fn target() {}"),
+                    assert_equal(name, references[1].get("file"), reference_path),
+                    assert_equal(name, references[1].get("line"), 3),
+                    assert_equal(name, references[1].get("column"), 3),
+                    assert_equal(
+                        name,
+                        references[1].get("symbol", {}).get("qualified_name"),
+                        "caller",
+                    ),
+                ]
+            ):
+                passed(name)
+
         if os.name != "nt":
             name = "symbol: colon filename with qualified name argument"
             path = write_file(

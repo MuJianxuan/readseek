@@ -41,6 +41,7 @@ enum Command {
     Symbol(SymbolCommand),
     Identify(IdentifyCommand),
     Definition(DefinitionCommand),
+    References(ReferencesCommand),
     Search(SearchCommand),
 }
 
@@ -192,6 +193,36 @@ struct DefinitionCommand {
     target: PathBuf,
 
     /// qualified symbol name or unqualified name
+    #[argh(positional)]
+    name: String,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    language: Option<Language>,
+
+    /// search tracked/indexed files when searching a Git repository
+    #[argh(switch, short = 'c')]
+    cached: bool,
+
+    /// search untracked files when searching a Git repository
+    #[argh(switch, short = 'o')]
+    others: bool,
+
+    /// include ignored untracked files when searching a Git repository
+    #[argh(switch, short = 'i')]
+    ignored: bool,
+}
+
+/// find identifier references
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "references")]
+#[argh(help_triggers("-h", "--help"))]
+struct ReferencesCommand {
+    /// file or directory to search
+    #[argh(positional)]
+    target: PathBuf,
+
+    /// identifier to search for
     #[argh(positional)]
     name: String,
 
@@ -744,6 +775,23 @@ struct DefinitionLocation {
 }
 
 #[derive(Debug, Serialize)]
+struct ReferencesOutput {
+    references: Vec<ReferenceLocation>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReferenceLocation {
+    file: PathBuf,
+    language: Language,
+    file_hash: String,
+    line: usize,
+    column: usize,
+    line_hash: String,
+    text: String,
+    symbol: Option<Symbol>,
+}
+
+#[derive(Debug, Serialize)]
 struct SearchOutput {
     results: Vec<SearchFileOutput>,
 }
@@ -980,6 +1028,9 @@ fn run() -> Result<()> {
         }
         Command::Definition(command) => {
             print_json(&definition_output(&command)?)?;
+        }
+        Command::References(command) => {
+            print_json(&references_output(&command)?)?;
         }
         Command::Search(command) => {
             print_json(&search_output(&command)?)?;
@@ -1637,12 +1688,16 @@ fn is_identifier_byte(byte: u8) -> bool {
 
 fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {
     let source_map = source_map(source)?;
-    Ok(source_map
+    Ok(symbol_at_line_in_map(&source_map, line))
+}
+
+fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Option<Symbol> {
+    source_map
         .symbols
         .iter()
         .filter(|symbol| symbol.start_line <= line && line <= symbol.end_line)
         .min_by_key(|symbol| symbol.end_line - symbol.start_line)
-        .cloned())
+        .cloned()
 }
 
 fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
@@ -1672,6 +1727,83 @@ fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
     }
 
     Ok(DefinitionOutput { definitions })
+}
+
+fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {
+    validate_reference_name(&command.name)?;
+    let mut references = Vec::new();
+    for path in command_paths(
+        &command.target,
+        command.cached,
+        command.others,
+        command.ignored,
+    )? {
+        let Ok(source) = load_source(&path, command.language, BinaryMode::Reject) else {
+            continue;
+        };
+        references.extend(references_in_source(&source, &command.name));
+    }
+
+    Ok(ReferencesOutput { references })
+}
+
+fn validate_reference_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("reference name must not be empty");
+    }
+    if !name.bytes().all(is_identifier_byte) {
+        bail!("reference name must be an ASCII identifier");
+    }
+    Ok(())
+}
+
+fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocation> {
+    let source_map = source_map(source).ok();
+    let mut references = Vec::new();
+    for line in &source.lines {
+        let columns = reference_columns(&line.text, name);
+        if columns.is_empty() {
+            continue;
+        }
+        let symbol = source_map
+            .as_ref()
+            .and_then(|source_map| symbol_at_line_in_map(source_map, line.number));
+        for column in columns {
+            references.push(ReferenceLocation {
+                file: source.path.clone(),
+                language: source.detection.language,
+                file_hash: source.file_hash.clone(),
+                line: line.number,
+                column,
+                line_hash: line.hash.clone(),
+                text: line.text.clone(),
+                symbol: symbol.clone(),
+            });
+        }
+    }
+    references
+}
+
+fn reference_columns(text: &str, name: &str) -> Vec<usize> {
+    let bytes = text.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut columns = Vec::new();
+    let Some(last_start) = bytes.len().checked_sub(name_bytes.len()) else {
+        return columns;
+    };
+
+    for index in 0..=last_start {
+        if &bytes[index..index + name_bytes.len()] != name_bytes {
+            continue;
+        }
+        let before = index.checked_sub(1).map(|before_index| bytes[before_index]);
+        let after = bytes.get(index + name_bytes.len()).copied();
+        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
+            continue;
+        }
+        columns.push(index + 1);
+    }
+    columns
 }
 
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
