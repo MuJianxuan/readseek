@@ -237,6 +237,22 @@ jobs:
             rust:1.85-alpine sh -euxc '
               apk add --no-cache build-base openssl-dev openssl-libs-static pkgconf
               rustup target add x86_64-unknown-linux-musl
+              cargo fetch --target x86_64-unknown-linux-musl
+              meson_build_rs="$(find /usr/local/cargo/registry/src -path "*/arborium-meson-2.18.0/build.rs" -print -quit)"
+              awk "
+                /if target\\.contains\\(\\\"wasm\\\"\\)/ {
+                  print \"    if target.contains(\\\"wasm\\\") {\"
+                  print \"        if let Ok(sysroot) = std::env::var(\\\"DEP_ARBORIUM_SYSROOT_PATH\\\") {\"
+                  getline
+                  getline
+                  getline
+                  print
+                  print \"        }\"
+                  next
+                }
+                { print }
+              " "$meson_build_rs" > "$meson_build_rs.tmp"
+              mv "$meson_build_rs.tmp" "$meson_build_rs"
               OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
                 cargo build --release --target x86_64-unknown-linux-musl
               chown -R "$HOST_UID:$HOST_GID" target
