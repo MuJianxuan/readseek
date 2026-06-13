@@ -611,6 +611,7 @@ struct SearchPattern {
 #[derive(Clone, Debug)]
 struct SearchCaptureRange {
     name: String,
+    text: String,
     start_line: usize,
     end_line: usize,
 }
@@ -1417,11 +1418,10 @@ fn nodes_match(
     if let Some(meta) = pattern_meta(pattern, pattern_node) {
         if meta.kind == PatternMetaKind::Single {
             let (start_line, end_line) = node_line_range(source_node);
-            captures.push(SearchCaptureRange {
-                name: meta.name.clone(),
-                start_line,
-                end_line,
-            });
+            let Some(text) = node_text(source_node, &source.text) else {
+                return false;
+            };
+            return bind_capture(captures, &meta.name, text, start_line, end_line);
         }
         return true;
     }
@@ -1467,13 +1467,19 @@ fn child_nodes_match(
         for count in 0..=source_children.len().saturating_sub(source_index) {
             let mut trial_captures = captures.clone();
             if count > 0 {
-                let (start_line, _) = node_line_range(source_children[source_index]);
-                let (_, end_line) = node_line_range(source_children[source_index + count - 1]);
-                trial_captures.push(SearchCaptureRange {
-                    name: meta.name.clone(),
-                    start_line,
-                    end_line,
-                });
+                let start_node = source_children[source_index];
+                let end_node = source_children[source_index + count - 1];
+                let (start_line, _) = node_line_range(start_node);
+                let (_, end_line) = node_line_range(end_node);
+                let Some(text) = source
+                    .text
+                    .get(start_node.start_byte()..end_node.end_byte())
+                else {
+                    continue;
+                };
+                if !bind_capture(&mut trial_captures, &meta.name, text, start_line, end_line) {
+                    continue;
+                }
             }
             if child_nodes_match(
                 source,
@@ -1518,6 +1524,29 @@ fn child_nodes_match(
     }
 
     *captures = trial_captures;
+    true
+}
+
+fn bind_capture(
+    captures: &mut Vec<SearchCaptureRange>,
+    name: &str,
+    text: &str,
+    start_line: usize,
+    end_line: usize,
+) -> bool {
+    if captures
+        .iter()
+        .any(|capture| capture.name == name && capture.text != text)
+    {
+        return false;
+    }
+
+    captures.push(SearchCaptureRange {
+        name: name.to_owned(),
+        text: text.to_owned(),
+        start_line,
+        end_line,
+    });
     true
 }
 

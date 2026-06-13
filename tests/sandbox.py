@@ -364,6 +364,33 @@ def main():
             ):
                 passed(name)
 
+        name = "search: repeated metavariable"
+        path = write_file(
+            search_dir,
+            "repeated.cpp",
+            "int same(int value) { return value + value; }\n"
+            "int different(int value) { return value + other; }\n",
+        )
+        data = readseek_json(
+            name,
+            [
+                "search",
+                path,
+                "int $NAME(int $X) { return $X + $X; }",
+            ],
+        )
+        if data:
+            results = data.get("results", [])
+            matches = results[0].get("matches", []) if results else []
+            if all(
+                [
+                    assert_equal(name, len(results), 1),
+                    assert_equal(name, len(matches), 1),
+                    assert_equal(name, matches[0].get("start_line"), 1),
+                ]
+            ):
+                passed(name)
+
         expect_mapped_symbol(
             "map: makefile target",
             "Makefile",
