@@ -48,6 +48,7 @@ pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::La
         Language::Cpp => tree_sitter_cpp_language,
         Language::CSharp => tree_sitter_csharp_language,
         Language::Css => tree_sitter_css_language,
+        Language::Dockerfile => tree_sitter_dockerfile_language,
         Language::Go => tree_sitter_go_language,
         Language::Gdscript => tree_sitter_gdscript_language,
         Language::Java => tree_sitter_java_language,
@@ -59,9 +60,12 @@ pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::La
         Language::Just => tree_sitter_just_language,
         Language::Kconfig => tree_sitter_kconfig_language,
         Language::Latex => tree_sitter_latex_language,
+        Language::Lua => tree_sitter_lua_language,
         Language::Make => tree_sitter_make_language,
         Language::Markdown => tree_sitter_markdown_language,
         Language::Meson => tree_sitter_meson_language,
+        Language::Nix => tree_sitter_nix_language,
+        Language::Perl => tree_sitter_perl_language,
         Language::Python => tree_sitter_python_language,
         Language::Php => tree_sitter_php_language,
         Language::Puppet => tree_sitter_puppet_language,
@@ -74,6 +78,7 @@ pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::La
         Language::TypeScript => tree_sitter_typescript_language,
         Language::Tsx => tree_sitter_tsx_language,
         Language::Toml => tree_sitter_toml_language,
+        Language::Zig => tree_sitter_zig_language,
         Language::Unknown => return None,
     };
 
@@ -101,6 +106,10 @@ fn tree_sitter_csharp_language() -> tree_sitter::Language {
 
 fn tree_sitter_css_language() -> tree_sitter::Language {
     tree_sitter_css::LANGUAGE.into()
+}
+
+fn tree_sitter_dockerfile_language() -> tree_sitter::Language {
+    tree_sitter_containerfile::LANGUAGE.into()
 }
 
 fn tree_sitter_go_language() -> tree_sitter::Language {
@@ -147,6 +156,10 @@ fn tree_sitter_latex_language() -> tree_sitter::Language {
     codebook_tree_sitter_latex::LANGUAGE.into()
 }
 
+fn tree_sitter_lua_language() -> tree_sitter::Language {
+    tree_sitter_lua::LANGUAGE.into()
+}
+
 fn tree_sitter_make_language() -> tree_sitter::Language {
     tree_sitter_make::LANGUAGE.into()
 }
@@ -157,6 +170,14 @@ fn tree_sitter_markdown_language() -> tree_sitter::Language {
 
 fn tree_sitter_meson_language() -> tree_sitter::Language {
     arborium_meson::language().into()
+}
+
+fn tree_sitter_nix_language() -> tree_sitter::Language {
+    tree_sitter_nix::LANGUAGE.into()
+}
+
+fn tree_sitter_perl_language() -> tree_sitter::Language {
+    ts_parser_perl::LANGUAGE.into()
 }
 
 fn tree_sitter_php_language() -> tree_sitter::Language {
@@ -207,6 +228,10 @@ fn tree_sitter_toml_language() -> tree_sitter::Language {
     tree_sitter_toml_ng::LANGUAGE.into()
 }
 
+fn tree_sitter_zig_language() -> tree_sitter::Language {
+    tree_sitter_zig::LANGUAGE.into()
+}
+
 fn collect_symbols(
     node: Node<'_>,
     source: &str,
@@ -242,11 +267,15 @@ fn language_has_symbols(language: Language) -> bool {
         language,
         Language::Assembly
             | Language::Css
+            | Language::Dockerfile
             | Language::Html
             | Language::Gdscript
             | Language::Json
             | Language::Latex
+            | Language::Lua
             | Language::Meson
+            | Language::Nix
+            | Language::Perl
             | Language::Puppet
             | Language::Riscv
             | Language::Sql
@@ -254,6 +283,7 @@ fn language_has_symbols(language: Language) -> bool {
             | Language::Typst
             | Language::Toml
             | Language::Yaml
+            | Language::Zig
             | Language::Unknown
     )
 }
@@ -288,11 +318,15 @@ fn symbol_for_node(
         Language::Swift => swift_symbol(node, source),
         Language::Assembly
         | Language::Css
+        | Language::Dockerfile
         | Language::Html
         | Language::Gdscript
         | Language::Json
         | Language::Latex
+        | Language::Lua
         | Language::Meson
+        | Language::Nix
+        | Language::Perl
         | Language::Puppet
         | Language::Riscv
         | Language::Sql
@@ -300,6 +334,7 @@ fn symbol_for_node(
         | Language::Typst
         | Language::Toml
         | Language::Yaml
+        | Language::Zig
         | Language::Unknown => unreachable!(),
     }?;
 

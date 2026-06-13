@@ -134,6 +134,12 @@ def main():
         ):
             passed(name)
 
+    def expect_mapped_language(name, file_name, contents, language):
+        path = write_file(tmpdir, file_name, contents)
+        data = readseek_json(name, ["map", path])
+        if data and assert_equal(name, data.get("language"), language):
+            passed(name)
+
     with tempfile.TemporaryDirectory() as tmpdir:
         sandbox_home = os.path.join(tmpdir, "home")
         os.mkdir(sandbox_home)
@@ -520,10 +526,30 @@ def main():
             ("json", "sample.json", "{\"name\": \"sample\"}\n"),
             ("yaml", "sample.yaml", "name: sample\n"),
             ("puppet", "site.pp", "class profile::sample {}\n"),
+            ("dockerfile", "Dockerfile", "FROM alpine:3.20\nRUN echo hello\n"),
+            ("nix", "flake.nix", "{ description = \"sample\"; }\n"),
+            ("lua", "sample.lua", "function greet()\n  return 'hello'\nend\n"),
+            ("perl", "sample.pl", "sub greet { return \"hello\"; }\n"),
+            ("zig", "sample.zig", "pub fn main() void {}\n"),
         ]
         for language, file_name, contents in supported_files:
             expect_supported_file(
                 f"file: {language}",
+                file_name,
+                contents,
+                language,
+            )
+
+        mapped_languages = [
+            ("dockerfile", "Containerfile", "FROM alpine:3.20\nRUN echo hello\n"),
+            ("nix", "parser.nix", "{ packages.default = null; }\n"),
+            ("lua", "parser.lua", "function greet()\n  return 'hello'\nend\n"),
+            ("perl", "parser.pl", "sub greet { return \"hello\"; }\n"),
+            ("zig", "parser.zig", "pub fn main() void {}\n"),
+        ]
+        for language, file_name, contents in mapped_languages:
+            expect_mapped_language(
+                f"map: {language} parser",
                 file_name,
                 contents,
                 language,

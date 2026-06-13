@@ -3,7 +3,7 @@
 - `readseek` is a structural source reader with stable line hashes.
 - `readseek` is inspired by and based on the ideas of
   [`pi-hashline-readmap`](https://github.com/coctostan/pi-hashline-readmap).
-- [`readseek.1`](man/man1/readseek.1) provides further information on its usage.
+- `man man/man1/readseek.1` provides further information on its usage.
 
 ## Licensing
 
