@@ -722,6 +722,39 @@ def main():
             ):
                 passed(name)
 
+        name = "definition: C typedef lookup"
+        typedef_path = write_file(
+            definitions_dir,
+            "defs.h",
+            "typedef unsigned int __u32;\ntypedef __u32 u32;\n__extension__ typedef unsigned long long __u64;\n",
+        )
+        data = readseek_json(name, ["definition", definitions_dir, "u32"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, len(definitions), 1) and all(
+                [
+                    assert_equal(name, definitions[0].get("file"), typedef_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "type"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "u32"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 2),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: C extension typedef lookup"
+        data = readseek_json(name, ["definition", definitions_dir, "__u64"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, len(definitions), 1) and all(
+                [
+                    assert_equal(name, definitions[0].get("file"), typedef_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "type"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "__u64"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 3),
+                ]
+            ):
+                passed(name)
+
         name = "definition: compact locations"
         data = readseek_json(name, ["definition", "--compact", definitions_dir, "target"])
         if data:

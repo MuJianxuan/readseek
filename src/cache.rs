@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-const DB_SCHEMA_VERSION: i64 = 2;
+const DB_SCHEMA_VERSION: i64 = 3;
 
 pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
     let Some(mut connection) = connection()? else {
@@ -260,7 +260,7 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
         return Ok(());
     }
 
-    connection.execute_batch(
+    connection.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS map_cache (
             id INTEGER PRIMARY KEY,
             cache_version INTEGER NOT NULL,
@@ -284,8 +284,8 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS map_symbols_address_idx ON map_symbols(cache_id, address);
         CREATE INDEX IF NOT EXISTS map_symbols_name_idx ON map_symbols(cache_id, name);
         CREATE INDEX IF NOT EXISTS map_symbols_line_idx ON map_symbols(cache_id, start_line, end_line);
-        PRAGMA user_version = 2;",
-    )?;
+        PRAGMA user_version = {DB_SCHEMA_VERSION};"
+    ))?;
 
     Ok(())
 }

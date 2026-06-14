@@ -502,11 +502,96 @@ fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
         "namespace_definition" => named_symbol(node, source, "name", "namespace"),
+        "declaration" | "type_definition" => c_typedef_symbol(node, source),
         "preproc_def" | "preproc_function_def" => {
             descendant_identifier(node, source).map(|name| ("macro".to_owned(), name))
         }
         _ => None,
     }
+}
+
+fn c_typedef_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+    let text = node.utf8_text(source.as_bytes()).ok()?;
+    if !contains_word(text, "typedef") {
+        return None;
+    }
+
+    let name = node
+        .child_by_field_name("declarator")
+        .and_then(|declarator| declarator_identifier(declarator, source))
+        .or_else(|| last_identifier(text))?;
+
+    Some(("type".to_owned(), name))
+}
+
+fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
+    if matches!(
+        node.kind(),
+        "identifier" | "type_identifier" | "field_identifier"
+    ) {
+        return node
+            .utf8_text(source.as_bytes())
+            .ok()
+            .map(ToOwned::to_owned);
+    }
+
+    let mut cursor = node.walk();
+    let children = node.named_children(&mut cursor).collect::<Vec<_>>();
+    for child in children.into_iter().rev() {
+        if let Some(name) = declarator_identifier(child, source) {
+            return Some(name);
+        }
+    }
+
+    None
+}
+
+fn contains_word(text: &str, word: &str) -> bool {
+    let bytes = text.as_bytes();
+    let word = word.as_bytes();
+    let Some(last_start) = bytes.len().checked_sub(word.len()) else {
+        return false;
+    };
+
+    for index in 0..=last_start {
+        if &bytes[index..index + word.len()] != word {
+            continue;
+        }
+        let before = index.checked_sub(1).map(|before_index| bytes[before_index]);
+        let after = bytes.get(index + word.len()).copied();
+        if before.is_some_and(is_c_identifier_byte) || after.is_some_and(is_c_identifier_byte) {
+            continue;
+        }
+        return true;
+    }
+
+    false
+}
+
+fn last_identifier(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut index = bytes.len();
+    while index > 0 {
+        index -= 1;
+        if !is_c_identifier_byte(bytes[index]) {
+            continue;
+        }
+
+        let end = index + 1;
+        while index > 0 && is_c_identifier_byte(bytes[index - 1]) {
+            index -= 1;
+        }
+        if bytes[index].is_ascii_digit() {
+            continue;
+        }
+        return text.get(index..end).map(ToOwned::to_owned);
+    }
+
+    None
+}
+
+fn is_c_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn csharp_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
@@ -658,4 +743,50 @@ fn line_hash(lines: &[SourceLine], line: usize) -> Option<String> {
     lines
         .get(line.checked_sub(1)?)
         .map(|line| line.hash.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Detection, DocumentKind};
+    use std::path::PathBuf;
+
+    #[test]
+    fn c_typedefs_are_symbols() {
+        let text = "typedef unsigned int __u32;\ntypedef __u32 u32;\n".to_owned();
+        let source = SourceFile {
+            path: PathBuf::from("defs.h"),
+            text,
+            kind: DocumentKind::Source,
+            detection: Detection {
+                file: PathBuf::from("defs.h"),
+                language: Language::C,
+                supported: true,
+                binary: false,
+                mime: None,
+                syntax: None,
+            },
+            lines: vec![
+                SourceLine {
+                    number: 1,
+                    text: "typedef unsigned int __u32;".to_owned(),
+                    hash: "1".to_owned(),
+                },
+                SourceLine {
+                    number: 2,
+                    text: "typedef __u32 u32;".to_owned(),
+                    hash: "2".to_owned(),
+                },
+            ],
+            file_hash: "hash".to_owned(),
+        };
+
+        let source_map = parse_source_map(&source).unwrap();
+        assert!(
+            source_map
+                .symbols
+                .iter()
+                .any(|symbol| symbol.kind == "type" && symbol.name == "u32")
+        );
+    }
 }

@@ -1827,7 +1827,7 @@ fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
             continue;
         };
         for symbol in source_map.symbols {
-            if symbol.address != name && symbol.name != name {
+            if symbol.address != name && symbol.name != search_name {
                 continue;
             }
             let line = source
