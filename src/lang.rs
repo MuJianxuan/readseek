@@ -13,7 +13,7 @@ fn cached_syntax_set() -> &'static SyntaxSet {
     SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
 }
 
-#[repr(u32)]
+#[repr(u16)]
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
 pub(crate) enum Language {
@@ -59,16 +59,16 @@ pub(crate) enum Language {
     Unknown = 39,
 }
 
-impl From<Language> for u32 {
+impl From<Language> for u16 {
     fn from(language: Language) -> Self {
-        language as u32
+        language as u16
     }
 }
 
-impl TryFrom<u32> for Language {
+impl TryFrom<u16> for Language {
     type Error = anyhow::Error;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Assembly),
             1 => Ok(Self::C),

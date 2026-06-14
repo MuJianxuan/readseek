@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use crc::CRC_32_ISO_HDLC;
 use rayon::prelude::*;
 use std::fs;
+use std::mem::offset_of;
 use std::path::{Path, PathBuf};
 use zerocopy::byteorder::{LittleEndian, U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -16,12 +17,13 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 const READSEEK_DIR: &str = ".readseek";
 const MAPS_DIR: &str = "maps";
 const MAGIC: [u8; 4] = *b"RSMP";
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 4;
 
 const HEADER_SIZE: usize = size_of::<Header>();
-const SYM_ENTRY_SIZE: usize = 32;
+const SYM_ENTRY_SIZE: usize = size_of::<SymEntry>();
 const BLAKE3_RAW_LEN: usize = 32;
 const ENGINE_TAG_NONE: u8 = 0xff;
+const CHECKSUM_OFFSET: usize = offset_of!(Header, checksum);
 
 const _: () = assert!(
     crate::hash::HASHLINE_MODULUS <= 0x10000,
@@ -33,17 +35,17 @@ const _: () = assert!(
 struct Header {
     magic: [u8; 4],
     version: U32<LittleEndian>,
-    lang_tag: U32<LittleEndian>,
-    engine_tag: u8,
-    _pad0: [u8; 3],
     sym_count: U32<LittleEndian>,
     strtab_sz: U32<LittleEndian>,
     file_hash: [u8; BLAKE3_RAW_LEN],
     checksum: U32<LittleEndian>,
+    lang_tag: U16<LittleEndian>,
+    engine_tag: u8,
+    _reserved: [u8; 9],
 }
 
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-#[repr(C, align(8))]
+#[repr(C)]
 struct SymEntry {
     kind_off: U32<LittleEndian>,
     name_off: U32<LittleEndian>,
@@ -52,11 +54,16 @@ struct SymEntry {
     end_line: U32<LittleEndian>,
     kind_len: U16<LittleEndian>,
     name_len: U16<LittleEndian>,
-    qname_len: U16<LittleEndian>,
     start_hash: U16<LittleEndian>,
     end_hash: U16<LittleEndian>,
-    _tail_pad: [u8; 2],
+    _reserved: [u8; 2],
 }
+
+const _: () = assert!(size_of::<Header>() == 64, "Header must be exactly 64 bytes");
+const _: () = assert!(
+    size_of::<SymEntry>() == 30,
+    "SymEntry must be exactly 30 bytes",
+);
 
 #[derive(Debug)]
 pub(crate) struct UpdateStats {
@@ -210,6 +217,22 @@ pub(crate) fn load_map(
     }
 
     let strtab_sz = header.strtab_sz.get() as usize;
+
+    let sym_total = sym_count
+        .checked_mul(SYM_ENTRY_SIZE)
+        .context("sym_count overflow")?;
+    let expected = HEADER_SIZE
+        .checked_add(sym_total)
+        .and_then(|v| v.checked_add(strtab_sz))
+        .context("map size overflow")?;
+    if data.len() != expected {
+        bail!(
+            "invalid map: buffer is {} bytes, header claims {}",
+            data.len(),
+            expected
+        );
+    }
+
     let syms_slice = &data[HEADER_SIZE..];
     let syms_end = sym_count * SYM_ENTRY_SIZE;
     let strtab_start = HEADER_SIZE + syms_end;
@@ -225,25 +248,47 @@ pub(crate) fn load_map(
 
     let mut symbols = Vec::with_capacity(sym_count);
     for i in 0..sym_count {
-        let start = i * SYM_ENTRY_SIZE;
-        let entry = SymEntry::ref_from_bytes(&sym_bytes[start..start + SYM_ENTRY_SIZE])
-            .map_err(|e| anyhow::anyhow!("parse sym entry {i} of {}: {e}", path.display()))?;
-        let kind = read_str(strtab, entry.kind_off.get(), entry.kind_len.get())?;
-        let name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
-        let qualified_name = read_str(strtab, entry.qname_off.get(), entry.qname_len.get())?;
-
-        symbols.push(Symbol {
-            kind: kind.to_owned(),
-            name: name.to_owned(),
-            qualified_name: qualified_name.to_owned(),
-            start_line: entry.start_line.get() as usize,
-            end_line: entry.end_line.get() as usize,
-            start_hash: format!("{:03x}", entry.start_hash.get()),
-            end_hash: format!("{:03x}", entry.end_hash.get()),
-        });
+        symbols.push(parse_sym_entry(sym_bytes, strtab, i, sym_count, &path)?);
     }
 
     Ok(Some((SourceMap { symbols }, language, engine)))
+}
+
+fn parse_sym_entry(
+    sym_bytes: &[u8],
+    strtab: &[u8],
+    i: usize,
+    sym_count: usize,
+    path: &Path,
+) -> Result<Symbol> {
+    let start = i * SYM_ENTRY_SIZE;
+    let entry = SymEntry::ref_from_bytes(&sym_bytes[start..start + SYM_ENTRY_SIZE])
+        .map_err(|e| anyhow::anyhow!("parse sym entry {i} of {}: {e}", path.display()))?;
+    let kind = read_str(strtab, entry.kind_off.get(), entry.kind_len.get())?;
+    let name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
+    let qname_len = if i + 1 < sym_count {
+        let next_start = (i + 1) * SYM_ENTRY_SIZE;
+        let next = SymEntry::ref_from_bytes(&sym_bytes[next_start..next_start + SYM_ENTRY_SIZE])
+            .map_err(|e| anyhow::anyhow!("parse sym entry {} of {}: {e}", i + 1, path.display()))?;
+        next.kind_off.get() - entry.qname_off.get()
+    } else {
+        u32::try_from(strtab.len() - entry.qname_off.get() as usize)
+            .context("qname offset overflow")?
+    };
+    let qualified_name = read_str(
+        strtab,
+        entry.qname_off.get(),
+        u16::try_from(qname_len).context("qualified name too long")?,
+    )?;
+    Ok(Symbol {
+        kind: kind.to_owned(),
+        name: name.to_owned(),
+        qualified_name: qualified_name.to_owned(),
+        start_line: entry.start_line.get() as usize,
+        end_line: entry.end_line.get() as usize,
+        start_hash: format!("{:03x}", entry.start_hash.get()),
+        end_hash: format!("{:03x}", entry.end_hash.get()),
+    })
 }
 
 fn read_str(strtab: &[u8], offset: u32, len: u16) -> Result<&str> {
@@ -288,8 +333,6 @@ pub(crate) fn store_map(
         strtab.extend_from_slice(symbol.name.as_bytes());
 
         let qname_off = u32::try_from(strtab.len())?;
-        let qname_len = u16::try_from(symbol.qualified_name.len())
-            .with_context(|| format!("qualified name too long: {}", symbol.qualified_name.len()))?;
         strtab.extend_from_slice(symbol.qualified_name.as_bytes());
 
         let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
@@ -319,10 +362,9 @@ pub(crate) fn store_map(
             end_line: U32::new(u32::try_from(symbol.end_line)?),
             kind_len: U16::new(kind_len),
             name_len: U16::new(name_len),
-            qname_len: U16::new(qname_len),
             start_hash: U16::new(start_hash),
             end_hash: U16::new(end_hash),
-            _tail_pad: [0u8; 2],
+            _reserved: [0u8; 2],
         });
     }
 
@@ -331,9 +373,9 @@ pub(crate) fn store_map(
     let header = Header {
         magic: MAGIC,
         version: U32::new(SCHEMA_VERSION),
-        lang_tag: U32::new(language as u32),
+        lang_tag: U16::new(u16::from(language)),
         engine_tag,
-        _pad0: [0u8; 3],
+        _reserved: [0u8; 9],
         sym_count: U32::new(sym_count),
         strtab_sz: U32::new(strtab_sz),
         file_hash: raw_hash,
@@ -349,7 +391,7 @@ pub(crate) fn store_map(
     buf.extend_from_slice(&strtab);
     let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
     let checksum = crc32.checksum(&buf[HEADER_SIZE..]);
-    buf[HEADER_SIZE - size_of::<U32<LittleEndian>>()..HEADER_SIZE]
+    buf[CHECKSUM_OFFSET..CHECKSUM_OFFSET + size_of::<U32<LittleEndian>>()]
         .copy_from_slice(&checksum.to_le_bytes());
 
     let path = map_path(readseek_dir, file_hash);
