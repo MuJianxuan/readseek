@@ -21,6 +21,11 @@ const SYM_ENTRY_SIZE: usize = 40;
 const BLAKE3_RAW_LEN: usize = 32;
 const ENGINE_TAG_NONE: u8 = 0xff;
 
+const _: () = assert!(
+    crate::hash::HASHLINE_MODULUS <= 0x10000,
+    "HASHLINE_MODULUS must fit in a u16 for binary format storage"
+);
+
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 #[repr(C)]
 struct Header {
@@ -36,7 +41,7 @@ struct Header {
     _reserved: [u8; 4],
 }
 
-#[derive(IntoBytes, Immutable)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 #[repr(C, align(8))]
 struct SymEntry {
     kind_off: U32<LittleEndian>,
@@ -214,15 +219,10 @@ pub(crate) fn load_map(
     let strtab = &data[strtab_start..strtab_end];
 
     let mut symbols = Vec::with_capacity(sym_count);
-    #[allow(clippy::cast_ptr_alignment)]
     for i in 0..sym_count {
         let start = i * SYM_ENTRY_SIZE;
-        let ptr: *const SymEntry = sym_bytes[start..].as_ptr().cast::<SymEntry>();
-        assert!(
-            (ptr as usize) % std::mem::align_of::<SymEntry>() == 0,
-            "SymEntry alignment mismatch"
-        );
-        let entry = unsafe { &*ptr };
+        let entry = SymEntry::ref_from_bytes(&sym_bytes[start..start + SYM_ENTRY_SIZE])
+            .map_err(|e| anyhow::anyhow!("parse sym entry {i} of {}: {e}", path.display()))?;
         let kind = read_str(strtab, entry.kind_off.get(), entry.kind_len.get())?;
         let name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
         let qualified_name = read_str(strtab, entry.qname_off.get(), entry.qname_len.get())?;
@@ -287,8 +287,10 @@ pub(crate) fn store_map(
             .with_context(|| format!("qualified name too long: {}", symbol.qualified_name.len()))?;
         strtab.extend_from_slice(symbol.qualified_name.as_bytes());
 
-        let start_hash = u16::from_str_radix(&symbol.start_hash, 16).unwrap_or(0);
-        let end_hash = u16::from_str_radix(&symbol.end_hash, 16).unwrap_or(0);
+        let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
+            .with_context(|| format!("invalid start hash for symbol '{}'", symbol.name))?;
+        let end_hash = u16::from_str_radix(&symbol.end_hash, 16)
+            .with_context(|| format!("invalid end hash for symbol '{}'", symbol.name))?;
 
         entries.push(SymEntry {
             kind_off: U32::new(kind_off),

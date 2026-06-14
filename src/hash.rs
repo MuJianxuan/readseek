@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-const HASHLINE_MODULUS: u32 = 0x1000;
+pub(crate) const HASHLINE_MODULUS: u32 = 0x1000;
 
 /// Compute a stable locality-preserving hash for a source line.
 ///
