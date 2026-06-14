@@ -7,18 +7,17 @@
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use serde::Serialize;
-use std::fs;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::{env, process};
 
 use crate::cli::{Cli, DefinitionCommand, ReadCommand, ReferencesCommand, SearchCommand};
-use crate::lang::{AnalysisEngine, Language};
-use crate::lang::{
-    BinaryMode, DocumentKind, analysis_engine, detect_by_path, detect_language, document_extractor,
-    document_kind, is_binary_mime, normalize_source_text,
-};
+use crate::lang::{AnalysisEngine, BinaryMode, Language};
 use crate::paths::command_paths;
+use crate::source::{
+    HashLine, SourceFile, Symbol, SymbolLookup, load_source, source_from_text, source_map,
+    symbol_at_line_in_map, symbol_at_line_uncached,
+};
 
 mod cache;
 mod cli;
@@ -27,18 +26,8 @@ mod lang;
 mod navigation;
 mod paths;
 mod search;
+mod source;
 mod symbols;
-
-#[derive(Debug, Serialize)]
-struct Detection {
-    file: PathBuf,
-    language: Language,
-    engine: AnalysisEngine,
-    supported: bool,
-    binary: bool,
-    mime: Option<String>,
-    syntax: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 struct ReadOutput {
@@ -180,61 +169,6 @@ pub(crate) struct SearchCapture {
     start_hash: String,
     end_hash: String,
     hashlines: Vec<HashLine>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct HashLine {
-    line: usize,
-    hash: String,
-    text: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct Symbol {
-    kind: String,
-    name: String,
-    #[serde(rename = "qualified_name")]
-    address: String,
-    start_line: usize,
-    end_line: usize,
-    start_hash: String,
-    end_hash: String,
-}
-
-#[derive(Debug)]
-pub(crate) struct SourceFile {
-    path: PathBuf,
-    text: String,
-    kind: DocumentKind,
-    detection: Detection,
-    lines: Vec<SourceLine>,
-    file_hash: String,
-}
-
-#[derive(Debug)]
-struct LoadedDocument {
-    text: String,
-    binary: bool,
-    mime: Option<String>,
-}
-
-#[derive(Debug)]
-pub(crate) struct SourceLine {
-    number: usize,
-    text: String,
-    hash: String,
-}
-
-#[derive(Debug)]
-struct SourceMap {
-    symbols: Vec<Symbol>,
-}
-
-#[derive(Debug)]
-enum SymbolLookup {
-    Found(Symbol),
-    NotFound,
-    Ambiguous,
 }
 
 #[derive(Clone, Debug)]
@@ -426,100 +360,9 @@ fn load_source_for_input(
         io::stdin()
             .read_to_string(&mut text)
             .context("read stdin")?;
-        return source_from_text(
-            path,
-            normalize_source_text(&text),
-            override_language,
-            false,
-            None,
-        );
+        return source_from_text(path, &text, override_language, false, None);
     }
     load_source(path, override_language, binary_mode)
-}
-
-pub(crate) fn load_source(
-    path: &Path,
-    override_language: Option<Language>,
-    binary_mode: BinaryMode,
-) -> Result<SourceFile> {
-    let document = load_document(path, binary_mode)?;
-    source_from_text(
-        path,
-        document.text,
-        override_language,
-        document.binary,
-        document.mime,
-    )
-}
-
-fn source_from_text(
-    path: &Path,
-    text: String,
-    override_language: Option<Language>,
-    binary: bool,
-    mime: Option<String>,
-) -> Result<SourceFile> {
-    let path_language = detect_by_path(path);
-    let (detected_language, syntax) =
-        if binary && override_language.is_none() && path_language.is_none() {
-            (Language::Unknown, None)
-        } else {
-            detect_language(path, &text)?
-        };
-    let language = override_language.unwrap_or(detected_language);
-    let engine = analysis_engine(language);
-    let kind = document_kind(language);
-    let lines = text
-        .lines()
-        .enumerate()
-        .map(|(index, text)| {
-            let number = index + 1;
-            SourceLine {
-                number,
-                text: text.to_owned(),
-                hash: crate::hash::hash_line(number, text),
-            }
-        })
-        .collect();
-    let file_hash = crate::hash::hash_text(&text);
-    let detection = Detection {
-        file: path.to_path_buf(),
-        language,
-        engine,
-        supported: language != Language::Unknown,
-        binary,
-        mime,
-        syntax,
-    };
-
-    Ok(SourceFile {
-        path: path.to_path_buf(),
-        text,
-        kind,
-        detection,
-        lines,
-        file_hash,
-    })
-}
-
-fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument> {
-    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
-    let binary = is_binary_mime(mime.as_deref()) || bytes.contains(&0);
-    let extractor = document_extractor(path, mime.as_deref());
-
-    if binary && binary_mode == BinaryMode::Reject {
-        bail!(
-            "unsupported binary file: {} ({})",
-            path.display(),
-            mime.as_deref().unwrap_or("unknown mime")
-        );
-    }
-
-    let text = (extractor.extract)(path, &bytes, binary_mode)
-        .with_context(|| format!("extract {} from {}", extractor.format.id(), path.display()))?;
-
-    Ok(LoadedDocument { text, binary, mime })
 }
 
 fn resolve_read_range(
@@ -630,25 +473,6 @@ fn map_output(source: &SourceFile) -> Result<MapOutput> {
     })
 }
 
-fn source_map(source: &SourceFile) -> Result<SourceMap> {
-    match cache::load_source_map(source) {
-        Ok(Some(source_map)) => return Ok(source_map),
-        Ok(None) => {}
-        Err(error) => log::warn!("cache load error: {error:#}"),
-    }
-
-    parse_and_cache_source_map(source)
-}
-
-fn parse_and_cache_source_map(source: &SourceFile) -> Result<SourceMap> {
-    let source_map = symbols::parse_source_map(source)?;
-    if let Err(error) = cache::store_source_map(source, &source_map) {
-        log::warn!("cache store error: {error:#}");
-    }
-
-    Ok(source_map)
-}
-
 fn symbol_address<'a>(target: &'a Target, address: Option<&'a str>) -> Result<Option<&'a str>> {
     match (target.address.as_ref(), address) {
         (Some(TargetAddress::Symbol(_)), Some(_)) => {
@@ -668,7 +492,7 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
         };
     }
 
-    let source_map = parse_and_cache_source_map(source)?;
+    let source_map = source_map(source)?;
     let matches = source_map
         .symbols
         .iter()
@@ -702,7 +526,7 @@ fn symbol_command_output(
         };
     }
 
-    let source_map = parse_and_cache_source_map(source)?;
+    let source_map = source_map(source)?;
     let symbol = symbol_at_line_in_map(&source_map, line)
         .with_context(|| format!("symbol not found at line {line}"))?;
     symbol_output_for_symbol(source, symbol)
@@ -796,19 +620,6 @@ fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {
-    let source_map = source_map(source)?;
-    Ok(symbol_at_line_in_map(&source_map, line))
-}
-
-fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Option<Symbol> {
-    source_map
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.start_line <= line && line <= symbol.end_line)
-        .min_by_key(|symbol| symbol.end_line - symbol.start_line)
-        .cloned()
-}
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     let paths = command_paths(
         &command.target,
@@ -829,31 +640,6 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     }
 
     Ok(SearchOutput { results })
-}
-
-pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
-    source
-        .lines
-        .get(line.saturating_sub(1))
-        .map(|line| line.hash.clone())
-        .with_context(|| format!("line {line} not found in {}", source.path.display()))
-}
-
-pub(crate) fn range_hashlines(
-    source: &SourceFile,
-    start_line: usize,
-    end_line: usize,
-) -> Vec<HashLine> {
-    let start = start_line.saturating_sub(1);
-    let end = end_line.min(source.lines.len());
-    source.lines[start..end]
-        .iter()
-        .map(|line| HashLine {
-            line: line.number,
-            hash: line.hash.clone(),
-            text: line.text.clone(),
-        })
-        .collect()
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {

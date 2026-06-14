@@ -1,10 +1,12 @@
 use crate::cli::{DefinitionCommand, ReferencesCommand};
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
 use crate::paths::{command_paths, definition_candidate_paths};
+use crate::source::{
+    SourceFile, Symbol, load_source, source_from_text, source_map, symbol_at_line_in_map,
+};
 use crate::{
     CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
-    ReferencesOutput, SourceFile, Symbol, is_identifier_byte, load_source, source_from_text,
-    source_map, symbol_at_line_in_map, symbols,
+    ReferencesOutput, is_identifier_byte, symbols,
 };
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -51,7 +53,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
         {
             continue;
         }
-        let Ok(source) = source_from_text(path, text.clone(), command.language, false, None) else {
+        let Ok(source) = source_from_text(path, text, command.language, false, None) else {
             continue;
         };
         macro_definitions.extend(macro_definition_locations(&source, search_name));
@@ -65,7 +67,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
 
     let mut definitions = Vec::new();
     for (path, text) in candidates {
-        let Ok(source) = source_from_text(&path, text, command.language, false, None) else {
+        let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
             continue;
         };
         let Ok(source_map) = source_map(&source) else {

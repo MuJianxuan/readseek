@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::{SourceFile, SourceMap, Symbol, SymbolLookup};
+use crate::source::{SourceFile, SourceMap, Symbol, SymbolLookup};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::path::PathBuf;

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::lang::{AnalysisEngine, DocumentKind, Language};
-use crate::{SourceFile, SourceLine, SourceMap, Symbol};
+use crate::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
 
@@ -653,7 +653,8 @@ fn line_hash(lines: &[SourceLine], line: usize) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Detection, DocumentKind};
+    use crate::lang::DocumentKind;
+    use crate::source::Detection;
     use std::path::PathBuf;
 
     #[test]
