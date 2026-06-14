@@ -924,6 +924,7 @@ dependencies = [
  "git2",
  "infer",
  "log",
+ "memchr",
  "rusqlite",
  "serde",
  "serde_json",

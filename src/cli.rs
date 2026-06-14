@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::{Language, LANGUAGE_SPECS, Target, TargetAddress};
+use crate::lang::{LANGUAGE_SPECS, Language};
+use crate::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use std::path::{Path, PathBuf};
@@ -329,10 +330,7 @@ fn parse_input_target_with(
     parse(target.context("target required")?)
 }
 
-pub(crate) fn symbol_args(
-    args: &[String],
-    stdin: bool,
-) -> Result<(Option<&str>, Option<&str>)> {
+pub(crate) fn symbol_args(args: &[String], stdin: bool) -> Result<(Option<&str>, Option<&str>)> {
     match (stdin, args) {
         (true, []) => Ok((None, None)),
         (true, [address]) => Ok((None, Some(address.as_str()))),

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::{AnalysisEngine, DocumentKind, Language, SourceFile, SourceLine, SourceMap, Symbol};
+use crate::lang::{AnalysisEngine, DocumentKind, Language};
+use crate::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
 
@@ -50,200 +51,49 @@ fn parse_tree_sitter_source_map(source: &SourceFile) -> Result<SourceMap> {
 }
 
 pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
-    let parser = match language {
-        Language::Assembly => tree_sitter_asm_language,
-        Language::Bash => tree_sitter_bash_language,
-        Language::C => tree_sitter_c_language,
-        Language::Cpp => tree_sitter_cpp_language,
-        Language::CSharp => tree_sitter_csharp_language,
-        Language::Css => tree_sitter_css_language,
-        Language::Dockerfile => tree_sitter_dockerfile_language,
-        Language::Go => tree_sitter_go_language,
-        Language::Gdscript => tree_sitter_gdscript_language,
-        Language::Java => tree_sitter_java_language,
-        Language::JavaScript | Language::Jsx => tree_sitter_javascript_language,
-        Language::Html => tree_sitter_html_language,
-        Language::Json => tree_sitter_json_language,
-        Language::Xml => tree_sitter_xml_language,
-        Language::Yaml => tree_sitter_yaml_language,
-        Language::Just => tree_sitter_just_language,
-        Language::Kconfig => tree_sitter_kconfig_language,
-        Language::Latex => tree_sitter_latex_language,
-        Language::Lua => tree_sitter_lua_language,
-        Language::Make => tree_sitter_make_language,
-        Language::Markdown => tree_sitter_markdown_language,
-        Language::Meson => tree_sitter_meson_language,
-        Language::Nix => tree_sitter_nix_language,
-        Language::Perl => tree_sitter_perl_language,
-        Language::Python => tree_sitter_python_language,
-        Language::Php => tree_sitter_php_language,
-        Language::Puppet => tree_sitter_puppet_language,
-        Language::Ruby => tree_sitter_ruby_language,
-        Language::Riscv => tree_sitter_riscv_language,
-        Language::Rust => tree_sitter_rust_language,
-        Language::Swift => tree_sitter_swift_language,
-        Language::Sql => tree_sitter_sql_language,
-        Language::Typst => tree_sitter_typst_language,
-        Language::TypeScript => tree_sitter_typescript_language,
-        Language::Tsx => tree_sitter_tsx_language,
-        Language::Toml => tree_sitter_toml_language,
-        Language::Vimscript => tree_sitter_vim_language,
-        Language::Zig => tree_sitter_zig_language,
+    let language = match language {
+        Language::Assembly => tree_sitter_asm::LANGUAGE.into(),
+        Language::Bash => tree_sitter_bash::LANGUAGE.into(),
+        Language::C => tree_sitter_c::LANGUAGE.into(),
+        Language::Cpp => tree_sitter_cpp::LANGUAGE.into(),
+        Language::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
+        Language::Css => tree_sitter_css::LANGUAGE.into(),
+        Language::Dockerfile => tree_sitter_containerfile::LANGUAGE.into(),
+        Language::Go => tree_sitter_go::LANGUAGE.into(),
+        Language::Gdscript => tree_sitter_gdscript::LANGUAGE.into(),
+        Language::Java => tree_sitter_java::LANGUAGE.into(),
+        Language::JavaScript | Language::Jsx => tree_sitter_javascript::LANGUAGE.into(),
+        Language::Html => tree_sitter_html::LANGUAGE.into(),
+        Language::Json => tree_sitter_json::LANGUAGE.into(),
+        Language::Xml => tree_sitter_xml::LANGUAGE_XML.into(),
+        Language::Yaml => tree_sitter_yaml::LANGUAGE.into(),
+        Language::Just => tree_sitter_just::LANGUAGE.into(),
+        Language::Kconfig => tree_sitter_kconfig::LANGUAGE.into(),
+        Language::Latex => codebook_tree_sitter_latex::LANGUAGE.into(),
+        Language::Lua => tree_sitter_lua::LANGUAGE.into(),
+        Language::Make => tree_sitter_make::LANGUAGE.into(),
+        Language::Markdown => tree_sitter_md_025::LANGUAGE.into(),
+        Language::Meson => arborium_meson::language().into(),
+        Language::Nix => tree_sitter_nix::LANGUAGE.into(),
+        Language::Perl => ts_parser_perl::LANGUAGE.into(),
+        Language::Python => tree_sitter_python::LANGUAGE.into(),
+        Language::Php => tree_sitter_php::LANGUAGE_PHP.into(),
+        Language::Puppet => tree_sitter_puppet::LANGUAGE.into(),
+        Language::Ruby => tree_sitter_ruby::LANGUAGE.into(),
+        Language::Riscv => tree_sitter_riscv::LANGUAGE.into(),
+        Language::Rust => tree_sitter_rust::LANGUAGE.into(),
+        Language::Swift => tree_sitter_swift::LANGUAGE.into(),
+        Language::Sql => tree_sitter_sequel::LANGUAGE.into(),
+        Language::Typst => codebook_tree_sitter_typst::LANGUAGE.into(),
+        Language::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        Language::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        Language::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
+        Language::Vimscript => tree_sitter_vim::language(),
+        Language::Zig => tree_sitter_zig::LANGUAGE.into(),
         Language::Unknown => return None,
     };
 
-    Some(parser())
-}
-
-fn tree_sitter_asm_language() -> tree_sitter::Language {
-    tree_sitter_asm::LANGUAGE.into()
-}
-fn tree_sitter_bash_language() -> tree_sitter::Language {
-    tree_sitter_bash::LANGUAGE.into()
-}
-
-fn tree_sitter_c_language() -> tree_sitter::Language {
-    tree_sitter_c::LANGUAGE.into()
-}
-
-fn tree_sitter_cpp_language() -> tree_sitter::Language {
-    tree_sitter_cpp::LANGUAGE.into()
-}
-
-fn tree_sitter_csharp_language() -> tree_sitter::Language {
-    tree_sitter_c_sharp::LANGUAGE.into()
-}
-
-fn tree_sitter_css_language() -> tree_sitter::Language {
-    tree_sitter_css::LANGUAGE.into()
-}
-
-fn tree_sitter_dockerfile_language() -> tree_sitter::Language {
-    tree_sitter_containerfile::LANGUAGE.into()
-}
-
-fn tree_sitter_go_language() -> tree_sitter::Language {
-    tree_sitter_go::LANGUAGE.into()
-}
-
-fn tree_sitter_gdscript_language() -> tree_sitter::Language {
-    tree_sitter_gdscript::LANGUAGE.into()
-}
-
-fn tree_sitter_java_language() -> tree_sitter::Language {
-    tree_sitter_java::LANGUAGE.into()
-}
-
-fn tree_sitter_html_language() -> tree_sitter::Language {
-    tree_sitter_html::LANGUAGE.into()
-}
-
-fn tree_sitter_json_language() -> tree_sitter::Language {
-    tree_sitter_json::LANGUAGE.into()
-}
-
-fn tree_sitter_xml_language() -> tree_sitter::Language {
-    tree_sitter_xml::LANGUAGE_XML.into()
-}
-
-fn tree_sitter_yaml_language() -> tree_sitter::Language {
-    tree_sitter_yaml::LANGUAGE.into()
-}
-
-fn tree_sitter_javascript_language() -> tree_sitter::Language {
-    tree_sitter_javascript::LANGUAGE.into()
-}
-
-fn tree_sitter_just_language() -> tree_sitter::Language {
-    tree_sitter_just::LANGUAGE.into()
-}
-
-fn tree_sitter_kconfig_language() -> tree_sitter::Language {
-    tree_sitter_kconfig::LANGUAGE.into()
-}
-
-fn tree_sitter_latex_language() -> tree_sitter::Language {
-    codebook_tree_sitter_latex::LANGUAGE.into()
-}
-
-fn tree_sitter_lua_language() -> tree_sitter::Language {
-    tree_sitter_lua::LANGUAGE.into()
-}
-
-fn tree_sitter_make_language() -> tree_sitter::Language {
-    tree_sitter_make::LANGUAGE.into()
-}
-
-fn tree_sitter_markdown_language() -> tree_sitter::Language {
-    tree_sitter_md_025::LANGUAGE.into()
-}
-
-fn tree_sitter_meson_language() -> tree_sitter::Language {
-    arborium_meson::language().into()
-}
-
-fn tree_sitter_nix_language() -> tree_sitter::Language {
-    tree_sitter_nix::LANGUAGE.into()
-}
-
-fn tree_sitter_perl_language() -> tree_sitter::Language {
-    ts_parser_perl::LANGUAGE.into()
-}
-
-fn tree_sitter_php_language() -> tree_sitter::Language {
-    tree_sitter_php::LANGUAGE_PHP.into()
-}
-
-fn tree_sitter_python_language() -> tree_sitter::Language {
-    tree_sitter_python::LANGUAGE.into()
-}
-
-fn tree_sitter_puppet_language() -> tree_sitter::Language {
-    tree_sitter_puppet::LANGUAGE.into()
-}
-
-fn tree_sitter_ruby_language() -> tree_sitter::Language {
-    tree_sitter_ruby::LANGUAGE.into()
-}
-
-fn tree_sitter_riscv_language() -> tree_sitter::Language {
-    tree_sitter_riscv::LANGUAGE.into()
-}
-
-fn tree_sitter_rust_language() -> tree_sitter::Language {
-    tree_sitter_rust::LANGUAGE.into()
-}
-
-fn tree_sitter_swift_language() -> tree_sitter::Language {
-    tree_sitter_swift::LANGUAGE.into()
-}
-
-fn tree_sitter_sql_language() -> tree_sitter::Language {
-    tree_sitter_sequel::LANGUAGE.into()
-}
-
-fn tree_sitter_typst_language() -> tree_sitter::Language {
-    codebook_tree_sitter_typst::LANGUAGE.into()
-}
-
-fn tree_sitter_typescript_language() -> tree_sitter::Language {
-    tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
-}
-
-fn tree_sitter_tsx_language() -> tree_sitter::Language {
-    tree_sitter_typescript::LANGUAGE_TSX.into()
-}
-
-fn tree_sitter_toml_language() -> tree_sitter::Language {
-    tree_sitter_toml_ng::LANGUAGE.into()
-}
-
-fn tree_sitter_vim_language() -> tree_sitter::Language {
-    tree_sitter_vim::language()
-}
-
-fn tree_sitter_zig_language() -> tree_sitter::Language {
-    tree_sitter_zig::LANGUAGE.into()
+    Some(language)
 }
 
 fn collect_symbols(
