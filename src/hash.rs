@@ -10,11 +10,11 @@ const HASHLINE_MODULUS: u32 = 0x1000;
 /// hex string in `[000, fff]`.
 pub(crate) fn hash_line(_line: usize, text: &str) -> String {
     let text = text.strip_suffix('\r').unwrap_or(text);
-    let normalized = text.split_whitespace().collect::<String>();
-    format!(
-        "{:03x}",
-        xxhash_rust::xxh32::xxh32(normalized.as_bytes(), 0) % HASHLINE_MODULUS
-    )
+    let mut hasher = xxhash_rust::xxh32::Xxh32::new(0);
+    for token in text.split_whitespace() {
+        hasher.update(token.as_bytes());
+    }
+    format!("{:03x}", hasher.digest() % HASHLINE_MODULUS)
 }
 
 /// Compute a BLAKE3 content hash for the full source text.

@@ -1,9 +1,10 @@
+use crate::cache::Cache;
 use crate::hash::{hash_line, hash_text};
 use crate::lang::{
     AnalysisEngine, BinaryMode, DocumentKind, Language, analysis_engine, detect_by_path,
     detect_language, document_extractor, document_kind, is_binary_mime, normalize_source_text,
 };
-use crate::{cache, symbols};
+use crate::symbols;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::fs;
@@ -156,18 +157,18 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
 }
 
 pub(crate) fn source_map(source: &SourceFile) -> Result<SourceMap> {
-    match cache::load_source_map(source) {
+    source_map_with_cache(source, &mut Cache::new())
+}
+
+pub(crate) fn source_map_with_cache(source: &SourceFile, cache: &mut Cache) -> Result<SourceMap> {
+    match cache.load_source_map(source) {
         Ok(Some(source_map)) => return Ok(source_map),
         Ok(None) => {}
         Err(error) => log::warn!("cache load error: {error:#}"),
     }
 
-    parse_and_cache_source_map(source)
-}
-
-fn parse_and_cache_source_map(source: &SourceFile) -> Result<SourceMap> {
     let source_map = symbols::parse_source_map(source)?;
-    if let Err(error) = cache::store_source_map(source, &source_map) {
+    if let Err(error) = cache.store_source_map(source, &source_map) {
         log::warn!("cache store error: {error:#}");
     }
 

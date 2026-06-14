@@ -274,10 +274,13 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     {
         crate::search::prepare_pattern_tree(&mut pattern, &language);
     }
+    let mut parser = tree_sitter::Parser::new();
     let mut results = Vec::new();
 
     for path in paths {
-        let Some(result) = crate::search::search_file(&path, command.language, &pattern)? else {
+        let Some(result) =
+            crate::search::search_file(&path, command.language, &pattern, &mut parser)?
+        else {
             continue;
         };
         if !result.matches.is_empty() {

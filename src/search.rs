@@ -42,6 +42,7 @@ pub(crate) fn search_file(
     path: &Path,
     override_language: Option<Language>,
     pattern: &SearchPattern,
+    parser: &mut Parser,
 ) -> Result<Option<SearchFileOutput>> {
     let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
         return Ok(None);
@@ -53,7 +54,6 @@ pub(crate) fn search_file(
     let Some(language) = symbols::tree_sitter_language(detected_language) else {
         return Ok(None);
     };
-    let mut parser = Parser::new();
     parser
         .set_language(&language)
         .map_err(|error| anyhow::anyhow!("set tree-sitter language: {error}"))?;

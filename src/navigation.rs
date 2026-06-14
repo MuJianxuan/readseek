@@ -1,9 +1,10 @@
+use crate::cache::Cache;
 use crate::cli::{DefinitionCommand, ReferencesCommand};
-use crate::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
 use crate::paths::{command_paths, definition_candidate_paths};
 use crate::source::{
-    SourceFile, Symbol, load_source, source_from_text, source_map, symbol_at_line_in_map,
+    SourceFile, Symbol, source_from_text, source_map_with_cache, symbol_at_line_in_map,
 };
 use crate::{
     CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
@@ -66,12 +67,13 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
         });
     }
 
+    let mut cache = Cache::new();
     let mut definitions = Vec::new();
     for (path, text) in candidates {
         let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
             continue;
         };
-        let Ok(source_map) = source_map(&source) else {
+        let Ok(source_map) = source_map_with_cache(&source, &mut cache) else {
             continue;
         };
         for symbol in source_map.symbols {
@@ -194,6 +196,9 @@ fn definition_name_from_stdin() -> Result<String> {
 
 pub(crate) fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {
     validate_reference_name(&command.name)?;
+    let name = &command.name;
+    let mut cache = Cache::new();
+    let mut parser = tree_sitter::Parser::new();
     let mut references = Vec::new();
     for path in command_paths(
         &command.target,
@@ -201,10 +206,16 @@ pub(crate) fn references_output(command: &ReferencesCommand) -> Result<Reference
         command.others,
         command.ignored,
     )? {
-        let Ok(source) = load_source(&path, command.language, BinaryMode::Reject) else {
+        let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
-        references.extend(references_in_source(&source, &command.name));
+        if !text.contains(name) {
+            continue;
+        }
+        let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
+            continue;
+        };
+        references.extend(references_in_source(&source, name, &mut parser, &mut cache));
     }
 
     Ok(ReferencesOutput { references })
@@ -242,9 +253,14 @@ fn validate_reference_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocation> {
-    let source_map = source_map(source).ok();
-    let ignored_ranges = reference_ignored_ranges(source);
+fn references_in_source(
+    source: &SourceFile,
+    name: &str,
+    parser: &mut Parser,
+    cache: &mut Cache,
+) -> Vec<ReferenceLocation> {
+    let source_map = source_map_with_cache(source, cache).ok();
+    let ignored_ranges = reference_ignored_ranges(source, parser);
     let line_starts = line_start_offsets(&source.text);
     let mut references = Vec::new();
     for line in &source.lines {
@@ -278,7 +294,7 @@ fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocatio
     references
 }
 
-fn reference_ignored_ranges(source: &SourceFile) -> Vec<(usize, usize)> {
+fn reference_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, usize)> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
@@ -289,7 +305,6 @@ fn reference_ignored_ranges(source: &SourceFile) -> Vec<(usize, usize)> {
         return Vec::new();
     };
 
-    let mut parser = Parser::new();
     if parser.set_language(&language).is_err() {
         return Vec::new();
     }

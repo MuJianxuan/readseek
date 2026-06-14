@@ -10,94 +10,200 @@ use std::{env, fs};
 
 const DB_SCHEMA_VERSION: i64 = 5;
 
-pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
-    let Some(mut connection) = connection()? else {
-        return Ok(None);
-    };
-    let tx = connection.transaction()?;
-    let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
-        return Ok(None);
-    };
-    let symbols = load_symbols(&tx, cache_id)?;
-    if i64::try_from(symbols.len())? != symbol_count {
-        tx.execute("DELETE FROM map_cache WHERE id = ?1", params![cache_id])?;
-        tx.commit()?;
-        return Ok(None);
-    }
-    let now = unix_time()?;
-    tx.execute(
-        "UPDATE map_cache SET last_used_at = ?1 WHERE id = ?2",
-        params![now, cache_id],
-    )?;
-    tx.commit()?;
+pub(crate) struct Cache {
+    connection: Option<Connection>,
+    unavailable: bool,
+}
 
-    Ok(Some(SourceMap { symbols }))
+impl Cache {
+    pub(crate) fn new() -> Self {
+        Self {
+            connection: None,
+            unavailable: false,
+        }
+    }
+
+    fn get_connection(&mut self) -> Result<Option<&mut Connection>> {
+        if self.unavailable {
+            return Ok(None);
+        }
+        if self.connection.is_none() {
+            if let Some(conn) = create_connection()? {
+                self.connection = Some(conn);
+            } else {
+                self.unavailable = true;
+                return Ok(None);
+            }
+        }
+        Ok(self.connection.as_mut())
+    }
+
+    pub(crate) fn load_source_map(&mut self, source: &SourceFile) -> Result<Option<SourceMap>> {
+        let Some(connection) = self.get_connection()? else {
+            return Ok(None);
+        };
+        let tx = connection.transaction()?;
+        let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
+            return Ok(None);
+        };
+        let symbols = load_symbols(&tx, cache_id)?;
+        if i64::try_from(symbols.len())? != symbol_count {
+            tx.execute("DELETE FROM map_cache WHERE id = ?1", params![cache_id])?;
+            tx.commit()?;
+            return Ok(None);
+        }
+        let now = unix_time()?;
+        tx.execute(
+            "UPDATE map_cache SET last_used_at = ?1 WHERE id = ?2",
+            params![now, cache_id],
+        )?;
+        tx.commit()?;
+
+        Ok(Some(SourceMap { symbols }))
+    }
+
+    pub(crate) fn symbol_by_address(
+        &mut self,
+        source: &SourceFile,
+        address: &str,
+    ) -> Result<Option<SymbolLookup>> {
+        let Some(connection) = self.get_connection()? else {
+            return Ok(None);
+        };
+        let tx = connection.transaction()?;
+        let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
+            return Ok(None);
+        };
+        if !validate_entry(&tx, cache_id, symbol_count)? {
+            tx.commit()?;
+            return Ok(None);
+        }
+
+        let lookup = {
+            let mut statement = tx.prepare(
+                "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
+                 FROM map_symbols WHERE cache_id = ?1 AND (address = ?2 OR name = ?2) \
+                 ORDER BY rowid LIMIT 2",
+            )?;
+            let mut rows = statement.query_map(params![cache_id, address], symbol_from_row)?;
+            match (rows.next().transpose()?, rows.next().transpose()?) {
+                (None, _) => SymbolLookup::NotFound,
+                (Some(symbol), None) => SymbolLookup::Found(symbol),
+                (Some(_), Some(_)) => SymbolLookup::Ambiguous,
+            }
+        };
+        update_last_used(&tx, cache_id)?;
+        tx.commit()?;
+
+        Ok(Some(lookup))
+    }
+
+    pub(crate) fn symbol_at_line(
+        &mut self,
+        source: &SourceFile,
+        line: usize,
+    ) -> Result<Option<SymbolLookup>> {
+        let Some(connection) = self.get_connection()? else {
+            return Ok(None);
+        };
+        let tx = connection.transaction()?;
+        let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
+            return Ok(None);
+        };
+        if !validate_entry(&tx, cache_id, symbol_count)? {
+            tx.commit()?;
+            return Ok(None);
+        }
+
+        let symbol = tx
+            .query_row(
+                "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
+                 FROM map_symbols WHERE cache_id = ?1 AND start_line <= ?2 AND ?2 <= end_line \
+                 ORDER BY end_line - start_line, rowid LIMIT 1",
+                params![cache_id, i64::try_from(line)?],
+                symbol_from_row,
+            )
+            .optional()?;
+        update_last_used(&tx, cache_id)?;
+        tx.commit()?;
+
+        Ok(Some(match symbol {
+            Some(symbol) => SymbolLookup::Found(symbol),
+            None => SymbolLookup::NotFound,
+        }))
+    }
+
+    pub(crate) fn store_source_map(
+        &mut self,
+        source: &SourceFile,
+        source_map: &SourceMap,
+    ) -> Result<()> {
+        let Some(connection) = self.get_connection()? else {
+            return Ok(());
+        };
+        let tx = connection.transaction()?;
+        let now = unix_time()?;
+
+        tx.execute(
+            "DELETE FROM map_cache \
+             WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3 AND engine = ?4",
+            params![
+                DB_SCHEMA_VERSION,
+                source.file_hash,
+                source.detection.language.id(),
+                source.detection.engine.id()
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO map_cache \
+             (cache_version, file_hash, language, engine, symbol_count, created_at, last_used_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                DB_SCHEMA_VERSION,
+                source.file_hash,
+                source.detection.language.id(),
+                source.detection.engine.id(),
+                i64::try_from(source_map.symbols.len())?,
+                now,
+                now,
+            ],
+        )?;
+        let cache_id = tx.last_insert_rowid();
+
+        {
+            let mut insert_symbol = tx.prepare(
+                "INSERT INTO map_symbols \
+                 (cache_id, kind, name, address, start_line, end_line, start_hash, end_hash) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for symbol in &source_map.symbols {
+                insert_symbol.execute(params![
+                    cache_id,
+                    symbol.kind,
+                    symbol.name,
+                    symbol.qualified_name,
+                    i64::try_from(symbol.start_line)?,
+                    i64::try_from(symbol.end_line)?,
+                    symbol.start_hash,
+                    symbol.end_hash,
+                ])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 pub(crate) fn symbol_by_address(
     source: &SourceFile,
     address: &str,
 ) -> Result<Option<SymbolLookup>> {
-    let Some(mut connection) = connection()? else {
-        return Ok(None);
-    };
-    let tx = connection.transaction()?;
-    let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
-        return Ok(None);
-    };
-    if !validate_entry(&tx, cache_id, symbol_count)? {
-        tx.commit()?;
-        return Ok(None);
-    }
-
-    let lookup = {
-        let mut statement = tx.prepare(
-            "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
-             FROM map_symbols WHERE cache_id = ?1 AND (address = ?2 OR name = ?2) \
-             ORDER BY rowid LIMIT 2",
-        )?;
-        let mut rows = statement.query_map(params![cache_id, address], symbol_from_row)?;
-        match (rows.next().transpose()?, rows.next().transpose()?) {
-            (None, _) => SymbolLookup::NotFound,
-            (Some(symbol), None) => SymbolLookup::Found(symbol),
-            (Some(_), Some(_)) => SymbolLookup::Ambiguous,
-        }
-    };
-    update_last_used(&tx, cache_id)?;
-    tx.commit()?;
-
-    Ok(Some(lookup))
+    Cache::new().symbol_by_address(source, address)
 }
 
 pub(crate) fn symbol_at_line(source: &SourceFile, line: usize) -> Result<Option<SymbolLookup>> {
-    let Some(mut connection) = connection()? else {
-        return Ok(None);
-    };
-    let tx = connection.transaction()?;
-    let Some((cache_id, symbol_count)) = entry(&tx, source)? else {
-        return Ok(None);
-    };
-    if !validate_entry(&tx, cache_id, symbol_count)? {
-        tx.commit()?;
-        return Ok(None);
-    }
-
-    let symbol = tx
-        .query_row(
-            "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
-             FROM map_symbols WHERE cache_id = ?1 AND start_line <= ?2 AND ?2 <= end_line \
-             ORDER BY end_line - start_line, rowid LIMIT 1",
-            params![cache_id, i64::try_from(line)?],
-            symbol_from_row,
-        )
-        .optional()?;
-    update_last_used(&tx, cache_id)?;
-    tx.commit()?;
-
-    Ok(Some(match symbol {
-        Some(symbol) => SymbolLookup::Found(symbol),
-        None => SymbolLookup::NotFound,
-    }))
+    Cache::new().symbol_at_line(source, line)
 }
 
 fn entry(tx: &Transaction<'_>, source: &SourceFile) -> Result<Option<(i64, i64)>> {
@@ -175,64 +281,7 @@ fn load_symbols(tx: &Transaction<'_>, cache_id: i64) -> Result<Vec<Symbol>> {
         .map_err(Into::into)
 }
 
-pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> Result<()> {
-    let Some(mut connection) = connection()? else {
-        return Ok(());
-    };
-    let tx = connection.transaction()?;
-    let now = unix_time()?;
-
-    tx.execute(
-        "DELETE FROM map_cache \
-         WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3 AND engine = ?4",
-        params![
-            DB_SCHEMA_VERSION,
-            source.file_hash,
-            source.detection.language.id(),
-            source.detection.engine.id()
-        ],
-    )?;
-    tx.execute(
-        "INSERT INTO map_cache \
-         (cache_version, file_hash, language, engine, symbol_count, created_at, last_used_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            DB_SCHEMA_VERSION,
-            source.file_hash,
-            source.detection.language.id(),
-            source.detection.engine.id(),
-            i64::try_from(source_map.symbols.len())?,
-            now,
-            now,
-        ],
-    )?;
-    let cache_id = tx.last_insert_rowid();
-
-    {
-        let mut insert_symbol = tx.prepare(
-            "INSERT INTO map_symbols \
-             (cache_id, kind, name, address, start_line, end_line, start_hash, end_hash) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )?;
-        for symbol in &source_map.symbols {
-            insert_symbol.execute(params![
-                cache_id,
-                symbol.kind,
-                symbol.name,
-                symbol.qualified_name,
-                i64::try_from(symbol.start_line)?,
-                i64::try_from(symbol.end_line)?,
-                symbol.start_hash,
-                symbol.end_hash,
-            ])?;
-        }
-    }
-
-    tx.commit()?;
-    Ok(())
-}
-
-fn connection() -> Result<Option<Connection>> {
+fn create_connection() -> Result<Option<Connection>> {
     let Some(mut cache_dir) = cache_base_dir() else {
         return Ok(None);
     };
