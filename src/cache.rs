@@ -203,12 +203,14 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
     )?;
     let cache_id = tx.last_insert_rowid();
 
-    for symbol in &source_map.symbols {
-        tx.execute(
+    {
+        let mut insert_symbol = tx.prepare(
             "INSERT INTO map_symbols \
              (cache_id, kind, name, address, start_line, end_line, start_hash, end_hash) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
+        )?;
+        for symbol in &source_map.symbols {
+            insert_symbol.execute(params![
                 cache_id,
                 symbol.kind,
                 symbol.name,
@@ -217,8 +219,8 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
                 i64::try_from(symbol.end_line)?,
                 symbol.start_hash,
                 symbol.end_hash,
-            ],
-        )?;
+            ])?;
+        }
     }
 
     tx.commit()?;
