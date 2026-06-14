@@ -1,12 +1,13 @@
 use crate::cli::{DefinitionCommand, ReferencesCommand};
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::output::is_identifier_byte;
 use crate::paths::{command_paths, definition_candidate_paths};
 use crate::source::{
     SourceFile, Symbol, load_source, source_from_text, source_map, symbol_at_line_in_map,
 };
 use crate::{
     CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
-    ReferencesOutput, is_identifier_byte, symbols,
+    ReferencesOutput, symbols,
 };
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
