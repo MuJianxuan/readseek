@@ -50,18 +50,19 @@ pub(crate) fn symbol_by_address(
         return Ok(None);
     }
 
-    let mut statement = tx.prepare(
-        "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
-         FROM map_symbols WHERE cache_id = ?1 AND (address = ?2 OR name = ?2) ORDER BY rowid",
-    )?;
-    let rows = statement.query_map(params![cache_id, address], symbol_from_row)?;
-    let symbols = rows.collect::<std::result::Result<Vec<_>, _>>()?;
-    let lookup = match symbols.as_slice() {
-        [] => SymbolLookup::NotFound,
-        [symbol] => SymbolLookup::Found(symbol.clone()),
-        _ => SymbolLookup::Ambiguous,
+    let lookup = {
+        let mut statement = tx.prepare(
+            "SELECT kind, name, address, start_line, end_line, start_hash, end_hash \
+             FROM map_symbols WHERE cache_id = ?1 AND (address = ?2 OR name = ?2) \
+             ORDER BY rowid LIMIT 2",
+        )?;
+        let mut rows = statement.query_map(params![cache_id, address], symbol_from_row)?;
+        match (rows.next().transpose()?, rows.next().transpose()?) {
+            (None, _) => SymbolLookup::NotFound,
+            (Some(symbol), None) => SymbolLookup::Found(symbol),
+            (Some(_), Some(_)) => SymbolLookup::Ambiguous,
+        }
     };
-    drop(statement);
     update_last_used(&tx, cache_id)?;
     tx.commit()?;
 
