@@ -1612,6 +1612,10 @@ fn source_map(source: &SourceFile) -> Result<SourceMap> {
         Err(error) => drop(error),
     }
 
+    parse_and_cache_source_map(source)
+}
+
+fn parse_and_cache_source_map(source: &SourceFile) -> Result<SourceMap> {
     let source_map = symbols::parse_source_map(source)?;
     if let Err(error) = cache::store_source_map(source, &source_map) {
         drop(error);
@@ -1639,7 +1643,7 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
         };
     }
 
-    let source_map = source_map(source)?;
+    let source_map = parse_and_cache_source_map(source)?;
     let matches = source_map
         .symbols
         .iter()
@@ -1673,7 +1677,8 @@ fn symbol_command_output(
         };
     }
 
-    let symbol = symbol_at_line_uncached(source, line)?
+    let source_map = parse_and_cache_source_map(source)?;
+    let symbol = symbol_at_line_in_map(&source_map, line)
         .with_context(|| format!("symbol not found at line {line}"))?;
     symbol_output_for_symbol(source, symbol)
 }
