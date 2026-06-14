@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use crate::hash::HASHLINE_MODULUS;
 use crate::lang::{AnalysisEngine, Language};
 use crate::source::{SourceFile, SourceMap, Symbol};
 use crate::symbols;
@@ -293,8 +294,22 @@ pub(crate) fn store_map(
 
         let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
             .with_context(|| format!("invalid start hash for symbol '{}'", symbol.name))?;
+        if start_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
+            bail!(
+                "hash {:#x} exceeds modulus for symbol '{}'",
+                start_hash,
+                symbol.name
+            );
+        }
         let end_hash = u16::from_str_radix(&symbol.end_hash, 16)
             .with_context(|| format!("invalid end hash for symbol '{}'", symbol.name))?;
+        if end_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
+            bail!(
+                "hash {:#x} exceeds modulus for symbol '{}'",
+                end_hash,
+                symbol.name
+            );
+        }
 
         entries.push(SymEntry {
             kind_off: U32::new(kind_off),
