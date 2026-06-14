@@ -160,7 +160,16 @@ pub(crate) fn source_map_with_dir(
 ) -> Result<SourceMap> {
     if let Some(readseek_dir) = readseek_dir {
         match crate::repo::load_map(readseek_dir, &source.file_hash) {
-            Ok(Some((source_map, _language, _engine))) => return Ok(source_map),
+            Ok(Some((source_map, language, _engine))) => {
+                if language == source.detection.language {
+                    return Ok(source_map);
+                }
+                log::warn!(
+                    "cache language mismatch for {}: cached {language}, current {}",
+                    source.path.display(),
+                    source.detection.language
+                );
+            }
             Ok(None) => {}
             Err(error) => log::warn!("cache load error: {error:#}"),
         }
