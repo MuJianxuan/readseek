@@ -14,10 +14,10 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 const READSEEK_DIR: &str = ".readseek";
 const MAPS_DIR: &str = "maps";
 const MAGIC: [u8; 4] = *b"RSMP";
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 const HEADER_SIZE: usize = 64;
-const SYM_ENTRY_SIZE: usize = 40;
+const SYM_ENTRY_SIZE: usize = 32;
 const BLAKE3_RAW_LEN: usize = 32;
 const ENGINE_TAG_NONE: u8 = 0xff;
 
@@ -45,19 +45,16 @@ struct Header {
 #[repr(C, align(8))]
 struct SymEntry {
     kind_off: U32<LittleEndian>,
-    kind_len: U16<LittleEndian>,
-    _pad0: [u8; 2],
     name_off: U32<LittleEndian>,
-    name_len: U16<LittleEndian>,
-    _pad1: [u8; 2],
     qname_off: U32<LittleEndian>,
-    qname_len: U16<LittleEndian>,
-    _pad2: [u8; 2],
     start_line: U32<LittleEndian>,
     end_line: U32<LittleEndian>,
+    kind_len: U16<LittleEndian>,
+    name_len: U16<LittleEndian>,
+    qname_len: U16<LittleEndian>,
     start_hash: U16<LittleEndian>,
     end_hash: U16<LittleEndian>,
-    _pad3: [u8; 4],
+    _tail_pad: [u8; 2],
 }
 
 #[derive(Debug)]
@@ -294,19 +291,16 @@ pub(crate) fn store_map(
 
         entries.push(SymEntry {
             kind_off: U32::new(kind_off),
-            kind_len: U16::new(kind_len),
-            _pad0: [0u8; 2],
             name_off: U32::new(name_off),
-            name_len: U16::new(name_len),
-            _pad1: [0u8; 2],
             qname_off: U32::new(qname_off),
-            qname_len: U16::new(qname_len),
-            _pad2: [0u8; 2],
             start_line: U32::new(u32::try_from(symbol.start_line)?),
             end_line: U32::new(u32::try_from(symbol.end_line)?),
+            kind_len: U16::new(kind_len),
+            name_len: U16::new(name_len),
+            qname_len: U16::new(qname_len),
             start_hash: U16::new(start_hash),
             end_hash: U16::new(end_hash),
-            _pad3: [0u8; 4],
+            _tail_pad: [0u8; 2],
         });
     }
 
