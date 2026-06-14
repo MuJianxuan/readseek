@@ -63,8 +63,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
                 continue;
             }
             let line = source
-                .lines
-                .get(symbol.start_line.saturating_sub(1))
+                .line(symbol.start_line)
                 .context("definition symbol line is out of range")?;
             definitions.push(DefinitionLocation {
                 file: source.path.clone(),
@@ -291,7 +290,7 @@ fn reference_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(us
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
-    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
+    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
         return Vec::new();
     }
     let Some(language) = symbols::tree_sitter_language(source.detection.language) else {

@@ -1,5 +1,5 @@
 use crate::cli::ReadCommand;
-use crate::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::lang::{BinaryMode, EngineField, Language};
 use crate::source::{
     HashLine, SourceFile, Symbol, load_source, range_hashlines, source_from_text, source_map,
     symbol_at_line_in_map, symbol_at_line_uncached,
@@ -14,8 +14,7 @@ use std::path::{Path, PathBuf};
 pub(crate) struct ReadOutput {
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
+    engine: EngineField,
     line_count: usize,
     file_hash: String,
     start_line: usize,
@@ -27,8 +26,7 @@ pub(crate) struct ReadOutput {
 pub(crate) struct MapOutput {
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
+    engine: EngineField,
     line_count: usize,
     file_hash: String,
     symbols: Vec<Symbol>,
@@ -38,8 +36,7 @@ pub(crate) struct MapOutput {
 pub(crate) struct SymbolOutput {
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
+    engine: EngineField,
     line_count: usize,
     file_hash: String,
     symbol: Symbol,
@@ -50,8 +47,7 @@ pub(crate) struct SymbolOutput {
 pub(crate) struct IdentifyOutput {
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
+    engine: EngineField,
     line_count: usize,
     file_hash: String,
     line: usize,
@@ -78,8 +74,7 @@ pub(crate) struct DefinitionOutput {
 pub(crate) struct DefinitionLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) symbol: Symbol,
     #[serde(skip_serializing)]
@@ -97,8 +92,7 @@ pub(crate) struct ReferencesOutput {
 pub(crate) struct ReferenceLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) line: usize,
     pub(crate) column: usize,
@@ -133,8 +127,7 @@ pub(crate) struct SearchOutput {
 pub(crate) struct SearchFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) matches: Vec<SearchMatch>,
 }
@@ -391,8 +384,7 @@ pub(crate) fn identify_output(
     }
 
     let source_line = source
-        .lines
-        .get(line - 1)
+        .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
     let identifier = identifier_at_column(&source_line.text, column);
     let symbol = symbol_at_line_uncached(source, line)?;

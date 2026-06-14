@@ -1,6 +1,6 @@
 use crate::hash::{hash_line, hash_text};
 use crate::lang::{
-    AnalysisEngine, BinaryMode, DocumentKind, Language, analysis_engine, detect_by_path,
+    BinaryMode, DocumentKind, EngineField, Language, analysis_engine, detect_by_path,
     detect_language, document_extractor, document_kind, is_binary_mime, normalize_source_text,
 };
 use crate::symbols;
@@ -13,8 +13,7 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Detection {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) engine: EngineField,
     pub(crate) supported: bool,
     pub(crate) binary: bool,
     pub(crate) mime: Option<String>,
@@ -47,6 +46,12 @@ pub(crate) struct SourceFile {
     pub(crate) detection: Detection,
     pub(crate) lines: Vec<SourceLine>,
     pub(crate) file_hash: String,
+}
+
+impl SourceFile {
+    pub(crate) fn line(&self, n: usize) -> Option<&SourceLine> {
+        self.lines.get(n.checked_sub(1)?)
+    }
 }
 
 #[derive(Debug)]
@@ -98,7 +103,7 @@ pub(crate) fn source_from_text(
         detect_language(path, &text)?
     };
     let language = language.unwrap_or(detected_language);
-    let engine = analysis_engine(language);
+    let engine = EngineField(analysis_engine(language));
     let kind = document_kind(language);
     let file_hash = hash_text(&text);
     let lines = text
@@ -203,8 +208,7 @@ pub(crate) fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Opti
 
 pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
     source
-        .lines
-        .get(line.saturating_sub(1))
+        .line(line)
         .map(|line| line.hash.clone())
         .with_context(|| format!("line {line} not found in {}", source.path.display()))
 }

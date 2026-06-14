@@ -15,9 +15,11 @@ use crate::cli::{
     Cli, DefinitionCommand, InitCommand, ReferencesCommand, SearchCommand, UpdateCommand,
 };
 use crate::flags::GitFlags;
-use crate::lang::BinaryMode;
+use crate::lang::{BinaryMode, Language};
 use crate::output::SearchOutput;
 use crate::paths::command_paths;
+use crate::source::SourceFile;
+use crate::target::Target;
 
 mod cli;
 mod flags;
@@ -74,14 +76,10 @@ fn run() -> Result<()> {
     Ok(())
 }
 fn run_detect(command: &cli::FileCommand) -> Result<()> {
-    let target = cli::parse_input_target(
+    let (_, source) = load_source(
         command.target.as_deref(),
         command.stdin,
         command.path.as_deref(),
-    )?;
-    let source = output::load_source_for_input(
-        &target.path,
-        command.stdin,
         command.language,
         BinaryMode::Reject,
     )?;
@@ -89,14 +87,10 @@ fn run_detect(command: &cli::FileCommand) -> Result<()> {
 }
 
 fn run_read(command: &cli::ReadCommand) -> Result<()> {
-    let target = cli::parse_input_target(
+    let (target, source) = load_source(
         command.target.as_deref(),
         command.stdin,
         command.path.as_deref(),
-    )?;
-    let source = output::load_source_for_input(
-        &target.path,
-        command.stdin,
         command.language,
         BinaryMode::Lossy,
     )?;
@@ -107,14 +101,10 @@ fn run_read(command: &cli::ReadCommand) -> Result<()> {
 }
 
 fn run_map(command: &cli::MapCommand) -> Result<()> {
-    let target = cli::parse_input_target(
+    let (_, source) = load_source(
         command.target.as_deref(),
         command.stdin,
         command.path.as_deref(),
-    )?;
-    let source = output::load_source_for_input(
-        &target.path,
-        command.stdin,
         command.language,
         BinaryMode::Reject,
     )?;
@@ -138,20 +128,28 @@ fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
 }
 
 fn run_identify(command: &cli::IdentifyCommand) -> Result<()> {
-    let target = cli::parse_input_target(
+    let (target, source) = load_source(
         command.target.as_deref(),
         command.stdin,
         command.path.as_deref(),
-    )?;
-    let source = output::load_source_for_input(
-        &target.path,
-        command.stdin,
         command.language,
         BinaryMode::Reject,
     )?;
     let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
     let output = output::identify_output(&source, target_line, command.column)?;
     print_json(&output)
+}
+
+fn load_source(
+    target: Option<&str>,
+    stdin: bool,
+    path: Option<&Path>,
+    language: Option<Language>,
+    binary_mode: BinaryMode,
+) -> Result<(Target, SourceFile)> {
+    let target = cli::parse_input_target(target, stdin, path)?;
+    let source = output::load_source_for_input(&target.path, stdin, language, binary_mode)?;
+    Ok((target, source))
 }
 
 fn print_definition_output(command: &DefinitionCommand) -> Result<()> {

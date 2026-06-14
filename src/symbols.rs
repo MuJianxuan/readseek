@@ -13,7 +13,7 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
         return Ok(SourceMap { symbols });
     }
 
-    match source.detection.engine {
+    match source.detection.engine.0 {
         Some(AnalysisEngine::TreeSitter) => parse_tree_sitter_source_map(source),
         _ => Ok(SourceMap { symbols }),
     }

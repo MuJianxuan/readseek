@@ -49,11 +49,14 @@ pub(crate) fn definition_candidate_paths(
     command_paths(&command.target, flags)
 }
 
-fn git_definition_candidate_paths(
-    target: &Path,
-    flags: GitFlags,
-    search_name: &str,
-) -> Result<Option<Vec<PathBuf>>> {
+struct GitScope {
+    repository: git2::Repository,
+    workdir: PathBuf,
+    output_root: PathBuf,
+    scope: PathBuf,
+}
+
+fn resolve_git_scope(target: &Path, flags: GitFlags) -> Result<Option<GitScope>> {
     let original_target = target;
     let Ok(repository) = git2::Repository::discover(target) else {
         return Ok(None);
@@ -74,20 +77,44 @@ fn git_definition_candidate_paths(
         .strip_prefix(&workdir)
         .with_context(|| format!("{} is outside Git work tree", target.display()))?;
     let output_root = output_root_for_scope(original_target, scope)?;
+
+    Ok(Some(GitScope {
+        repository,
+        workdir,
+        output_root,
+        scope: scope.to_path_buf(),
+    }))
+}
+
+fn git_definition_candidate_paths(
+    target: &Path,
+    flags: GitFlags,
+    search_name: &str,
+) -> Result<Option<Vec<PathBuf>>> {
+    let Some(scope) = resolve_git_scope(target, flags)? else {
+        return Ok(None);
+    };
     let default_selection = !flags.has_any();
     let cached = flags.cached || default_selection;
     let others = flags.others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_definition_paths(&workdir, &output_root, scope, search_name, &mut paths)?;
+        collect_cached_definition_paths(
+            &scope.repository,
+            &scope.workdir,
+            &scope.output_root,
+            &scope.scope,
+            search_name,
+            &mut paths,
+        )?;
     }
     if others {
         collect_other_definition_paths(
-            &repository,
-            &workdir,
-            &output_root,
-            scope,
+            &scope.repository,
+            &scope.workdir,
+            &scope.output_root,
+            &scope.scope,
             flags.ignored,
             search_name,
             &mut paths,
@@ -98,14 +125,13 @@ fn git_definition_candidate_paths(
 }
 
 fn collect_cached_definition_paths(
+    repository: &git2::Repository,
     workdir: &Path,
     output_root: &Path,
     scope: &Path,
     search_name: &str,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    let repository =
-        git2::Repository::discover(workdir).context("discover git repository from workdir")?;
     let index = repository.index().context("read Git index")?;
     for entry in index.iter() {
         let relative = git_path(&entry.path)?;
@@ -160,40 +186,28 @@ fn collect_other_definition_paths(
 }
 
 fn git_search_paths(target: &Path, flags: GitFlags) -> Result<Option<Vec<PathBuf>>> {
-    let original_target = target;
-    let Ok(repository) = git2::Repository::discover(target) else {
+    let Some(scope) = resolve_git_scope(target, flags)? else {
         return Ok(None);
     };
-
-    flags.validate()?;
-
-    let workdir = repository
-        .workdir()
-        .context("Git repository has no work tree")?;
-    let target = target
-        .canonicalize()
-        .with_context(|| format!("canonicalize {}", target.display()))?;
-    let workdir = workdir
-        .canonicalize()
-        .with_context(|| format!("canonicalize {}", workdir.display()))?;
-    let scope = target
-        .strip_prefix(&workdir)
-        .with_context(|| format!("{} is outside Git work tree", target.display()))?;
-    let output_root = output_root_for_scope(original_target, scope)?;
     let default_selection = !flags.has_any();
     let cached = flags.cached || default_selection;
     let others = flags.others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_paths(&repository, &output_root, scope, &mut paths)?;
+        collect_cached_paths(
+            &scope.repository,
+            &scope.output_root,
+            &scope.scope,
+            &mut paths,
+        )?;
     }
     if others {
         collect_other_paths(
-            &repository,
-            &workdir,
-            &output_root,
-            scope,
+            &scope.repository,
+            &scope.workdir,
+            &scope.output_root,
+            &scope.scope,
             flags.ignored,
             &mut paths,
         )?;
