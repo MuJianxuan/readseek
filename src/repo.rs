@@ -5,6 +5,7 @@ use crate::lang::{AnalysisEngine, Language};
 use crate::source::{SourceFile, SourceMap, Symbol};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
+use crc::CRC_32_ISO_HDLC;
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ struct Header {
     sym_count: U32<LittleEndian>,
     strtab_sz: U32<LittleEndian>,
     file_hash: [u8; BLAKE3_RAW_LEN],
-    _reserved: [u8; 4],
+    checksum: U32<LittleEndian>,
 }
 
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
@@ -186,6 +187,13 @@ pub(crate) fn load_map(
         return Ok(None);
     }
 
+    let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+    let computed = crc32.checksum(&data[HEADER_SIZE..]);
+    if header.checksum.get() != computed {
+        log::warn!("checksum mismatch in {}", path.display());
+        return Ok(None);
+    }
+
     let language = Language::try_from(header.lang_tag.get())
         .with_context(|| format!("unknown language tag {}", header.lang_tag.get()))?;
     let engine = engine_from_tag(header.engine_tag)?;
@@ -316,7 +324,7 @@ pub(crate) fn store_map(
         sym_count: U32::new(sym_count),
         strtab_sz: U32::new(strtab_sz),
         file_hash: raw_hash,
-        _reserved: [0u8; 4],
+        checksum: U32::new(0),
     };
 
     let total_size = HEADER_SIZE + entries.len() * SYM_ENTRY_SIZE + strtab.len();
@@ -326,6 +334,10 @@ pub(crate) fn store_map(
         buf.extend_from_slice(entry.as_bytes());
     }
     buf.extend_from_slice(&strtab);
+    let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+    let checksum = crc32.checksum(&buf[HEADER_SIZE..]);
+    buf[HEADER_SIZE - size_of::<U32<LittleEndian>>()..HEADER_SIZE]
+        .copy_from_slice(&checksum.to_le_bytes());
 
     let path = map_path(readseek_dir, file_hash);
     if let Some(parent) = path.parent() {
