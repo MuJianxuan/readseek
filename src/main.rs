@@ -343,16 +343,37 @@ impl Language {
 struct LanguageSpec {
     language: Language,
     id: &'static str,
+    engine: AnalysisEngine,
     aliases: &'static [&'static str],
     extensions: &'static [&'static str],
     file_names: &'static [&'static str],
     syntax_names: &'static [&'static str],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum AnalysisEngine {
+    TreeSitter,
+    #[allow(dead_code)]
+    Llvm,
+    None,
+}
+
+impl AnalysisEngine {
+    const fn id(self) -> &'static str {
+        match self {
+            Self::TreeSitter => "tree-sitter",
+            Self::Llvm => "llvm",
+            Self::None => "none",
+        }
+    }
+}
+
 const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Assembly,
         id: "assembly",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["assembly", "asm", "x86", "arm"],
         extensions: &["asm", "s", "S"],
         file_names: &[],
@@ -361,6 +382,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::C,
         id: "c",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["c"],
         extensions: &["c", "h"],
         file_names: &[],
@@ -369,6 +391,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Bash,
         id: "bash",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["bash", "sh", "shell"],
         extensions: &["bash", "sh"],
         file_names: &[".bashrc", ".bash_profile", ".profile"],
@@ -381,6 +404,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Cpp,
         id: "cpp",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["cpp", "cxx", "cplusplus"],
         extensions: &["cc", "cpp", "cxx", "hh", "hpp", "hxx"],
         file_names: &[],
@@ -389,6 +413,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::CSharp,
         id: "csharp",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["csharp", "cs", "c#"],
         extensions: &["cs"],
         file_names: &[],
@@ -397,6 +422,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Css,
         id: "css",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["css"],
         extensions: &["css"],
         file_names: &[],
@@ -405,6 +431,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Dockerfile,
         id: "dockerfile",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["dockerfile", "containerfile"],
         extensions: &[],
         file_names: &["Dockerfile", "Containerfile"],
@@ -413,6 +440,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Go,
         id: "go",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["go", "golang"],
         extensions: &["go"],
         file_names: &["go.mod"],
@@ -421,6 +449,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Gdscript,
         id: "gdscript",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["gdscript", "gd"],
         extensions: &["gd"],
         file_names: &[],
@@ -429,6 +458,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Java,
         id: "java",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["java"],
         extensions: &["java"],
         file_names: &[],
@@ -437,6 +467,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::JavaScript,
         id: "javascript",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["javascript", "js"],
         extensions: &["js", "mjs", "cjs"],
         file_names: &[],
@@ -445,6 +476,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Jsx,
         id: "jsx",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["jsx"],
         extensions: &["jsx"],
         file_names: &[],
@@ -453,6 +485,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Html,
         id: "html",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["html", "htm"],
         extensions: &["html", "htm"],
         file_names: &[],
@@ -461,6 +494,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Json,
         id: "json",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["json"],
         extensions: &["json"],
         file_names: &["package-lock.json", "composer.lock"],
@@ -469,6 +503,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Xml,
         id: "xml",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["xml"],
         extensions: &["xml", "xsd", "xsl", "xslt"],
         file_names: &[],
@@ -477,6 +512,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Yaml,
         id: "yaml",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["yaml", "yml"],
         extensions: &["yaml", "yml"],
         file_names: &[],
@@ -485,6 +521,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Just,
         id: "just",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["just", "justfile"],
         extensions: &["just"],
         file_names: &["justfile", "Justfile", ".justfile"],
@@ -493,6 +530,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Kconfig,
         id: "kconfig",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["kconfig"],
         extensions: &[],
         file_names: &["Kconfig"],
@@ -501,6 +539,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Make,
         id: "make",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["make", "makefile"],
         extensions: &["mk", "mak", "make"],
         file_names: &["Makefile", "makefile", "GNUmakefile"],
@@ -509,6 +548,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Latex,
         id: "latex",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["latex", "tex"],
         extensions: &["tex", "ltx", "latex"],
         file_names: &[],
@@ -517,6 +557,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Lua,
         id: "lua",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["lua"],
         extensions: &["lua"],
         file_names: &[],
@@ -525,6 +566,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Markdown,
         id: "markdown",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["markdown", "md"],
         extensions: &["md", "markdown", "mdown", "mkd"],
         file_names: &[],
@@ -533,6 +575,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Meson,
         id: "meson",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["meson"],
         extensions: &[],
         file_names: &["meson.build", "meson_options.txt"],
@@ -541,6 +584,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Nix,
         id: "nix",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["nix"],
         extensions: &["nix"],
         file_names: &["flake.lock"],
@@ -549,6 +593,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Perl,
         id: "perl",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["perl", "pl", "pm"],
         extensions: &["pl", "pm", "t"],
         file_names: &[],
@@ -557,6 +602,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Python,
         id: "python",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["python", "py"],
         extensions: &["py", "pyw"],
         file_names: &[],
@@ -565,6 +611,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Php,
         id: "php",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["php"],
         extensions: &["php", "php3", "php4", "php5", "phtml"],
         file_names: &[],
@@ -573,6 +620,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Puppet,
         id: "puppet",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["puppet", "pp"],
         extensions: &["pp"],
         file_names: &["Puppetfile"],
@@ -581,6 +629,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Ruby,
         id: "ruby",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["ruby", "rb"],
         extensions: &["rb", "rake", "gemspec"],
         file_names: &["Gemfile", "Rakefile"],
@@ -589,6 +638,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Riscv,
         id: "riscv",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["riscv", "risc-v", "riscv64"],
         extensions: &["riscv"],
         file_names: &[],
@@ -597,6 +647,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Rust,
         id: "rust",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["rust", "rs"],
         extensions: &["rs"],
         file_names: &[],
@@ -605,6 +656,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Swift,
         id: "swift",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["swift"],
         extensions: &["swift"],
         file_names: &[],
@@ -613,6 +665,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Sql,
         id: "sql",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["sql"],
         extensions: &["sql"],
         file_names: &[],
@@ -621,6 +674,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::TypeScript,
         id: "typescript",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["typescript", "ts"],
         extensions: &["ts", "mts", "cts"],
         file_names: &[],
@@ -629,6 +683,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Tsx,
         id: "tsx",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["tsx"],
         extensions: &["tsx"],
         file_names: &[],
@@ -637,6 +692,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Toml,
         id: "toml",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["toml"],
         extensions: &["toml"],
         file_names: &["Cargo.lock"],
@@ -645,6 +701,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Typst,
         id: "typst",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["typst", "typ"],
         extensions: &["typ"],
         file_names: &[],
@@ -653,6 +710,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Vimscript,
         id: "vimscript",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["vimscript", "vim", "viml"],
         extensions: &["vim", "vimrc", "gvimrc"],
         file_names: &[".vimrc", ".gvimrc"],
@@ -661,6 +719,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Zig,
         id: "zig",
+        engine: AnalysisEngine::TreeSitter,
         aliases: &["zig"],
         extensions: &["zig", "zon"],
         file_names: &["build.zig", "build.zig.zon"],
@@ -678,12 +737,6 @@ enum BinaryMode {
 enum DocumentKind {
     Source,
     Text,
-}
-
-impl DocumentKind {
-    const fn supports_symbols(self) -> bool {
-        matches!(self, Self::Source)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -727,6 +780,7 @@ impl Serialize for Language {
 struct Detection {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     supported: bool,
     binary: bool,
     mime: Option<String>,
@@ -737,6 +791,7 @@ struct Detection {
 struct ReadOutput {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     line_count: usize,
     file_hash: String,
     start_line: usize,
@@ -748,6 +803,7 @@ struct ReadOutput {
 struct MapOutput {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     line_count: usize,
     file_hash: String,
     symbols: Vec<Symbol>,
@@ -757,6 +813,7 @@ struct MapOutput {
 struct SymbolOutput {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     line_count: usize,
     file_hash: String,
     symbol: Symbol,
@@ -767,6 +824,7 @@ struct SymbolOutput {
 struct IdentifyOutput {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     line_count: usize,
     file_hash: String,
     line: usize,
@@ -809,6 +867,7 @@ struct DefinitionOutput {
 struct DefinitionLocation {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     file_hash: String,
     symbol: Symbol,
     #[serde(skip_serializing)]
@@ -826,6 +885,7 @@ struct ReferencesOutput {
 struct ReferenceLocation {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     file_hash: String,
     line: usize,
     column: usize,
@@ -860,6 +920,7 @@ struct SearchOutput {
 struct SearchFileOutput {
     file: PathBuf,
     language: Language,
+    engine: AnalysisEngine,
     file_hash: String,
     matches: Vec<SearchMatch>,
 }
@@ -1321,6 +1382,7 @@ fn source_from_text(
             detect_language(path, &text)?
         };
     let language = override_language.unwrap_or(detected_language);
+    let engine = analysis_engine(language);
     let kind = document_kind(language);
     let lines = text
         .lines()
@@ -1338,6 +1400,7 @@ fn source_from_text(
     let detection = Detection {
         file: path.to_path_buf(),
         language,
+        engine,
         supported: language != Language::Unknown,
         binary,
         mime,
@@ -1492,11 +1555,15 @@ fn language_spec(language: Language) -> Option<&'static LanguageSpec> {
     LANGUAGE_SPECS.iter().find(|spec| spec.language == language)
 }
 
+fn analysis_engine(language: Language) -> AnalysisEngine {
+    language_spec(language).map_or(AnalysisEngine::None, |spec| spec.engine)
+}
+
 fn document_kind(language: Language) -> DocumentKind {
-    if symbols::has_parser(language) {
-        DocumentKind::Source
-    } else {
+    if language == Language::Unknown {
         DocumentKind::Text
+    } else {
+        DocumentKind::Source
     }
 }
 
@@ -1558,6 +1625,7 @@ fn read_output(
         return Ok(ReadOutput {
             file: source.path.clone(),
             language: source.detection.language,
+            engine: source.detection.engine,
             line_count,
             file_hash: source.file_hash.clone(),
             start_line,
@@ -1585,6 +1653,7 @@ fn read_output(
     Ok(ReadOutput {
         file: source.path.clone(),
         language: source.detection.language,
+        engine: source.detection.engine,
         line_count,
         file_hash: source.file_hash.clone(),
         start_line,
@@ -1599,6 +1668,7 @@ fn map_output(source: &SourceFile) -> Result<MapOutput> {
     Ok(MapOutput {
         file: source.path.clone(),
         language: source.detection.language,
+        engine: source.detection.engine,
         line_count: source.lines.len(),
         file_hash: source.file_hash.clone(),
         symbols: source_map.symbols,
@@ -1689,6 +1759,7 @@ fn symbol_output_for_symbol(source: &SourceFile, symbol: Symbol) -> Result<Symbo
     Ok(SymbolOutput {
         file: source.path.clone(),
         language: source.detection.language,
+        engine: source.detection.engine,
         line_count: source.lines.len(),
         file_hash: source.file_hash.clone(),
         symbol,
@@ -1720,6 +1791,7 @@ fn identify_output(
     Ok(IdentifyOutput {
         file: source.path.clone(),
         language: source.detection.language,
+        engine: source.detection.engine,
         line_count: source.lines.len(),
         file_hash: source.file_hash.clone(),
         line,
@@ -1837,6 +1909,7 @@ fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
             definitions.push(DefinitionLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
+                engine: source.detection.engine,
                 file_hash: source.file_hash.clone(),
                 line_hash: line.hash.clone(),
                 text: line.text.clone(),
@@ -1894,6 +1967,7 @@ fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<Definition
         .map(|line| DefinitionLocation {
             file: source.path.clone(),
             language: source.detection.language,
+            engine: source.detection.engine,
             file_hash: source.file_hash.clone(),
             symbol: Symbol {
                 kind: "macro".to_owned(),
@@ -2015,6 +2089,7 @@ fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocatio
             references.push(ReferenceLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
+                engine: source.detection.engine,
                 file_hash: source.file_hash.clone(),
                 line: line.number,
                 column,
@@ -2029,6 +2104,9 @@ fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocatio
 
 fn reference_ignored_ranges(source: &SourceFile) -> Vec<(usize, usize)> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
+        return Vec::new();
+    }
+    if source.detection.engine != AnalysisEngine::TreeSitter {
         return Vec::new();
     }
     let Some(language) = symbols::tree_sitter_language(source.detection.language) else {
@@ -2459,6 +2537,9 @@ fn search_file(
         return Ok(None);
     };
     let language_id = source.detection.language;
+    if source.detection.engine != AnalysisEngine::TreeSitter {
+        return Ok(None);
+    }
     let Some(language) = symbols::tree_sitter_language(language_id) else {
         return Ok(None);
     };
@@ -2490,6 +2571,7 @@ fn search_file(
     Ok(Some(SearchFileOutput {
         file: source.path,
         language: language_id,
+        engine: source.detection.engine,
         file_hash: source.file_hash,
         matches,
     }))

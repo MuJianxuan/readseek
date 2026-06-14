@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-const DB_SCHEMA_VERSION: i64 = 4;
+const DB_SCHEMA_VERSION: i64 = 5;
 
 pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
     let Some(mut connection) = connection()? else {
@@ -103,11 +103,12 @@ pub(crate) fn symbol_at_line(source: &SourceFile, line: usize) -> Result<Option<
 fn entry(tx: &Transaction<'_>, source: &SourceFile) -> Result<Option<(i64, i64)>> {
     tx.query_row(
         "SELECT id, symbol_count FROM map_cache \
-         WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
+         WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3 AND engine = ?4",
         params![
             DB_SCHEMA_VERSION,
             source.file_hash,
-            source.detection.language.id()
+            source.detection.language.id(),
+            source.detection.engine.id()
         ],
         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
     )
@@ -182,21 +183,24 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
     let now = unix_time()?;
 
     tx.execute(
-        "DELETE FROM map_cache WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3",
-        params![
-            DB_SCHEMA_VERSION,
-            source.file_hash,
-            source.detection.language.id()
-        ],
-    )?;
-    tx.execute(
-        "INSERT INTO map_cache \
-         (cache_version, file_hash, language, symbol_count, created_at, last_used_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "DELETE FROM map_cache \
+         WHERE cache_version = ?1 AND file_hash = ?2 AND language = ?3 AND engine = ?4",
         params![
             DB_SCHEMA_VERSION,
             source.file_hash,
             source.detection.language.id(),
+            source.detection.engine.id()
+        ],
+    )?;
+    tx.execute(
+        "INSERT INTO map_cache \
+         (cache_version, file_hash, language, engine, symbol_count, created_at, last_used_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            DB_SCHEMA_VERSION,
+            source.file_hash,
+            source.detection.language.id(),
+            source.detection.engine.id(),
             i64::try_from(source_map.symbols.len())?,
             now,
             now,
@@ -261,17 +265,20 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
     }
 
     connection.execute_batch(&format!(
-        "CREATE TABLE IF NOT EXISTS map_cache (
+        "DROP TABLE IF EXISTS map_symbols;
+        DROP TABLE IF EXISTS map_cache;
+        CREATE TABLE map_cache (
             id INTEGER PRIMARY KEY,
             cache_version INTEGER NOT NULL,
             file_hash TEXT NOT NULL,
             language TEXT NOT NULL,
+            engine TEXT NOT NULL,
             symbol_count INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             last_used_at INTEGER NOT NULL,
-            UNIQUE(file_hash, language, cache_version)
+            UNIQUE(file_hash, language, engine, cache_version)
         );
-        CREATE TABLE IF NOT EXISTS map_symbols (
+        CREATE TABLE map_symbols (
             cache_id INTEGER NOT NULL REFERENCES map_cache(id) ON DELETE CASCADE,
             kind TEXT NOT NULL,
             name TEXT NOT NULL,

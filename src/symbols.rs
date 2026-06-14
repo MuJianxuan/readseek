@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::{Language, SourceFile, SourceLine, SourceMap, Symbol};
+use crate::{AnalysisEngine, DocumentKind, Language, SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
 
-pub(crate) fn has_parser(language: Language) -> bool {
-    tree_sitter_language(language).is_some()
-}
-
 pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
-    let mut symbols = Vec::new();
+    let symbols = Vec::new();
 
-    if !source.kind.supports_symbols() {
+    if source.kind != DocumentKind::Source {
         return Ok(SourceMap { symbols });
     }
+
+    match source.detection.engine {
+        AnalysisEngine::TreeSitter => parse_tree_sitter_source_map(source),
+        AnalysisEngine::Llvm | AnalysisEngine::None => Ok(SourceMap { symbols }),
+    }
+}
+
+fn parse_tree_sitter_source_map(source: &SourceFile) -> Result<SourceMap> {
+    let mut symbols = Vec::new();
 
     let Some(language) = tree_sitter_language(source.detection.language) else {
         return Ok(SourceMap { symbols });
@@ -811,6 +816,7 @@ mod tests {
             detection: Detection {
                 file: PathBuf::from("defs.h"),
                 language: Language::C,
+                engine: AnalysisEngine::TreeSitter,
                 supported: true,
                 binary: false,
                 mime: None,
