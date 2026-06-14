@@ -48,7 +48,7 @@ pub(crate) fn search_file(
         return Ok(None);
     };
     let detected_language = source.detection.language;
-    if source.detection.engine != AnalysisEngine::TreeSitter {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Ok(None);
     }
     let Some(language) = symbols::tree_sitter_language(detected_language) else {
@@ -249,7 +249,7 @@ fn child_nodes_match(
     if let Some(meta) = pattern_meta(pattern, pattern_child) {
         if meta.kind == PatternMetaKind::Variadic {
             for count in 0..=source_children.len().saturating_sub(source_index) {
-                let mut trial_captures = captures.clone();
+                let snapshot = captures.len();
                 if count > 0 {
                     let start_node = source_children[source_index];
                     let end_node = source_children[source_index + count - 1];
@@ -261,7 +261,7 @@ fn child_nodes_match(
                     else {
                         continue;
                     };
-                    if !bind_capture(&mut trial_captures, &meta.name, text, start_line, end_line) {
+                    if !bind_capture(captures, &meta.name, text, start_line, end_line) {
                         continue;
                     }
                 }
@@ -272,11 +272,11 @@ fn child_nodes_match(
                     source_children,
                     pattern_index + 1,
                     source_index + count,
-                    &mut trial_captures,
+                    captures,
                 ) {
-                    *captures = trial_captures;
                     return true;
                 }
+                captures.truncate(snapshot);
             }
             return false;
         }
@@ -286,30 +286,29 @@ fn child_nodes_match(
         return false;
     }
 
-    let mut trial_captures = captures.clone();
+    let snapshot = captures.len();
     if !nodes_match(
         source,
         pattern,
         pattern_child,
         source_children[source_index],
-        &mut trial_captures,
+        captures,
     ) {
         return false;
     }
-    if !child_nodes_match(
+    if child_nodes_match(
         source,
         pattern,
         pattern_children,
         source_children,
         pattern_index + 1,
         source_index + 1,
-        &mut trial_captures,
+        captures,
     ) {
-        return false;
+        return true;
     }
-
-    *captures = trial_captures;
-    true
+    captures.truncate(snapshot);
+    false
 }
 
 fn bind_capture(

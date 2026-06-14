@@ -31,6 +31,8 @@ pub(crate) enum Command {
     Definition(DefinitionCommand),
     References(ReferencesCommand),
     Search(SearchCommand),
+    Init(InitCommand),
+    Update(UpdateCommand),
 }
 
 /// detect the file type
@@ -274,6 +276,26 @@ pub(crate) struct SearchCommand {
     /// include ignored untracked files when searching a Git repository
     #[argh(switch, short = 'i')]
     pub(crate) ignored: bool,
+}
+
+/// initialize .readseek/ directory
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "init")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct InitCommand {
+    /// path to a directory (defaults to current directory)
+    #[argh(positional)]
+    pub(crate) path: Option<PathBuf>,
+}
+
+/// synchronize .readseek/ with source files
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "update")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct UpdateCommand {
+    /// path to a directory (defaults to current directory)
+    #[argh(positional)]
+    pub(crate) path: Option<PathBuf>,
 }
 
 pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, String> {

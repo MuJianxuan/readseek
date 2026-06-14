@@ -1,4 +1,3 @@
-use crate::cache::Cache;
 use crate::hash::{hash_line, hash_text};
 use crate::lang::{
     AnalysisEngine, BinaryMode, DocumentKind, Language, analysis_engine, detect_by_path,
@@ -14,7 +13,8 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Detection {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) supported: bool,
     pub(crate) binary: bool,
     pub(crate) mime: Option<String>,
@@ -66,13 +66,6 @@ pub(crate) struct SourceLine {
 #[derive(Debug)]
 pub(crate) struct SourceMap {
     pub(crate) symbols: Vec<Symbol>,
-}
-
-#[derive(Debug)]
-pub(crate) enum SymbolLookup {
-    Found(Symbol),
-    NotFound,
-    Ambiguous,
 }
 
 pub(crate) fn load_source(
@@ -157,22 +150,32 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
 }
 
 pub(crate) fn source_map(source: &SourceFile) -> Result<SourceMap> {
-    source_map_with_cache(source, &mut Cache::new())
+    let readseek_dir = crate::repo::find_readseek_dir(&source.path);
+    source_map_with_dir(source, readseek_dir.as_deref())
 }
 
-pub(crate) fn source_map_with_cache(source: &SourceFile, cache: &mut Cache) -> Result<SourceMap> {
-    match cache.load_source_map(source) {
-        Ok(Some(source_map)) => return Ok(source_map),
-        Ok(None) => {}
-        Err(error) => log::warn!("cache load error: {error:#}"),
+pub(crate) fn source_map_with_dir(
+    source: &SourceFile,
+    readseek_dir: Option<&Path>,
+) -> Result<SourceMap> {
+    if let Some(readseek_dir) = readseek_dir {
+        match crate::repo::load_map(readseek_dir, &source.file_hash) {
+            Ok(Some((source_map, _language, _engine))) => return Ok(source_map),
+            Ok(None) => {}
+            Err(error) => log::warn!("cache load error: {error:#}"),
+        }
+
+        let source_map = symbols::parse_source_map(source)?;
+        if let Err(error) =
+            crate::repo::store_map(readseek_dir, &source.file_hash, source, &source_map)
+        {
+            log::warn!("cache store error: {error:#}");
+        }
+
+        return Ok(source_map);
     }
 
-    let source_map = symbols::parse_source_map(source)?;
-    if let Err(error) = cache.store_source_map(source, &source_map) {
-        log::warn!("cache store error: {error:#}");
-    }
-
-    Ok(source_map)
+    symbols::parse_source_map(source)
 }
 
 pub(crate) fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {

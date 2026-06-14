@@ -21,7 +21,6 @@ def main():
     pass_count = 0
     fail_count = 0
     sandbox_home = None
-    cache_home = None
 
     def passed(name):
         nonlocal pass_count
@@ -38,8 +37,6 @@ def main():
         if sandbox_home is not None:
             env["HOME"] = sandbox_home
             env.pop("XDG_CACHE_HOME", None)
-        if cache_home is not None:
-            env["READSEEK_CACHE_DIR"] = cache_home
         return subprocess.run(
             [readseek_bin] + args,
             capture_output=True,
@@ -154,7 +151,12 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         sandbox_home = os.path.join(tmpdir, "home")
         os.mkdir(sandbox_home)
-        cache_home = os.path.join(tmpdir, "cache")
+        name = "init: .readseek directory"
+        result_init = run(["init", tmpdir])
+        if result_init.returncode == 0:
+            passed(name)
+        else:
+            failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
         data = readseek_json(name, ["file", path])
@@ -335,8 +337,8 @@ def main():
                     assert_symbol(name, symbols, "function", "make"),
                     assert_true(
                         name,
-                        os.path.exists(os.path.join(cache_home, "readseek", "cache.sqlite3")),
-                        "cache database missing",
+                        os.path.isdir(os.path.join(tmpdir, ".readseek", "maps")),
+                        "cache maps directory missing",
                     ),
                 ]
             ):

@@ -6,22 +6,25 @@
 
 use anyhow::{Context, Result};
 use argh::FromArgs;
+use rayon::prelude::*;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, process};
 
-use crate::cli::{Cli, DefinitionCommand, ReferencesCommand, SearchCommand};
+use crate::cli::{
+    Cli, DefinitionCommand, InitCommand, ReferencesCommand, SearchCommand, UpdateCommand,
+};
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
 use crate::paths::command_paths;
 use crate::source::{HashLine, Symbol};
 
-mod cache;
 mod cli;
 mod hash;
 mod lang;
 mod navigation;
 mod output;
 mod paths;
+mod repo;
 mod search;
 mod source;
 mod symbols;
@@ -35,7 +38,8 @@ struct DefinitionOutput {
 struct DefinitionLocation {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     file_hash: String,
     symbol: Symbol,
     #[serde(skip_serializing)]
@@ -53,7 +57,8 @@ struct ReferencesOutput {
 struct ReferenceLocation {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     file_hash: String,
     line: usize,
     column: usize,
@@ -88,7 +93,8 @@ struct SearchOutput {
 pub(crate) struct SearchFileOutput {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     file_hash: String,
     matches: Vec<SearchMatch>,
 }
@@ -149,97 +155,103 @@ fn run() -> Result<()> {
     }
 
     match cli.command.context("command required")? {
-        crate::cli::Command::Detect(command) => {
-            let target = crate::cli::parse_input_target(
-                command.target.as_deref(),
-                command.stdin,
-                command.path.as_deref(),
-            )?;
-            let source = output::load_source_for_input(
-                &target.path,
-                command.stdin,
-                command.language,
-                BinaryMode::Reject,
-            )?;
-            print_json(&source.detection)?;
-        }
-        crate::cli::Command::Read(command) => {
-            let target = crate::cli::parse_input_target(
-                command.target.as_deref(),
-                command.stdin,
-                command.path.as_deref(),
-            )?;
-            let source = output::load_source_for_input(
-                &target.path,
-                command.stdin,
-                command.language,
-                BinaryMode::Lossy,
-            )?;
-            let target_line = output::resolve_target_line(&source, &target)?;
-            let (start, end) = output::resolve_read_range(&command, target_line)?;
-            let output = output::read_output(&source, start, end)?;
-            print_json(&output)?;
-        }
-        crate::cli::Command::Map(command) => {
-            let target = crate::cli::parse_input_target(
-                command.target.as_deref(),
-                command.stdin,
-                command.path.as_deref(),
-            )?;
-            let source = output::load_source_for_input(
-                &target.path,
-                command.stdin,
-                command.language,
-                BinaryMode::Reject,
-            )?;
-            print_json(&output::map_output(&source)?)?;
-        }
-        crate::cli::Command::Symbol(command) => {
-            let (target_arg, address_arg) = crate::cli::symbol_args(&command.args, command.stdin)?;
-            let target = crate::cli::parse_symbol_input_target(
-                target_arg,
-                command.stdin,
-                command.path.as_deref(),
-            )?;
-            let source = output::load_source_for_input(
-                &target.path,
-                command.stdin,
-                command.language,
-                BinaryMode::Reject,
-            )?;
-            let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
-            let target_address = output::symbol_address(&target, address_arg)?;
-            let output = output::symbol_command_output(&source, target_address, target_line)?;
-            print_json(&output)?;
-        }
-        crate::cli::Command::Identify(command) => {
-            let target = crate::cli::parse_input_target(
-                command.target.as_deref(),
-                command.stdin,
-                command.path.as_deref(),
-            )?;
-            let source = output::load_source_for_input(
-                &target.path,
-                command.stdin,
-                command.language,
-                BinaryMode::Reject,
-            )?;
-            let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
-            let output = output::identify_output(&source, target_line, command.column)?;
-            print_json(&output)?;
-        }
+        crate::cli::Command::Detect(command) => run_detect(&command)?,
+        crate::cli::Command::Read(command) => run_read(&command)?,
+        crate::cli::Command::Map(command) => run_map(&command)?,
+        crate::cli::Command::Symbol(command) => run_symbol(&command)?,
+        crate::cli::Command::Identify(command) => run_identify(&command)?,
         crate::cli::Command::Definition(command) => {
             print_definition_output(&command)?;
         }
         crate::cli::Command::References(command) => {
             print_references_output(&command)?;
         }
-        crate::cli::Command::Search(command) => {
-            print_json(&search_output(&command)?)?;
-        }
+        crate::cli::Command::Search(command) => print_json(&search_output(&command)?)?,
+        crate::cli::Command::Init(command) => run_init(&command)?,
+        crate::cli::Command::Update(command) => run_update(&command)?,
     }
 
     Ok(())
+}
+fn run_detect(command: &cli::FileCommand) -> Result<()> {
+    let target = cli::parse_input_target(
+        command.target.as_deref(),
+        command.stdin,
+        command.path.as_deref(),
+    )?;
+    let source = output::load_source_for_input(
+        &target.path,
+        command.stdin,
+        command.language,
+        BinaryMode::Reject,
+    )?;
+    print_json(&source.detection)
+}
+
+fn run_read(command: &cli::ReadCommand) -> Result<()> {
+    let target = cli::parse_input_target(
+        command.target.as_deref(),
+        command.stdin,
+        command.path.as_deref(),
+    )?;
+    let source = output::load_source_for_input(
+        &target.path,
+        command.stdin,
+        command.language,
+        BinaryMode::Lossy,
+    )?;
+    let target_line = output::resolve_target_line(&source, &target)?;
+    let (start, end) = output::resolve_read_range(command, target_line)?;
+    let output = output::read_output(&source, start, end)?;
+    print_json(&output)
+}
+
+fn run_map(command: &cli::MapCommand) -> Result<()> {
+    let target = cli::parse_input_target(
+        command.target.as_deref(),
+        command.stdin,
+        command.path.as_deref(),
+    )?;
+    let source = output::load_source_for_input(
+        &target.path,
+        command.stdin,
+        command.language,
+        BinaryMode::Reject,
+    )?;
+    print_json(&output::map_output(&source)?)
+}
+
+fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
+    let (target_arg, address_arg) = cli::symbol_args(&command.args, command.stdin)?;
+    let target =
+        cli::parse_symbol_input_target(target_arg, command.stdin, command.path.as_deref())?;
+    let source = output::load_source_for_input(
+        &target.path,
+        command.stdin,
+        command.language,
+        BinaryMode::Reject,
+    )?;
+    let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
+    let target_address = output::symbol_address(&target, address_arg)?;
+    let output = output::symbol_command_output(&source, target_address, target_line)?;
+    print_json(&output)
+}
+
+fn run_identify(command: &cli::IdentifyCommand) -> Result<()> {
+    let target = cli::parse_input_target(
+        command.target.as_deref(),
+        command.stdin,
+        command.path.as_deref(),
+    )?;
+    let source = output::load_source_for_input(
+        &target.path,
+        command.stdin,
+        command.language,
+        BinaryMode::Reject,
+    )?;
+    let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
+    let output = output::identify_output(&source, target_line, command.column)?;
+    print_json(&output)
 }
 
 fn print_definition_output(command: &DefinitionCommand) -> Result<()> {
@@ -274,21 +286,32 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     {
         crate::search::prepare_pattern_tree(&mut pattern, &language);
     }
-    let mut parser = tree_sitter::Parser::new();
-    let mut results = Vec::new();
 
-    for path in paths {
-        let Some(result) =
-            crate::search::search_file(&path, command.language, &pattern, &mut parser)?
-        else {
-            continue;
-        };
-        if !result.matches.is_empty() {
-            results.push(result);
-        }
-    }
+    let results: Vec<_> = paths
+        .par_iter()
+        .filter_map(|path| {
+            let mut parser = tree_sitter::Parser::new();
+            crate::search::search_file(path, command.language, &pattern, &mut parser)
+                .ok()
+                .flatten()
+                .filter(|result| !result.matches.is_empty())
+        })
+        .collect();
 
     Ok(SearchOutput { results })
+}
+
+fn run_init(command: &InitCommand) -> Result<()> {
+    let path = command.path.as_deref().unwrap_or(Path::new("."));
+    repo::init(path)?;
+    Ok(())
+}
+
+fn run_update(command: &UpdateCommand) -> Result<()> {
+    let path = command.path.as_deref().unwrap_or(Path::new("."));
+    let stats = repo::update(path, true, true, false)?;
+    println!("{stats:?}");
+    Ok(())
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {

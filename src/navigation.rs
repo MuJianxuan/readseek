@@ -1,19 +1,21 @@
-use crate::cache::Cache;
 use crate::cli::{DefinitionCommand, ReferencesCommand};
 use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
 use crate::paths::{command_paths, definition_candidate_paths};
 use crate::source::{
-    SourceFile, Symbol, source_from_text, source_map_with_cache, symbol_at_line_in_map,
+    SourceFile, Symbol, source_from_text, source_map_with_dir, symbol_at_line_in_map,
 };
+use crate::symbols;
 use crate::{
     CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
-    ReferencesOutput, symbols,
+    ReferencesOutput,
 };
 use anyhow::{Context, Result, bail};
+use rayon::prelude::*;
 use serde::Deserialize;
 use std::fs;
 use std::io::{self, Read as _};
+use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 #[derive(Debug, Deserialize)]
@@ -35,8 +37,10 @@ struct SymbolInput {
 pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
     let name = definition_name(command)?;
     let search_name = definition_search_name(&name);
-    let mut candidates = Vec::new();
+    let readseek_dir = crate::repo::find_readseek_dir(std::path::Path::new("."));
     let mut macro_definitions = Vec::new();
+    let mut definitions = Vec::new();
+
     for path in definition_candidate_paths(command, search_name)? {
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
@@ -44,36 +48,13 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
         if !text.contains(search_name) {
             continue;
         }
-
-        candidates.push((path, text));
-    }
-
-    for (path, text) in &candidates {
-        if !text
-            .lines()
-            .any(|line| macro_definition_name(line) == Some(search_name))
-        {
-            continue;
-        }
-        let Ok(source) = source_from_text(path, text, command.language, false, None) else {
-            continue;
-        };
-        macro_definitions.extend(macro_definition_locations(&source, search_name));
-    }
-
-    if !macro_definitions.is_empty() {
-        return Ok(DefinitionOutput {
-            definitions: macro_definitions,
-        });
-    }
-
-    let mut cache = Cache::new();
-    let mut definitions = Vec::new();
-    for (path, text) in candidates {
         let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
             continue;
         };
-        let Ok(source_map) = source_map_with_cache(&source, &mut cache) else {
+
+        macro_definitions.extend(macro_definition_locations(&source, search_name));
+
+        let Ok(source_map) = source_map_with_dir(&source, readseek_dir.as_deref()) else {
             continue;
         };
         for symbol in source_map.symbols {
@@ -96,6 +77,11 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
         }
     }
 
+    if !macro_definitions.is_empty() {
+        return Ok(DefinitionOutput {
+            definitions: macro_definitions,
+        });
+    }
     Ok(DefinitionOutput { definitions })
 }
 
@@ -197,26 +183,30 @@ fn definition_name_from_stdin() -> Result<String> {
 pub(crate) fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {
     validate_reference_name(&command.name)?;
     let name = &command.name;
-    let mut cache = Cache::new();
-    let mut parser = tree_sitter::Parser::new();
-    let mut references = Vec::new();
-    for path in command_paths(
+    let readseek_dir = crate::repo::find_readseek_dir(&command.target);
+    let paths = command_paths(
         &command.target,
         command.cached,
         command.others,
         command.ignored,
-    )? {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if !text.contains(name) {
-            continue;
-        }
-        let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
-            continue;
-        };
-        references.extend(references_in_source(&source, name, &mut parser, &mut cache));
-    }
+    )?;
+
+    let references: Vec<ReferenceLocation> = paths
+        .par_iter()
+        .flat_map(|path| {
+            let Ok(text) = fs::read_to_string(path) else {
+                return vec![];
+            };
+            if !text.contains(name) {
+                return vec![];
+            }
+            let Ok(source) = source_from_text(path, &text, command.language, false, None) else {
+                return vec![];
+            };
+            let mut parser = tree_sitter::Parser::new();
+            references_in_source(&source, name, &mut parser, readseek_dir.as_deref())
+        })
+        .collect();
 
     Ok(ReferencesOutput { references })
 }
@@ -257,9 +247,9 @@ fn references_in_source(
     source: &SourceFile,
     name: &str,
     parser: &mut Parser,
-    cache: &mut Cache,
+    readseek_dir: Option<&Path>,
 ) -> Vec<ReferenceLocation> {
-    let source_map = source_map_with_cache(source, cache).ok();
+    let source_map = source_map_with_dir(source, readseek_dir).ok();
     let ignored_ranges = reference_ignored_ranges(source, parser);
     let line_starts = line_start_offsets(&source.text);
     let mut references = Vec::new();
@@ -298,7 +288,7 @@ fn reference_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(us
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
-    if source.detection.engine != AnalysisEngine::TreeSitter {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Vec::new();
     }
     let Some(language) = symbols::tree_sitter_language(source.detection.language) else {

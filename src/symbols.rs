@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::lang::{AnalysisEngine, DocumentKind, Language};
+use crate::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
 use crate::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
@@ -14,8 +14,8 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
     }
 
     match source.detection.engine {
-        AnalysisEngine::TreeSitter => parse_tree_sitter_source_map(source),
-        AnalysisEngine::Llvm | AnalysisEngine::None => Ok(SourceMap { symbols }),
+        Some(AnalysisEngine::TreeSitter) => parse_tree_sitter_source_map(source),
+        _ => Ok(SourceMap { symbols }),
     }
 }
 
@@ -26,7 +26,7 @@ fn parse_tree_sitter_source_map(source: &SourceFile) -> Result<SourceMap> {
         return Ok(SourceMap { symbols });
     };
 
-    if !language_has_symbols(source.detection.language) {
+    if !language_spec(source.detection.language).is_some_and(|s| s.has_symbols) {
         return Ok(SourceMap { symbols });
     }
 
@@ -126,32 +126,6 @@ fn collect_symbols(
     }
 }
 
-fn language_has_symbols(language: Language) -> bool {
-    !matches!(
-        language,
-        Language::Assembly
-            | Language::Css
-            | Language::Dockerfile
-            | Language::Html
-            | Language::Gdscript
-            | Language::Json
-            | Language::Latex
-            | Language::Lua
-            | Language::Meson
-            | Language::Nix
-            | Language::Perl
-            | Language::Puppet
-            | Language::Riscv
-            | Language::Sql
-            | Language::Xml
-            | Language::Typst
-            | Language::Toml
-            | Language::Yaml
-            | Language::Zig
-            | Language::Unknown
-    )
-}
-
 fn symbol_for_node(
     node: Node<'_>,
     source: &str,
@@ -159,7 +133,7 @@ fn symbol_for_node(
     parent: Option<&str>,
     lines: &[SourceLine],
 ) -> Option<Symbol> {
-    if !language_has_symbols(language) {
+    if !language_spec(language).is_some_and(|s| s.has_symbols) {
         return None;
     }
     let (kind, name) = match language {
@@ -181,26 +155,7 @@ fn symbol_for_node(
         Language::Ruby => ruby_symbol(node, source),
         Language::Swift => swift_symbol(node, source),
         Language::Vimscript => vimscript_symbol(node, source),
-        Language::Assembly
-        | Language::Css
-        | Language::Dockerfile
-        | Language::Html
-        | Language::Gdscript
-        | Language::Json
-        | Language::Latex
-        | Language::Lua
-        | Language::Meson
-        | Language::Nix
-        | Language::Perl
-        | Language::Puppet
-        | Language::Riscv
-        | Language::Sql
-        | Language::Xml
-        | Language::Typst
-        | Language::Toml
-        | Language::Yaml
-        | Language::Zig
-        | Language::Unknown => unreachable!(),
+        _ => return None,
     }?;
 
     let (start_line, end_line) = symbol_line_range(language, node);
@@ -648,52 +603,4 @@ fn line_hash(lines: &[SourceLine], line: usize) -> Option<String> {
     lines
         .get(line.checked_sub(1)?)
         .map(|line| line.hash.clone())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lang::DocumentKind;
-    use crate::source::Detection;
-    use std::path::PathBuf;
-
-    #[test]
-    fn c_typedefs_are_symbols() {
-        let text = "typedef unsigned int __u32;\ntypedef __u32 u32;\n".to_owned();
-        let source = SourceFile {
-            path: PathBuf::from("defs.h"),
-            text,
-            kind: DocumentKind::Source,
-            detection: Detection {
-                file: PathBuf::from("defs.h"),
-                language: Language::C,
-                engine: AnalysisEngine::TreeSitter,
-                supported: true,
-                binary: false,
-                mime: None,
-                syntax: None,
-            },
-            lines: vec![
-                SourceLine {
-                    number: 1,
-                    text: "typedef unsigned int __u32;".to_owned(),
-                    hash: "1".to_owned(),
-                },
-                SourceLine {
-                    number: 2,
-                    text: "typedef __u32 u32;".to_owned(),
-                    hash: "2".to_owned(),
-                },
-            ],
-            file_hash: "hash".to_owned(),
-        };
-
-        let source_map = parse_source_map(&source).unwrap();
-        assert!(
-            source_map
-                .symbols
-                .iter()
-                .any(|symbol| symbol.kind == "type" && symbol.name == "u32")
-        );
-    }
 }

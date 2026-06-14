@@ -1,10 +1,10 @@
 use crate::cli::ReadCommand;
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
 use crate::source::{
-    HashLine, SourceFile, Symbol, SymbolLookup, load_source, range_hashlines, source_from_text,
-    source_map, symbol_at_line_in_map, symbol_at_line_uncached,
+    HashLine, SourceFile, Symbol, load_source, range_hashlines, source_from_text, source_map,
+    symbol_at_line_in_map, symbol_at_line_uncached,
 };
-use crate::{Target, TargetAddress, cache};
+use crate::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::io::{self, Read as _};
@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 pub(crate) struct ReadOutput {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
     start_line: usize,
@@ -26,7 +27,8 @@ pub(crate) struct ReadOutput {
 pub(crate) struct MapOutput {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
     symbols: Vec<Symbol>,
@@ -36,7 +38,8 @@ pub(crate) struct MapOutput {
 pub(crate) struct SymbolOutput {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
     symbol: Symbol,
@@ -47,7 +50,8 @@ pub(crate) struct SymbolOutput {
 pub(crate) struct IdentifyOutput {
     file: PathBuf,
     language: Language,
-    engine: AnalysisEngine,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
     line: usize,
@@ -234,22 +238,6 @@ pub(crate) fn symbol_address<'a>(
 }
 
 fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
-    if let Some(lookup) = cache::symbol_by_address(source, address)? {
-        return match lookup {
-            SymbolLookup::Found(symbol) => Ok(SymbolOutput {
-                file: source.path.clone(),
-                language: source.detection.language,
-                engine: source.detection.engine,
-                line_count: source.lines.len(),
-                file_hash: source.file_hash.clone(),
-                hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
-                symbol,
-            }),
-            SymbolLookup::NotFound => bail!("symbol not found: {address}"),
-            SymbolLookup::Ambiguous => bail!("qualified symbol name is ambiguous: {address}"),
-        };
-    }
-
     let source_map = source_map(source)?;
     let matches = source_map
         .symbols
@@ -284,22 +272,6 @@ pub(crate) fn symbol_command_output(
     }
 
     let line = target_line.context("symbol requires qualified name or target line/hash")?;
-    if let Some(lookup) = cache::symbol_at_line(source, line)? {
-        return match lookup {
-            SymbolLookup::Found(symbol) => Ok(SymbolOutput {
-                file: source.path.clone(),
-                language: source.detection.language,
-                engine: source.detection.engine,
-                line_count: source.lines.len(),
-                file_hash: source.file_hash.clone(),
-                hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
-                symbol,
-            }),
-            SymbolLookup::NotFound => bail!("symbol not found at line {line}"),
-            SymbolLookup::Ambiguous => unreachable!("line lookup returns at most one symbol"),
-        };
-    }
-
     let source_map = source_map(source)?;
     let symbol = symbol_at_line_in_map(&source_map, line)
         .with_context(|| format!("symbol not found at line {line}"))?;

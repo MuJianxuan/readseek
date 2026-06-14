@@ -94,7 +94,7 @@ fn git_definition_candidate_paths(
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_definition_paths(&repository, &output_root, scope, search_name, &mut paths)?;
+        collect_cached_definition_paths(&workdir, &output_root, scope, search_name, &mut paths)?;
     }
     if others {
         collect_other_definition_paths(
@@ -112,12 +112,14 @@ fn git_definition_candidate_paths(
 }
 
 fn collect_cached_definition_paths(
-    repository: &git2::Repository,
+    workdir: &Path,
     output_root: &Path,
     scope: &Path,
     search_name: &str,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
+    let repository =
+        git2::Repository::discover(workdir).context("discover git repository from workdir")?;
     let index = repository.index().context("read Git index")?;
     for entry in index.iter() {
         let relative = git_path(&entry.path)?;
@@ -125,12 +127,14 @@ fn collect_cached_definition_paths(
             continue;
         }
 
-        let Ok(blob) = repository.find_blob(entry.id) else {
+        if search_name.is_empty() {
+            paths.insert(output_root.join(relative));
+            continue;
+        }
+        let Ok(content) = fs::read(workdir.join(&relative)) else {
             continue;
         };
-        if search_name.is_empty()
-            || memchr::memmem::find(blob.content(), search_name.as_bytes()).is_some()
-        {
+        if memchr::memmem::find(&content, search_name.as_bytes()).is_some() {
             paths.insert(output_root.join(relative));
         }
     }
