@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::lang::{LANGUAGE_SPECS, Language};
-use crate::{Target, TargetAddress};
+use crate::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use std::path::{Path, PathBuf};

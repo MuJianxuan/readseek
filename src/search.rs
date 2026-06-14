@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::output::{SearchCapture, SearchFileOutput, SearchMatch};
 use crate::source::{SourceFile, line_hash, load_source, range_hashlines};
 use crate::symbols;
-use crate::{SearchCapture, SearchFileOutput, SearchMatch};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 use tree_sitter::{Node, Parser, Tree};

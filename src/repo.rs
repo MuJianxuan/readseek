@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use crate::flags::GitFlags;
 use crate::hash::HASHLINE_MODULUS;
 use crate::lang::{AnalysisEngine, Language};
 use crate::source::{SourceFile, SourceMap, Symbol};
@@ -424,11 +425,11 @@ fn tempfile_in(dir: &Path) -> PathBuf {
     dir.join(name)
 }
 
-pub(crate) fn update(dir: &Path, cached: bool, others: bool, ignored: bool) -> Result<UpdateStats> {
+pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let readseek_dir = readseek_dir_or_err(dir)?;
     let project_root = readseek_dir.parent().context(".readseek has no parent")?;
 
-    let paths = crate::paths::command_paths(project_root, cached, others, ignored)?;
+    let paths = crate::paths::command_paths(project_root, flags)?;
 
     let mut stats = UpdateStats {
         created: 0,

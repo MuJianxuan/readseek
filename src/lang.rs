@@ -59,6 +59,49 @@ pub(crate) enum Language {
     Unknown = 39,
 }
 
+const LANGUAGE_VARIANTS: [Language; 40] = [
+    Language::Assembly,
+    Language::C,
+    Language::Bash,
+    Language::Cpp,
+    Language::CSharp,
+    Language::Css,
+    Language::Dockerfile,
+    Language::Go,
+    Language::Gdscript,
+    Language::Java,
+    Language::JavaScript,
+    Language::Jsx,
+    Language::Html,
+    Language::Json,
+    Language::Kconfig,
+    Language::Latex,
+    Language::Lua,
+    Language::Markdown,
+    Language::Xml,
+    Language::Yaml,
+    Language::Just,
+    Language::Make,
+    Language::Meson,
+    Language::Nix,
+    Language::Perl,
+    Language::Python,
+    Language::Php,
+    Language::Puppet,
+    Language::Ruby,
+    Language::Riscv,
+    Language::Rust,
+    Language::Swift,
+    Language::Sql,
+    Language::TypeScript,
+    Language::Typst,
+    Language::Toml,
+    Language::Tsx,
+    Language::Vimscript,
+    Language::Zig,
+    Language::Unknown,
+];
+
 impl From<Language> for u16 {
     fn from(language: Language) -> Self {
         language as u16
@@ -69,49 +112,10 @@ impl TryFrom<u16> for Language {
     type Error = anyhow::Error;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Assembly),
-            1 => Ok(Self::C),
-            2 => Ok(Self::Bash),
-            3 => Ok(Self::Cpp),
-            4 => Ok(Self::CSharp),
-            5 => Ok(Self::Css),
-            6 => Ok(Self::Dockerfile),
-            7 => Ok(Self::Go),
-            8 => Ok(Self::Gdscript),
-            9 => Ok(Self::Java),
-            10 => Ok(Self::JavaScript),
-            11 => Ok(Self::Jsx),
-            12 => Ok(Self::Html),
-            13 => Ok(Self::Json),
-            14 => Ok(Self::Kconfig),
-            15 => Ok(Self::Latex),
-            16 => Ok(Self::Lua),
-            17 => Ok(Self::Markdown),
-            18 => Ok(Self::Xml),
-            19 => Ok(Self::Yaml),
-            20 => Ok(Self::Just),
-            21 => Ok(Self::Make),
-            22 => Ok(Self::Meson),
-            23 => Ok(Self::Nix),
-            24 => Ok(Self::Perl),
-            25 => Ok(Self::Python),
-            26 => Ok(Self::Php),
-            27 => Ok(Self::Puppet),
-            28 => Ok(Self::Ruby),
-            29 => Ok(Self::Riscv),
-            30 => Ok(Self::Rust),
-            31 => Ok(Self::Swift),
-            32 => Ok(Self::Sql),
-            33 => Ok(Self::TypeScript),
-            34 => Ok(Self::Typst),
-            35 => Ok(Self::Toml),
-            36 => Ok(Self::Tsx),
-            37 => Ok(Self::Vimscript),
-            38 => Ok(Self::Zig),
-            39 => Ok(Self::Unknown),
-            _ => anyhow::bail!("unknown Language discriminant: {value}"),
-        }
+        LANGUAGE_VARIANTS
+            .get(value as usize)
+            .copied()
+            .with_context(|| format!("unknown Language discriminant: {value}"))
     }
 }
 
@@ -148,15 +152,17 @@ impl From<AnalysisEngine> for u8 {
     }
 }
 
+const ANALYSIS_ENGINE_VARIANTS: [AnalysisEngine; 2] =
+    [AnalysisEngine::TreeSitter, AnalysisEngine::Llvm];
+
 impl TryFrom<u8> for AnalysisEngine {
     type Error = anyhow::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::TreeSitter),
-            1 => Ok(Self::Llvm),
-            _ => anyhow::bail!("unknown AnalysisEngine tag: {value}"),
-        }
+        ANALYSIS_ENGINE_VARIANTS
+            .get(value as usize)
+            .copied()
+            .with_context(|| format!("unknown AnalysisEngine tag: {value}"))
     }
 }
 

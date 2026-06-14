@@ -1,15 +1,11 @@
 use crate::cli::DefinitionCommand;
+use crate::flags::GitFlags;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn command_paths(
-    target: &Path,
-    cached: bool,
-    others: bool,
-    ignored: bool,
-) -> Result<Vec<PathBuf>> {
+pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBuf>> {
     let metadata = fs::metadata(target).with_context(|| format!("stat {}", target.display()))?;
     if metadata.is_file() {
         return Ok(vec![target.to_path_buf()]);
@@ -21,11 +17,11 @@ pub(crate) fn command_paths(
         );
     }
 
-    if let Some(paths) = git_search_paths(target, cached, others, ignored)? {
+    if let Some(paths) = git_search_paths(target, flags)? {
         return Ok(paths);
     }
 
-    if has_git_selection_flags(cached, others, ignored) {
+    if flags.has_any() {
         log::debug!(
             "ignoring Git file selection flags outside repository: {}",
             target.display()
@@ -41,29 +37,21 @@ pub(crate) fn definition_candidate_paths(
     command: &DefinitionCommand,
     search_name: &str,
 ) -> Result<Vec<PathBuf>> {
-    if let Some(paths) = git_definition_candidate_paths(
-        &command.target,
-        command.cached,
-        command.others,
-        command.ignored,
-        search_name,
-    )? {
+    let flags = GitFlags {
+        cached: command.cached,
+        others: command.others,
+        ignored: command.ignored,
+    };
+    if let Some(paths) = git_definition_candidate_paths(&command.target, flags, search_name)? {
         return Ok(paths);
     }
 
-    command_paths(
-        &command.target,
-        command.cached,
-        command.others,
-        command.ignored,
-    )
+    command_paths(&command.target, flags)
 }
 
 fn git_definition_candidate_paths(
     target: &Path,
-    cached: bool,
-    others: bool,
-    ignored: bool,
+    flags: GitFlags,
     search_name: &str,
 ) -> Result<Option<Vec<PathBuf>>> {
     let original_target = target;
@@ -71,9 +59,7 @@ fn git_definition_candidate_paths(
         return Ok(None);
     };
 
-    if ignored && !others {
-        bail!("--ignored requires --others");
-    }
+    flags.validate()?;
 
     let workdir = repository
         .workdir()
@@ -88,9 +74,9 @@ fn git_definition_candidate_paths(
         .strip_prefix(&workdir)
         .with_context(|| format!("{} is outside Git work tree", target.display()))?;
     let output_root = output_root_for_scope(original_target, scope)?;
-    let default_selection = !has_git_selection_flags(cached, others, ignored);
-    let cached = cached || default_selection;
-    let others = others || default_selection;
+    let default_selection = !flags.has_any();
+    let cached = flags.cached || default_selection;
+    let others = flags.others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
@@ -102,7 +88,7 @@ fn git_definition_candidate_paths(
             &workdir,
             &output_root,
             scope,
-            ignored,
+            flags.ignored,
             search_name,
             &mut paths,
         )?;
@@ -173,20 +159,14 @@ fn collect_other_definition_paths(
     Ok(())
 }
 
-fn git_search_paths(
-    target: &Path,
-    cached: bool,
-    others: bool,
-    ignored: bool,
-) -> Result<Option<Vec<PathBuf>>> {
+fn git_search_paths(target: &Path, flags: GitFlags) -> Result<Option<Vec<PathBuf>>> {
     let original_target = target;
     let Ok(repository) = git2::Repository::discover(target) else {
         return Ok(None);
     };
 
-    if ignored && !others {
-        bail!("--ignored requires --others");
-    }
+    flags.validate()?;
+
     let workdir = repository
         .workdir()
         .context("Git repository has no work tree")?;
@@ -200,9 +180,9 @@ fn git_search_paths(
         .strip_prefix(&workdir)
         .with_context(|| format!("{} is outside Git work tree", target.display()))?;
     let output_root = output_root_for_scope(original_target, scope)?;
-    let default_selection = !has_git_selection_flags(cached, others, ignored);
-    let cached = cached || default_selection;
-    let others = others || default_selection;
+    let default_selection = !flags.has_any();
+    let cached = flags.cached || default_selection;
+    let others = flags.others || default_selection;
 
     let mut paths = BTreeSet::new();
     if cached {
@@ -214,7 +194,7 @@ fn git_search_paths(
             &workdir,
             &output_root,
             scope,
-            ignored,
+            flags.ignored,
             &mut paths,
         )?;
     }
@@ -278,10 +258,6 @@ fn collect_other_paths(
     }
 
     Ok(())
-}
-
-fn has_git_selection_flags(cached: bool, others: bool, ignored: bool) -> bool {
-    cached || others || ignored
 }
 
 fn insert_scoped_file(

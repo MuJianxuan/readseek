@@ -8,17 +8,19 @@ use anyhow::{Context, Result};
 use argh::FromArgs;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{env, process};
 
 use crate::cli::{
     Cli, DefinitionCommand, InitCommand, ReferencesCommand, SearchCommand, UpdateCommand,
 };
-use crate::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::flags::GitFlags;
+use crate::lang::BinaryMode;
+use crate::output::SearchOutput;
 use crate::paths::command_paths;
-use crate::source::{HashLine, Symbol};
 
 mod cli;
+mod flags;
 mod hash;
 mod lang;
 mod navigation;
@@ -28,109 +30,7 @@ mod repo;
 mod search;
 mod source;
 mod symbols;
-
-#[derive(Debug, Serialize)]
-struct DefinitionOutput {
-    definitions: Vec<DefinitionLocation>,
-}
-
-#[derive(Debug, Serialize)]
-struct DefinitionLocation {
-    file: PathBuf,
-    language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
-    file_hash: String,
-    symbol: Symbol,
-    #[serde(skip_serializing)]
-    line_hash: String,
-    #[serde(skip_serializing)]
-    text: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ReferencesOutput {
-    references: Vec<ReferenceLocation>,
-}
-
-#[derive(Debug, Serialize)]
-struct ReferenceLocation {
-    file: PathBuf,
-    language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
-    file_hash: String,
-    line: usize,
-    column: usize,
-    line_hash: String,
-    text: String,
-    symbol: Option<Symbol>,
-}
-
-#[derive(Debug, Serialize)]
-struct CompactOutput {
-    locations: Vec<CompactLocation>,
-}
-
-#[derive(Debug, Serialize)]
-struct CompactLocation {
-    file: PathBuf,
-    line: usize,
-    column: usize,
-    line_hash: String,
-    text: String,
-    kind: Option<String>,
-    name: Option<String>,
-    qualified_name: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct SearchOutput {
-    results: Vec<SearchFileOutput>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct SearchFileOutput {
-    file: PathBuf,
-    language: Language,
-    #[serde(serialize_with = "crate::lang::serialize_engine")]
-    engine: Option<AnalysisEngine>,
-    file_hash: String,
-    matches: Vec<SearchMatch>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct SearchMatch {
-    start_line: usize,
-    end_line: usize,
-    start_hash: String,
-    end_hash: String,
-    hashlines: Vec<HashLine>,
-    captures: Vec<SearchCapture>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct SearchCapture {
-    name: String,
-    start_line: usize,
-    end_line: usize,
-    start_hash: String,
-    end_hash: String,
-    hashlines: Vec<HashLine>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Target {
-    path: PathBuf,
-    address: Option<TargetAddress>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum TargetAddress {
-    Line(usize),
-    Hash(String),
-    Symbol(String),
-}
+mod target;
 
 fn main() {
     env_logger::init();
@@ -275,9 +175,11 @@ fn print_references_output(command: &ReferencesCommand) -> Result<()> {
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
     let paths = command_paths(
         &command.target,
-        command.cached,
-        command.others,
-        command.ignored,
+        GitFlags {
+            cached: command.cached,
+            others: command.others,
+            ignored: command.ignored,
+        },
     )?;
     let mut pattern = crate::search::compile_search(&command.pattern);
     if let Some(language) = command
@@ -309,7 +211,14 @@ fn run_init(command: &InitCommand) -> Result<()> {
 
 fn run_update(command: &UpdateCommand) -> Result<()> {
     let path = command.path.as_deref().unwrap_or(Path::new("."));
-    let stats = repo::update(path, true, true, false)?;
+    let stats = repo::update(
+        path,
+        GitFlags {
+            cached: true,
+            others: true,
+            ignored: false,
+        },
+    )?;
     println!("{stats:?}");
     Ok(())
 }

@@ -4,7 +4,7 @@ use crate::source::{
     HashLine, SourceFile, Symbol, load_source, range_hashlines, source_from_text, source_map,
     symbol_at_line_in_map, symbol_at_line_uncached,
 };
-use crate::{Target, TargetAddress};
+use crate::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::io::{self, Read as _};
@@ -67,6 +67,96 @@ pub(crate) struct IdentifierOutput {
     text: String,
     start_column: usize,
     end_column: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DefinitionOutput {
+    pub(crate) definitions: Vec<DefinitionLocation>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DefinitionLocation {
+    pub(crate) file: PathBuf,
+    pub(crate) language: Language,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) file_hash: String,
+    pub(crate) symbol: Symbol,
+    #[serde(skip_serializing)]
+    pub(crate) line_hash: String,
+    #[serde(skip_serializing)]
+    pub(crate) text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReferencesOutput {
+    pub(crate) references: Vec<ReferenceLocation>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReferenceLocation {
+    pub(crate) file: PathBuf,
+    pub(crate) language: Language,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) file_hash: String,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) line_hash: String,
+    pub(crate) text: String,
+    pub(crate) symbol: Option<Symbol>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CompactOutput {
+    pub(crate) locations: Vec<CompactLocation>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct CompactLocation {
+    pub(crate) file: PathBuf,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) line_hash: String,
+    pub(crate) text: String,
+    pub(crate) kind: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) qualified_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SearchOutput {
+    pub(crate) results: Vec<SearchFileOutput>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SearchFileOutput {
+    pub(crate) file: PathBuf,
+    pub(crate) language: Language,
+    #[serde(serialize_with = "crate::lang::serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
+    pub(crate) file_hash: String,
+    pub(crate) matches: Vec<SearchMatch>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SearchMatch {
+    pub(crate) start_line: usize,
+    pub(crate) end_line: usize,
+    pub(crate) start_hash: String,
+    pub(crate) end_hash: String,
+    pub(crate) hashlines: Vec<HashLine>,
+    pub(crate) captures: Vec<SearchCapture>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct SearchCapture {
+    pub(crate) name: String,
+    pub(crate) start_line: usize,
+    pub(crate) end_line: usize,
+    pub(crate) start_hash: String,
+    pub(crate) end_hash: String,
+    pub(crate) hashlines: Vec<HashLine>,
 }
 
 pub(crate) fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<usize>> {

@@ -1,15 +1,16 @@
 use crate::cli::{DefinitionCommand, ReferencesCommand};
+use crate::flags::GitFlags;
 use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
+use crate::output::{
+    CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
+    ReferencesOutput,
+};
 use crate::paths::{command_paths, definition_candidate_paths};
 use crate::source::{
     SourceFile, Symbol, source_from_text, source_map_with_dir, symbol_at_line_in_map,
 };
 use crate::symbols;
-use crate::{
-    CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
-    ReferencesOutput,
-};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -186,9 +187,11 @@ pub(crate) fn references_output(command: &ReferencesCommand) -> Result<Reference
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
     let paths = command_paths(
         &command.target,
-        command.cached,
-        command.others,
-        command.ignored,
+        GitFlags {
+            cached: command.cached,
+            others: command.others,
+            ignored: command.ignored,
+        },
     )?;
 
     let references: Vec<ReferenceLocation> = paths
