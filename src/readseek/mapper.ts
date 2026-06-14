@@ -5,7 +5,7 @@ import { THRESHOLDS } from "./constants.js";
 import type { FileMap, MapOptions } from "./types.js";
 
 export const READSEEK_MAPPER_NAME = "readseek";
-export const READSEEK_MAPPER_VERSION = 1;
+export const READSEEK_MAPPER_VERSION = 2;
 
 export interface MapperIdentity {
   mapperName: string;

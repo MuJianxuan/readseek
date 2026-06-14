@@ -25,7 +25,7 @@ export interface ReadseekReadOutput {
 interface ReadseekSymbol {
 	kind: string;
 	name: string;
-	address: string;
+	qualified_name: string;
 	start_line: number;
 	end_line: number;
 	start_hash: string;
@@ -88,34 +88,41 @@ function normalizeKind(kind: string): FileSymbol["kind"] {
 	return SymbolKind.Unknown;
 }
 
+function parentQualifiedNameFor(qualifiedName: string): string {
+	const lastDot = qualifiedName.lastIndexOf(".");
+	return lastDot === -1 ? "" : qualifiedName.slice(0, lastDot);
+}
+
 function symbolsFromReadseek(symbols: ReadseekSymbol[]): FileSymbol[] {
-	const byAddress = new Map<string, FileSymbol[]>();
-	const entries: Array<{ address: string; parentAddress: string; symbol: FileSymbol }> = [];
+	const symbolsByQualifiedName = new Map<string, FileSymbol[]>();
+	const entries: Array<{ parentQualifiedName: string; symbol: FileSymbol }> = [];
 
 	for (const symbol of symbols) {
-		const address = symbol.address || symbol.name;
-		const parentAddress = address.includes(".") ? address.slice(0, address.lastIndexOf(".")) : "";
+		const parentQualifiedName = parentQualifiedNameFor(symbol.qualified_name);
 		const fileSymbol: FileSymbol = {
 			name: symbol.name,
 			kind: normalizeKind(symbol.kind),
 			startLine: symbol.start_line,
 			endLine: symbol.end_line,
 		};
-		const bucket = byAddress.get(address);
+		const bucket = symbolsByQualifiedName.get(symbol.qualified_name);
 		if (bucket) bucket.push(fileSymbol);
-		else byAddress.set(address, [fileSymbol]);
-		entries.push({ address, parentAddress, symbol: fileSymbol });
+		else symbolsByQualifiedName.set(symbol.qualified_name, [fileSymbol]);
+		entries.push({ parentQualifiedName, symbol: fileSymbol });
 	}
 
 	const roots: FileSymbol[] = [];
 	for (const entry of entries) {
-		const parent = entry.parentAddress ? byAddress.get(entry.parentAddress)?.[0] : undefined;
-		if (parent) {
-			parent.children ??= [];
-			parent.children.push(entry.symbol);
-		} else {
+		const parent = entry.parentQualifiedName
+			? symbolsByQualifiedName.get(entry.parentQualifiedName)?.[0]
+			: undefined;
+		if (!parent) {
 			roots.push(entry.symbol);
+			continue;
 		}
+
+		parent.children ??= [];
+		parent.children.push(entry.symbol);
 	}
 
 	return roots;
@@ -258,7 +265,7 @@ function parseMapOutput(value: unknown): ReadseekMapOutput {
 			return {
 				kind: requireString(item.kind, "symbol.kind"),
 				name: requireString(item.name, "symbol.name"),
-				address: requireString(item.address, "symbol.address"),
+				qualified_name: requireString(item.qualified_name, "symbol.qualified_name"),
 				start_line: requireNumber(item.start_line, "symbol.start_line"),
 				end_line: requireNumber(item.end_line, "symbol.end_line"),
 				start_hash: requireString(item.start_hash, "symbol.start_hash"),
