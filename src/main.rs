@@ -16,282 +16,17 @@ use strum_macros::{Display, EnumString};
 use syntect::parsing::SyntaxSet;
 use tree_sitter::{Node, Parser};
 
+use crate::cli::{Cli, DefinitionCommand, ReadCommand, ReferencesCommand, SearchCommand};
+
 mod cache;
 mod hash;
+mod cli;
+mod search;
 mod symbols;
-
-/// readseek
-#[derive(Debug, FromArgs)]
-#[argh(help_triggers("-h", "--help"))]
-struct Cli {
-    /// print version and exit
-    #[argh(switch, short = 'V')]
-    version: bool,
-
-    /// command to run
-    #[argh(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Debug, FromArgs)]
-#[argh(subcommand)]
-enum Command {
-    Detect(FileCommand),
-    Read(ReadCommand),
-    Map(MapCommand),
-    Symbol(SymbolCommand),
-    Identify(IdentifyCommand),
-    Definition(DefinitionCommand),
-    References(ReferencesCommand),
-    Search(SearchCommand),
-}
-
-/// detect the file type
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "file")]
-#[argh(help_triggers("-h", "--help"))]
-struct FileCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
-    #[argh(positional)]
-    target: Option<String>,
-
-    /// read document contents from stdin
-    #[argh(switch)]
-    stdin: bool,
-
-    /// document path to use with --stdin
-    #[argh(option)]
-    path: Option<PathBuf>,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-}
-
-/// read and hash from a line range
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "read")]
-#[argh(help_triggers("-h", "--help"))]
-struct ReadCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
-    #[argh(positional)]
-    target: Option<String>,
-
-    /// read document contents from stdin
-    #[argh(switch)]
-    stdin: bool,
-
-    /// document path to use with --stdin
-    #[argh(option)]
-    path: Option<PathBuf>,
-
-    /// first line to include
-    #[argh(option)]
-    start: Option<usize>,
-
-    /// last line to include
-    #[argh(option)]
-    end: Option<usize>,
-
-    /// first line to include (alias for --start)
-    #[argh(option)]
-    offset: Option<usize>,
-
-    /// maximum number of lines to include
-    #[argh(option)]
-    limit: Option<usize>,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-}
-
-/// map a file to symbols
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "map")]
-#[argh(help_triggers("-h", "--help"))]
-struct MapCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
-    #[argh(positional)]
-    target: Option<String>,
-
-    /// read document contents from stdin
-    #[argh(switch)]
-    stdin: bool,
-
-    /// document path to use with --stdin
-    #[argh(option)]
-    path: Option<PathBuf>,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-}
-
-/// read the line range for a symbol
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "symbol")]
-#[argh(help_triggers("-h", "--help"))]
-struct SymbolCommand {
-    /// takes [<file>, <file>:<line>, <file>:<hash> or <file>:<symbol>] [qualified-name]
-    #[argh(positional)]
-    args: Vec<String>,
-
-    /// read document contents from stdin
-    #[argh(switch)]
-    stdin: bool,
-
-    /// document path to use with --stdin
-    #[argh(option)]
-    path: Option<PathBuf>,
-
-    /// one-based target line
-    #[argh(option)]
-    line: Option<usize>,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-}
-
-/// identify the cursor token and enclosing symbol
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "identify")]
-#[argh(help_triggers("-h", "--help"))]
-struct IdentifyCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
-    #[argh(positional)]
-    target: Option<String>,
-
-    /// read document contents from stdin
-    #[argh(switch)]
-    stdin: bool,
-
-    /// document path to use with --stdin
-    #[argh(option)]
-    path: Option<PathBuf>,
-
-    /// one-based cursor line
-    #[argh(option)]
-    line: Option<usize>,
-
-    /// one-based cursor byte column
-    #[argh(option)]
-    column: Option<usize>,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-}
-
-/// find structural symbol definitions
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "definition")]
-#[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
-struct DefinitionCommand {
-    /// file or directory to search
-    #[argh(positional)]
-    target: PathBuf,
-
-    /// qualified symbol name or unqualified name
-    #[argh(positional)]
-    name: Option<String>,
-
-    /// read identify output from stdin to choose the symbol name
-    #[argh(switch)]
-    stdin: bool,
-
-    /// emit flat quickfix-friendly locations
-    #[argh(switch)]
-    compact: bool,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    ignored: bool,
-}
-
-/// find identifier references
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "references")]
-#[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
-struct ReferencesCommand {
-    /// file or directory to search
-    #[argh(positional)]
-    target: PathBuf,
-
-    /// identifier to search for
-    #[argh(positional)]
-    name: String,
-
-    /// emit flat quickfix-friendly locations
-    #[argh(switch)]
-    compact: bool,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    ignored: bool,
-}
-
-/// search files with an AST pattern
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "search")]
-#[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
-struct SearchCommand {
-    /// file or directory to search
-    #[argh(positional)]
-    target: PathBuf,
-
-    /// ast-grep-style pattern
-    #[argh(positional)]
-    pattern: String,
-
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    language: Option<Language>,
-
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    ignored: bool,
-}
 
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
-enum Language {
+pub(crate) enum Language {
     Assembly,
     C,
     Bash,
@@ -353,7 +88,7 @@ struct LanguageSpec {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-enum AnalysisEngine {
+pub(crate) enum AnalysisEngine {
     TreeSitter,
     #[allow(dead_code)]
     Llvm,
@@ -370,7 +105,7 @@ impl AnalysisEngine {
     }
 }
 
-const LANGUAGE_SPECS: &[LanguageSpec] = &[
+pub(crate) const LANGUAGE_SPECS: &[LanguageSpec] = &[
     LanguageSpec {
         language: Language::Assembly,
         id: "assembly",
@@ -729,7 +464,7 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BinaryMode {
+pub(crate) enum BinaryMode {
     Reject,
     Lossy,
 }
@@ -918,7 +653,7 @@ struct SearchOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct SearchFileOutput {
+pub(crate) struct SearchFileOutput {
     file: PathBuf,
     language: Language,
     engine: AnalysisEngine,
@@ -927,7 +662,7 @@ struct SearchFileOutput {
 }
 
 #[derive(Debug, Serialize)]
-struct SearchMatch {
+pub(crate) struct SearchMatch {
     pattern_index: usize,
     start_line: usize,
     end_line: usize,
@@ -938,7 +673,7 @@ struct SearchMatch {
 }
 
 #[derive(Debug, Serialize)]
-struct SearchCapture {
+pub(crate) struct SearchCapture {
     name: String,
     start_line: usize,
     end_line: usize,
@@ -947,35 +682,9 @@ struct SearchCapture {
     hashlines: Vec<HashLine>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PatternMetaKind {
-    Single,
-    Variadic,
-}
-
-#[derive(Clone, Debug)]
-struct PatternMeta {
-    placeholder: String,
-    name: String,
-    kind: PatternMetaKind,
-}
-
-#[derive(Debug)]
-struct SearchPattern {
-    text: String,
-    metas: Vec<PatternMeta>,
-}
-
-#[derive(Clone, Debug)]
-struct SearchCaptureRange {
-    name: String,
-    text: String,
-    start_line: usize,
-    end_line: usize,
-}
 
 #[derive(Debug, Serialize)]
-struct HashLine {
+pub(crate) struct HashLine {
     line: usize,
     hash: String,
     text: String,
@@ -994,7 +703,7 @@ struct Symbol {
 }
 
 #[derive(Debug)]
-struct SourceFile {
+pub(crate) struct SourceFile {
     path: PathBuf,
     text: String,
     kind: DocumentKind,
@@ -1011,7 +720,7 @@ struct LoadedDocument {
 }
 
 #[derive(Debug)]
-struct SourceLine {
+pub(crate) struct SourceLine {
     number: usize,
     text: String,
     hash: String,
@@ -1030,13 +739,13 @@ enum SymbolLookup {
 }
 
 #[derive(Clone, Debug)]
-struct Target {
+pub(crate) struct Target {
     path: PathBuf,
     address: Option<TargetAddress>,
 }
 
 #[derive(Clone, Debug)]
-enum TargetAddress {
+pub(crate) enum TargetAddress {
     Line(usize),
     Hash(String),
     Symbol(String),
@@ -1058,15 +767,15 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let cli: Cli = argh::from_env();
+    let cli: crate::cli::Cli = argh::from_env();
     if cli.version {
         println!("readseek {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
     match cli.command.context("command required")? {
-        Command::Detect(command) => {
-            let target = parse_input_target(
+        crate::cli::Command::Detect(command) => {
+            let target = crate::cli::parse_input_target(
                 command.target.as_deref(),
                 command.stdin,
                 command.path.as_deref(),
@@ -1079,8 +788,8 @@ fn run() -> Result<()> {
             )?;
             print_json(&source.detection)?;
         }
-        Command::Read(command) => {
-            let target = parse_input_target(
+        crate::cli::Command::Read(command) => {
+            let target = crate::cli::parse_input_target(
                 command.target.as_deref(),
                 command.stdin,
                 command.path.as_deref(),
@@ -1096,8 +805,8 @@ fn run() -> Result<()> {
             let output = read_output(&source, start, end)?;
             print_json(&output)?;
         }
-        Command::Map(command) => {
-            let target = parse_input_target(
+        crate::cli::Command::Map(command) => {
+            let target = crate::cli::parse_input_target(
                 command.target.as_deref(),
                 command.stdin,
                 command.path.as_deref(),
@@ -1110,10 +819,14 @@ fn run() -> Result<()> {
             )?;
             print_json(&map_output(&source)?)?;
         }
-        Command::Symbol(command) => {
-            let (target_arg, address_arg) = symbol_args(&command.args, command.stdin)?;
-            let target =
-                parse_symbol_input_target(target_arg, command.stdin, command.path.as_deref())?;
+        crate::cli::Command::Symbol(command) => {
+            let (target_arg, address_arg) =
+                crate::cli::symbol_args(&command.args, command.stdin)?;
+            let target = crate::cli::parse_symbol_input_target(
+                target_arg,
+                command.stdin,
+                command.path.as_deref(),
+            )?;
             let source = load_source_for_input(
                 &target.path,
                 command.stdin,
@@ -1125,8 +838,8 @@ fn run() -> Result<()> {
             let output = symbol_command_output(&source, target_address, target_line)?;
             print_json(&output)?;
         }
-        Command::Identify(command) => {
-            let target = parse_input_target(
+        crate::cli::Command::Identify(command) => {
+            let target = crate::cli::parse_input_target(
                 command.target.as_deref(),
                 command.stdin,
                 command.path.as_deref(),
@@ -1141,13 +854,13 @@ fn run() -> Result<()> {
             let output = identify_output(&source, target_line, command.column)?;
             print_json(&output)?;
         }
-        Command::Definition(command) => {
+        crate::cli::Command::Definition(command) => {
             print_definition_output(&command)?;
         }
-        Command::References(command) => {
+        crate::cli::Command::References(command) => {
             print_references_output(&command)?;
         }
-        Command::Search(command) => {
+        crate::cli::Command::Search(command) => {
             print_json(&search_output(&command)?)?;
         }
     }
@@ -1171,126 +884,6 @@ fn print_references_output(command: &ReferencesCommand) -> Result<()> {
     } else {
         print_json(&output)
     }
-}
-
-fn parse_language(value: &str) -> std::result::Result<Language, String> {
-    let alias = value.to_ascii_lowercase().replace(['-', '_'], "");
-    if alias == "unknown" {
-        return Ok(Language::Unknown);
-    }
-
-    LANGUAGE_SPECS
-        .iter()
-        .find_map(|spec| {
-            spec.aliases
-                .contains(&alias.as_str())
-                .then_some(spec.language)
-        })
-        .ok_or_else(|| format!("unknown language: {value}"))
-}
-
-fn parse_input_target(target: Option<&str>, stdin: bool, path: Option<&Path>) -> Result<Target> {
-    parse_input_target_with(target, stdin, path, parse_target)
-}
-
-fn parse_symbol_input_target(
-    target: Option<&str>,
-    stdin: bool,
-    path: Option<&Path>,
-) -> Result<Target> {
-    parse_input_target_with(target, stdin, path, parse_symbol_target)
-}
-
-fn parse_input_target_with(
-    target: Option<&str>,
-    stdin: bool,
-    path: Option<&Path>,
-    parse: fn(&str) -> Result<Target>,
-) -> Result<Target> {
-    if stdin {
-        if target.is_some() {
-            bail!("target cannot be combined with --stdin");
-        }
-        let path = path.context("--stdin requires --path")?;
-        return Ok(Target {
-            path: path.to_path_buf(),
-            address: None,
-        });
-    }
-    if path.is_some() {
-        bail!("--path requires --stdin");
-    }
-    parse(target.context("target required")?)
-}
-
-fn symbol_args(args: &[String], stdin: bool) -> Result<(Option<&str>, Option<&str>)> {
-    match (stdin, args) {
-        (true, []) => Ok((None, None)),
-        (true, [address]) => Ok((None, Some(address.as_str()))),
-        (true, _) => bail!("symbol with --stdin accepts at most one qualified name argument"),
-        (false, [target]) => Ok((Some(target.as_str()), None)),
-        (false, [target, address]) => Ok((Some(target.as_str()), Some(address.as_str()))),
-        (false, []) => bail!("target required"),
-        (false, _) => bail!("symbol accepts at most target and qualified name arguments"),
-    }
-}
-
-fn parse_target(value: &str) -> Result<Target> {
-    if value.is_empty() {
-        bail!("target must not be empty");
-    }
-
-    if let Some((path, suffix)) = value.rsplit_once(':') {
-        if path.is_empty() {
-            bail!("target path must not be empty");
-        }
-        if suffix.chars().all(|ch| ch.is_ascii_digit()) {
-            let line = suffix
-                .parse::<usize>()
-                .with_context(|| format!("invalid target line: {suffix}"))?;
-            if line == 0 {
-                bail!("target line must be greater than zero");
-            }
-            return Ok(Target {
-                path: PathBuf::from(path),
-                address: Some(TargetAddress::Line(line)),
-            });
-        }
-        if is_line_hash(suffix) {
-            return Ok(Target {
-                path: PathBuf::from(path),
-                address: Some(TargetAddress::Hash(suffix.to_ascii_lowercase())),
-            });
-        }
-    }
-
-    Ok(Target {
-        path: PathBuf::from(value),
-        address: None,
-    })
-}
-
-fn parse_symbol_target(value: &str) -> Result<Target> {
-    let target = parse_target(value)?;
-    if target.address.is_some() || Path::new(value).exists() {
-        return Ok(target);
-    }
-
-    let Some((path, symbol)) = value.rsplit_once(':') else {
-        return Ok(target);
-    };
-    if path.is_empty() || symbol.is_empty() {
-        return Ok(target);
-    }
-
-    Ok(Target {
-        path: PathBuf::from(path),
-        address: Some(TargetAddress::Symbol(symbol.to_owned())),
-    })
-}
-
-fn is_line_hash(value: &str) -> bool {
-    value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<usize>> {
@@ -1346,7 +939,7 @@ fn load_source_for_input(
     load_source(path, override_language, binary_mode)
 }
 
-fn load_source(
+pub(crate) fn load_source(
     path: &Path,
     override_language: Option<Language>,
     binary_mode: BinaryMode,
@@ -2182,11 +1775,11 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
         command.others,
         command.ignored,
     )?;
-    let pattern = compile_search(&command.pattern);
+    let pattern = crate::search::compile_search(&command.pattern);
     let mut results = Vec::new();
 
     for path in paths {
-        let Some(result) = search_file(&path, command.language, &pattern)? else {
+        let Some(result) = crate::search::search_file(&path, command.language, &pattern)? else {
             continue;
         };
         if !result.matches.is_empty() {
@@ -2522,323 +2115,8 @@ fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()
     Ok(())
 }
 
-fn search_file(
-    path: &Path,
-    override_language: Option<Language>,
-    pattern: &SearchPattern,
-) -> Result<Option<SearchFileOutput>> {
-    let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
-        return Ok(None);
-    };
-    let language_id = source.detection.language;
-    if source.detection.engine != AnalysisEngine::TreeSitter {
-        return Ok(None);
-    }
-    let Some(language) = symbols::tree_sitter_language(language_id) else {
-        return Ok(None);
-    };
-    let mut parser = Parser::new();
-    parser
-        .set_language(&language)
-        .map_err(|error| anyhow::anyhow!("set tree-sitter language: {error}"))?;
-    let tree = parser
-        .parse(&source.text, None)
-        .ok_or_else(|| anyhow::anyhow!("tree-sitter parse failed"))?;
-    let pattern_tree = parser
-        .parse(&pattern.text, None)
-        .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
-    if pattern_tree.root_node().has_error() {
-        bail!("pattern is not valid {} syntax", language_id.id());
-    }
 
-    let mut matches = Vec::new();
-    let pattern_root =
-        search_pattern_root(pattern_tree.root_node()).context("empty search pattern")?;
-    collect_search_matches(
-        &source,
-        pattern,
-        pattern_root,
-        tree.root_node(),
-        &mut matches,
-    )?;
-
-    Ok(Some(SearchFileOutput {
-        file: source.path,
-        language: language_id,
-        engine: source.detection.engine,
-        file_hash: source.file_hash,
-        matches,
-    }))
-}
-
-fn compile_search(pattern: &str) -> SearchPattern {
-    let mut text = String::with_capacity(pattern.len());
-    let mut metas = Vec::new();
-    let bytes = pattern.as_bytes();
-    let mut index = 0;
-
-    while index < pattern.len() {
-        let rest = &pattern[index..];
-        if !rest.starts_with('$') {
-            let Some(ch) = rest.chars().next() else {
-                break;
-            };
-            text.push(ch);
-            index += ch.len_utf8();
-            continue;
-        }
-
-        let (kind, name_start) = if rest.starts_with("$$$") {
-            (PatternMetaKind::Variadic, index + 3)
-        } else {
-            (PatternMetaKind::Single, index + 1)
-        };
-        let mut name_end = name_start;
-        while name_end < bytes.len()
-            && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'_')
-        {
-            name_end += 1;
-        }
-        if name_end == name_start {
-            text.push('$');
-            index += 1;
-            continue;
-        }
-
-        let name = &pattern[name_start..name_end];
-        let placeholder = match kind {
-            PatternMetaKind::Single => format!("__readseek_meta_{name}"),
-            PatternMetaKind::Variadic => format!("__readseek_variadic_{name}"),
-        };
-        text.push_str(&placeholder);
-        metas.push(PatternMeta {
-            placeholder,
-            name: name.to_owned(),
-            kind,
-        });
-        index = name_end;
-    }
-
-    SearchPattern { text, metas }
-}
-
-fn search_pattern_root(root: Node<'_>) -> Option<Node<'_>> {
-    if root.named_child_count() == 1 {
-        root.named_child(0)
-    } else {
-        Some(root)
-    }
-}
-
-fn collect_search_matches(
-    source: &SourceFile,
-    pattern: &SearchPattern,
-    pattern_node: Node<'_>,
-    source_node: Node<'_>,
-    matches: &mut Vec<SearchMatch>,
-) -> Result<()> {
-    let mut captures = Vec::new();
-    if nodes_match(source, pattern, pattern_node, source_node, &mut captures) {
-        matches.push(search_match(source, source_node, captures)?);
-    }
-
-    let mut cursor = source_node.walk();
-    for child in source_node.named_children(&mut cursor) {
-        collect_search_matches(source, pattern, pattern_node, child, matches)?;
-    }
-
-    Ok(())
-}
-
-fn nodes_match(
-    source: &SourceFile,
-    pattern: &SearchPattern,
-    pattern_node: Node<'_>,
-    source_node: Node<'_>,
-    captures: &mut Vec<SearchCaptureRange>,
-) -> bool {
-    if let Some(meta) = pattern_meta(pattern, pattern_node) {
-        if meta.kind == PatternMetaKind::Single {
-            let (start_line, end_line) = symbols::node_line_range(source_node);
-            let Some(text) = node_text(source_node, &source.text) else {
-                return false;
-            };
-            return bind_capture(captures, &meta.name, text, start_line, end_line);
-        }
-        return true;
-    }
-
-    if pattern_node.kind() != source_node.kind() {
-        return false;
-    }
-
-    let pattern_children = named_children(pattern_node);
-    let source_children = named_children(source_node);
-    if pattern_children.is_empty() {
-        return node_text(pattern_node, &pattern.text) == node_text(source_node, &source.text);
-    }
-
-    child_nodes_match(
-        source,
-        pattern,
-        &pattern_children,
-        &source_children,
-        0,
-        0,
-        captures,
-    )
-}
-
-fn child_nodes_match(
-    source: &SourceFile,
-    pattern: &SearchPattern,
-    pattern_children: &[Node<'_>],
-    source_children: &[Node<'_>],
-    pattern_index: usize,
-    source_index: usize,
-    captures: &mut Vec<SearchCaptureRange>,
-) -> bool {
-    if pattern_index == pattern_children.len() {
-        return source_index == source_children.len();
-    }
-
-    let pattern_child = pattern_children[pattern_index];
-    if let Some(meta) = pattern_meta(pattern, pattern_child) {
-        if meta.kind == PatternMetaKind::Variadic {
-            for count in 0..=source_children.len().saturating_sub(source_index) {
-                let mut trial_captures = captures.clone();
-                if count > 0 {
-                    let start_node = source_children[source_index];
-                    let end_node = source_children[source_index + count - 1];
-                    let (start_line, _) = symbols::node_line_range(start_node);
-                    let (_, end_line) = symbols::node_line_range(end_node);
-                    let Some(text) = source
-                        .text
-                        .get(start_node.start_byte()..end_node.end_byte())
-                    else {
-                        continue;
-                    };
-                    if !bind_capture(&mut trial_captures, &meta.name, text, start_line, end_line) {
-                        continue;
-                    }
-                }
-                if child_nodes_match(
-                    source,
-                    pattern,
-                    pattern_children,
-                    source_children,
-                    pattern_index + 1,
-                    source_index + count,
-                    &mut trial_captures,
-                ) {
-                    *captures = trial_captures;
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
-    if source_index >= source_children.len() {
-        return false;
-    }
-
-    let mut trial_captures = captures.clone();
-    if !nodes_match(
-        source,
-        pattern,
-        pattern_child,
-        source_children[source_index],
-        &mut trial_captures,
-    ) {
-        return false;
-    }
-    if !child_nodes_match(
-        source,
-        pattern,
-        pattern_children,
-        source_children,
-        pattern_index + 1,
-        source_index + 1,
-        &mut trial_captures,
-    ) {
-        return false;
-    }
-
-    *captures = trial_captures;
-    true
-}
-
-fn bind_capture(
-    captures: &mut Vec<SearchCaptureRange>,
-    name: &str,
-    text: &str,
-    start_line: usize,
-    end_line: usize,
-) -> bool {
-    if captures
-        .iter()
-        .any(|capture| capture.name == name && capture.text != text)
-    {
-        return false;
-    }
-
-    captures.push(SearchCaptureRange {
-        name: name.to_owned(),
-        text: text.to_owned(),
-        start_line,
-        end_line,
-    });
-    true
-}
-
-fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
-}
-
-fn pattern_meta<'a>(pattern: &'a SearchPattern, node: Node<'_>) -> Option<&'a PatternMeta> {
-    let text = node_text(node, &pattern.text)?;
-    pattern.metas.iter().find(|meta| meta.placeholder == text)
-}
-
-fn node_text<'a>(node: Node<'_>, text: &'a str) -> Option<&'a str> {
-    node.utf8_text(text.as_bytes()).ok()
-}
-
-fn search_match(
-    source: &SourceFile,
-    node: Node<'_>,
-    capture_ranges: Vec<SearchCaptureRange>,
-) -> Result<SearchMatch> {
-    let captures = capture_ranges
-        .into_iter()
-        .map(|capture| {
-            Ok(SearchCapture {
-                name: capture.name,
-                start_line: capture.start_line,
-                end_line: capture.end_line,
-                start_hash: line_hash(source, capture.start_line)?,
-                end_hash: line_hash(source, capture.end_line)?,
-                hashlines: range_hashlines(source, capture.start_line, capture.end_line),
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let (start_line, end_line) = symbols::node_line_range(node);
-
-    Ok(SearchMatch {
-        pattern_index: 0,
-        start_line,
-        end_line,
-        start_hash: line_hash(source, start_line)?,
-        end_hash: line_hash(source, end_line)?,
-        hashlines: range_hashlines(source, start_line, end_line),
-        captures,
-    })
-}
-
-fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
+pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
     source
         .lines
         .get(line.saturating_sub(1))
@@ -2846,7 +2124,7 @@ fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
         .with_context(|| format!("line {line} not found in {}", source.path.display()))
 }
 
-fn range_hashlines(source: &SourceFile, start_line: usize, end_line: usize) -> Vec<HashLine> {
+pub(crate) fn range_hashlines(source: &SourceFile, start_line: usize, end_line: usize) -> Vec<HashLine> {
     let start = start_line.saturating_sub(1);
     let end = end_line.min(source.lines.len());
     source.lines[start..end]
