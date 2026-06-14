@@ -502,7 +502,7 @@ fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
         "namespace_definition" => named_symbol(node, source, "name", "namespace"),
-        "declaration" | "type_definition" => c_typedef_symbol(node, source),
+        "declaration" | "type_definition" => c_declaration_symbol(node, source),
         "preproc_def" | "preproc_function_def" => {
             descendant_identifier(node, source).map(|name| ("macro".to_owned(), name))
         }
@@ -510,8 +510,26 @@ fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     }
 }
 
-fn c_typedef_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+fn c_declaration_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     let text = node.utf8_text(source.as_bytes()).ok()?;
+    if contains_word(text, "typedef") {
+        return c_typedef_symbol(node, text, source);
+    }
+    if node.kind() != "declaration" || !is_c_file_scope_declaration(node) {
+        return None;
+    }
+
+    if let Some(function) = descendant_of_kind(node, "function_declarator") {
+        return function
+            .child_by_field_name("declarator")
+            .and_then(|declarator| declarator_identifier(declarator, source))
+            .map(|name| ("function".to_owned(), name));
+    }
+
+    last_identifier(text).map(|name| ("variable".to_owned(), name))
+}
+
+fn c_typedef_symbol(node: Node<'_>, text: &str, source: &str) -> Option<(String, String)> {
     if !contains_word(text, "typedef") {
         return None;
     }
@@ -522,6 +540,38 @@ fn c_typedef_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         .or_else(|| last_identifier(text))?;
 
     Some(("type".to_owned(), name))
+}
+
+fn is_c_file_scope_declaration(node: Node<'_>) -> bool {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        match parent.kind() {
+            "translation_unit" | "namespace_definition" | "linkage_specification" => return true,
+            "function_definition"
+            | "compound_statement"
+            | "class_specifier"
+            | "struct_specifier"
+            | "enum_specifier" => return false,
+            _ => current = parent,
+        }
+    }
+
+    false
+}
+
+fn descendant_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(node) = descendant_of_kind(child, kind) {
+            return Some(node);
+        }
+    }
+
+    None
 }
 
 fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {

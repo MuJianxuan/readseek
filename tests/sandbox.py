@@ -755,6 +755,60 @@ def main():
             ):
                 passed(name)
 
+        name = "definition: C function declaration lookup"
+        declarations_path = write_file(
+            definitions_dir,
+            "decls.h",
+            "int foo(void);\nextern int global_count;\nstatic const struct ops driver_ops = {};\nvoid caller(void) { int local_value; }\n",
+        )
+        data = readseek_json(name, ["definition", definitions_dir, "foo"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, len(definitions), 1) and all(
+                [
+                    assert_equal(name, definitions[0].get("file"), declarations_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "function"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "foo"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 1),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: C extern declaration lookup"
+        data = readseek_json(name, ["definition", definitions_dir, "global_count"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, len(definitions), 1) and all(
+                [
+                    assert_equal(name, definitions[0].get("file"), declarations_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "variable"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "global_count"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 2),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: C static object declaration lookup"
+        data = readseek_json(name, ["definition", definitions_dir, "driver_ops"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, len(definitions), 1) and all(
+                [
+                    assert_equal(name, definitions[0].get("file"), declarations_path),
+                    assert_equal(name, definitions[0]["symbol"].get("kind"), "variable"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "driver_ops"),
+                    assert_equal(name, definitions[0]["symbol"].get("start_line"), 3),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: C local declaration ignored"
+        data = readseek_json(name, ["definition", definitions_dir, "local_value"])
+        if data:
+            definitions = data.get("definitions", [])
+            if assert_equal(name, definitions, []):
+                passed(name)
+
         name = "definition: compact locations"
         data = readseek_json(name, ["definition", "--compact", definitions_dir, "target"])
         if data:

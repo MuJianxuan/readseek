@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-const DB_SCHEMA_VERSION: i64 = 3;
+const DB_SCHEMA_VERSION: i64 = 4;
 
 pub(crate) fn load_source_map(source: &SourceFile) -> Result<Option<SourceMap>> {
     let Some(mut connection) = connection()? else {
