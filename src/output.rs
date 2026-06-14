@@ -203,17 +203,9 @@ pub(crate) fn resolve_read_range(
     command: &ReadCommand,
     target_line: Option<usize>,
 ) -> Result<(Option<usize>, Option<usize>)> {
-    let explicit_start = match (command.start, command.offset) {
-        (Some(start), Some(offset)) if start != offset => {
-            bail!("--start and --offset specify different start lines")
-        }
-        (Some(start), _) | (_, Some(start)) => Some(start),
-        (None, None) => None,
-    };
-
-    let start = match (explicit_start, target_line) {
+    let start = match (command.offset, target_line) {
         (Some(start), Some(line)) if start != line => {
-            bail!("target line conflicts with --start/--offset")
+            bail!("target line conflicts with --offset")
         }
         (Some(start), _) | (_, Some(start)) => Some(start),
         (None, None) => None,

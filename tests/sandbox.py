@@ -133,7 +133,7 @@ def main():
 
     def expect_supported_file(name, file_name, contents, language):
         path = write_file(tmpdir, file_name, contents)
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), language),
@@ -159,7 +159,7 @@ def main():
             failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "rust"),
@@ -171,7 +171,7 @@ def main():
 
         name = "read: requested range"
         path = write_file(tmpdir, "sample.py", "one\ntwo\nthree\n")
-        data = readseek_json(name, ["read", path, "--start", "2", "--end", "3"])
+        data = readseek_json(name, ["read", path, "--offset", "2", "--end", "3"])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "python"),
@@ -581,7 +581,7 @@ def main():
 
         name = "symbol: cached mapped qualified name"
         path = os.path.join(tmpdir, "sample.ts")
-        data = readseek_json(name, ["symbol", path, "Greeter.greet"])
+        data = readseek_json(name, ["symbol", path, "--name", "Greeter.greet"])
         if data and all(
             [
                 assert_equal(name, data["symbol"].get("kind"), "method"),
@@ -597,7 +597,7 @@ def main():
             "symbol.ts",
             "class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n",
         )
-        data = readseek_json(name, ["symbol", f"{path}:Greeter.greet"])
+        data = readseek_json(name, ["symbol", path, "--name", "Greeter.greet"])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "typescript"),
@@ -624,7 +624,7 @@ def main():
         name = "file: stdin path"
         data = readseek_json(
             name,
-            ["file", "--stdin", "--path", "buffer.ts"],
+            ["detect", "--stdin", "--path", "buffer.ts"],
             stdin="class BufferGreeter {}\n",
         )
         if data and all(
@@ -639,7 +639,7 @@ def main():
         name = "read: stdin path"
         data = readseek_json(
             name,
-            ["read", "--stdin", "--path", "buffer.ts", "--start", "2", "--end", "2"],
+            ["read", "--stdin", "--path", "buffer.ts", "--offset", "2", "--end", "2"],
             stdin="one\ntwo\nthree\n",
         )
         if data and all(
@@ -959,7 +959,7 @@ def main():
                 "colon:symbol.ts",
                 "class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n",
             )
-            data = readseek_json(name, ["symbol", path, "Greeter.greet"])
+            data = readseek_json(name, ["symbol", path, "--name", "Greeter.greet"])
             if data and all(
                 [
                     assert_equal(name, data.get("file"), path),
@@ -999,7 +999,7 @@ def main():
 
         name = "file: language override"
         path = write_file(tmpdir, "script", "#!/usr/bin/env node\nfunction main() {}\n")
-        data = readseek_json(name, ["file", path, "--language", "typescript"])
+        data = readseek_json(name, ["detect", path, "--language", "typescript"])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "typescript"),
@@ -1010,7 +1010,7 @@ def main():
 
         name = "file: language alias"
         path = write_file(tmpdir, "header", "int add(int a, int b);\n")
-        data = readseek_json(name, ["file", path, "--language", "c-plus-plus"])
+        data = readseek_json(name, ["detect", path, "--language", "c-plus-plus"])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "cpp"),
@@ -1021,7 +1021,7 @@ def main():
 
         name = "file: special filename"
         path = write_file(tmpdir, "go.mod", "module example.com/readseek\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "go"),
@@ -1032,7 +1032,7 @@ def main():
 
         name = "file: tex language"
         path = write_file(tmpdir, "paper.tex", "\\section{Intro}\nText.\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "latex"),
@@ -1043,7 +1043,7 @@ def main():
 
         name = "file: typst language"
         path = write_file(tmpdir, "paper.typ", "= Intro\nText.\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "typst"),
@@ -1054,7 +1054,7 @@ def main():
 
         name = "file: assembly language"
         path = write_file(tmpdir, "boot.S", "_start:\n    mov %rsp, %rbp\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "assembly"),
@@ -1065,7 +1065,7 @@ def main():
 
         name = "file: riscv language"
         path = write_file(tmpdir, "boot.riscv", "_start:\n    addi sp, sp, -16\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "riscv"),
@@ -1076,7 +1076,7 @@ def main():
 
         name = "file: gdscript language"
         path = write_file(tmpdir, "player.gd", "func _ready():\n    pass\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "gdscript"),
@@ -1087,7 +1087,7 @@ def main():
 
         name = "file: sql language"
         path = write_file(tmpdir, "query.sql", "select * from users;\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "sql"),
@@ -1098,7 +1098,7 @@ def main():
 
         name = "file: toml language"
         path = write_file(tmpdir, "config.toml", "name = \"demo\"\n")
-        data = readseek_json(name, ["file", path])
+        data = readseek_json(name, ["detect", path])
         if data and all(
             [
                 assert_equal(name, data.get("language"), "toml"),
@@ -1109,7 +1109,7 @@ def main():
 
         name = "file: binary rejected"
         path = write_file(tmpdir, "blob.bin", bytes([0, 1, 2, 3]))
-        expect_failure(name, ["file", path])
+        expect_failure(name, ["detect", path])
 
         name = "read: binary uses lossy text"
         path = write_file(tmpdir, "blob-read.bin", bytes([0, 65, 255, 10]))

@@ -23,7 +23,7 @@ pub(crate) struct Cli {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand)]
 pub(crate) enum Command {
-    Detect(FileCommand),
+    Detect(DetectCommand),
     Read(ReadCommand),
     Map(MapCommand),
     Symbol(SymbolCommand),
@@ -37,9 +37,9 @@ pub(crate) enum Command {
 
 /// detect the file type
 #[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "file")]
+#[argh(subcommand, name = "detect")]
 #[argh(help_triggers("-h", "--help"))]
-pub(crate) struct FileCommand {
+pub(crate) struct DetectCommand {
     /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
     pub(crate) target: Option<String>,
@@ -76,15 +76,11 @@ pub(crate) struct ReadCommand {
 
     /// first line to include
     #[argh(option)]
-    pub(crate) start: Option<usize>,
+    pub(crate) offset: Option<usize>,
 
     /// last line to include
     #[argh(option)]
     pub(crate) end: Option<usize>,
-
-    /// first line to include (alias for --start)
-    #[argh(option)]
-    pub(crate) offset: Option<usize>,
 
     /// maximum number of lines to include
     #[argh(option)]
@@ -122,9 +118,9 @@ pub(crate) struct MapCommand {
 #[argh(subcommand, name = "symbol")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct SymbolCommand {
-    /// takes [<file>, <file>:<line>, <file>:<hash> or <file>:<symbol>] [qualified-name]
+    /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
-    pub(crate) args: Vec<String>,
+    pub(crate) target: Option<String>,
 
     /// read document contents from stdin
     #[argh(switch)]
@@ -137,6 +133,10 @@ pub(crate) struct SymbolCommand {
     /// one-based target line
     #[argh(option)]
     pub(crate) line: Option<usize>,
+
+    /// qualified symbol name
+    #[argh(option)]
+    pub(crate) name: Option<String>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -314,22 +314,6 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
         .ok_or_else(|| format!("unknown language: {value}"))
 }
 
-pub(crate) fn parse_input_target(
-    target: Option<&str>,
-    stdin: bool,
-    path: Option<&Path>,
-) -> Result<Target> {
-    parse_input_target_with(target, stdin, path, parse_target)
-}
-
-pub(crate) fn parse_symbol_input_target(
-    target: Option<&str>,
-    stdin: bool,
-    path: Option<&Path>,
-) -> Result<Target> {
-    parse_input_target_with(target, stdin, path, parse_symbol_target)
-}
-
 fn parse_input_target_with(
     target: Option<&str>,
     stdin: bool,
@@ -350,18 +334,6 @@ fn parse_input_target_with(
         bail!("--path requires --stdin");
     }
     parse(target.context("target required")?)
-}
-
-pub(crate) fn symbol_args(args: &[String], stdin: bool) -> Result<(Option<&str>, Option<&str>)> {
-    match (stdin, args) {
-        (true, []) => Ok((None, None)),
-        (true, [address]) => Ok((None, Some(address.as_str()))),
-        (true, _) => bail!("symbol with --stdin accepts at most one qualified name argument"),
-        (false, [target]) => Ok((Some(target.as_str()), None)),
-        (false, [target, address]) => Ok((Some(target.as_str()), Some(address.as_str()))),
-        (false, []) => bail!("target required"),
-        (false, _) => bail!("symbol accepts at most target and qualified name arguments"),
-    }
 }
 
 fn parse_target(value: &str) -> Result<Target> {
@@ -399,25 +371,24 @@ fn parse_target(value: &str) -> Result<Target> {
     })
 }
 
-fn parse_symbol_target(value: &str) -> Result<Target> {
-    let target = parse_target(value)?;
-    if target.address.is_some() || Path::new(value).exists() {
-        return Ok(target);
-    }
-
-    let Some((path, symbol)) = value.rsplit_once(':') else {
-        return Ok(target);
-    };
-    if path.is_empty() || symbol.is_empty() {
-        return Ok(target);
-    }
-
-    Ok(Target {
-        path: PathBuf::from(path),
-        address: Some(TargetAddress::Symbol(symbol.to_owned())),
-    })
-}
-
 fn is_line_hash(value: &str) -> bool {
     value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+pub(crate) struct InputArgs {
+    pub(crate) target: Option<String>,
+    pub(crate) stdin: bool,
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) language: Option<Language>,
+}
+
+impl InputArgs {
+    pub(crate) fn to_target(&self) -> Result<Target> {
+        parse_input_target_with(
+            self.target.as_deref(),
+            self.stdin,
+            self.path.as_deref(),
+            parse_target,
+        )
+    }
 }

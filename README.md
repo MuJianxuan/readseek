@@ -5,6 +5,8 @@
   [`pi-hashline-readmap`](https://github.com/coctostan/pi-hashline-readmap).
 - `man man/man1/readseek.1` provides further information on its usage.
 
+Pass `--help` to any command for details.
+
 ## Licensing
 
 The JavaScript npm wrapper is licensed under `Apache-2.0`. The Rust source and
