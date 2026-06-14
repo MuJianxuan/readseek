@@ -902,6 +902,32 @@ def main():
             ):
                 passed(name)
 
+        name = "references: C ignores comments and literals"
+        c_references_dir = os.path.join(tmpdir, "c-references")
+        os.mkdir(c_references_dir)
+        c_reference_path = write_file(
+            c_references_dir,
+            "refs.c",
+            "void target(void);\nvoid caller(void) {\n  target();\n  /* target */\n  const char *name = \"target\";\n  char initial = 't';\n}\n",
+        )
+        data = readseek_json(name, ["references", c_references_dir, "target", "--language", "c"])
+        if data:
+            references = [
+                reference
+                for reference in data.get("references", [])
+                if reference.get("file") == c_reference_path
+            ]
+            if all(
+                [
+                    assert_equal(name, len(references), 2),
+                    assert_equal(name, references[0].get("line"), 1),
+                    assert_equal(name, references[0].get("column"), 6),
+                    assert_equal(name, references[1].get("line"), 3),
+                    assert_equal(name, references[1].get("column"), 3),
+                ]
+            ):
+                passed(name)
+
         name = "references: compact locations"
         data = readseek_json(name, ["references", "--compact", references_dir, "target"])
         if data:

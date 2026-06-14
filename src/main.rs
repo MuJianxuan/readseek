@@ -1994,6 +1994,8 @@ fn validate_reference_name(name: &str) -> Result<()> {
 
 fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocation> {
     let source_map = source_map(source).ok();
+    let ignored_ranges = reference_ignored_ranges(source);
+    let line_starts = line_start_offsets(&source.text);
     let mut references = Vec::new();
     for line in &source.lines {
         let columns = reference_columns(&line.text, name);
@@ -2004,6 +2006,12 @@ fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocatio
             .as_ref()
             .and_then(|source_map| symbol_at_line_in_map(source_map, line.number));
         for column in columns {
+            let byte_offset = line_starts
+                .get(line.number.saturating_sub(1))
+                .map_or(column - 1, |line_start| line_start + column - 1);
+            if is_ignored_reference(byte_offset, &ignored_ranges) {
+                continue;
+            }
             references.push(ReferenceLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
@@ -2017,6 +2025,60 @@ fn references_in_source(source: &SourceFile, name: &str) -> Vec<ReferenceLocatio
         }
     }
     references
+}
+
+fn reference_ignored_ranges(source: &SourceFile) -> Vec<(usize, usize)> {
+    if !matches!(source.detection.language, Language::C | Language::Cpp) {
+        return Vec::new();
+    }
+    let Some(language) = symbols::tree_sitter_language(source.detection.language) else {
+        return Vec::new();
+    };
+
+    let mut parser = Parser::new();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(&source.text, None) else {
+        return Vec::new();
+    };
+
+    let mut ranges = Vec::new();
+    collect_reference_ignored_ranges(tree.root_node(), &mut ranges);
+    ranges
+}
+
+fn collect_reference_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
+    if is_reference_noise_node(node.kind()) {
+        ranges.push((node.start_byte(), node.end_byte()));
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_reference_ignored_ranges(child, ranges);
+    }
+}
+
+fn is_reference_noise_node(kind: &str) -> bool {
+    kind == "comment" || kind.ends_with("string_literal") || kind == "char_literal"
+}
+
+fn line_start_offsets(text: &str) -> Vec<usize> {
+    let mut offsets = vec![0];
+    for (index, byte) in text.bytes().enumerate() {
+        if byte == b'\n' && index + 1 < text.len() {
+            offsets.push(index + 1);
+        }
+    }
+
+    offsets
+}
+
+fn is_ignored_reference(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
+    ranges
+        .iter()
+        .any(|&(start, end)| start <= byte_offset && byte_offset < end)
 }
 
 fn reference_columns(text: &str, name: &str) -> Vec<usize> {
