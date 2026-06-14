@@ -17,6 +17,7 @@ use syntect::parsing::SyntaxSet;
 use tree_sitter::{Node, Parser};
 
 mod cache;
+mod hash;
 mod symbols;
 
 /// readseek
@@ -1041,13 +1042,6 @@ enum TargetAddress {
     Symbol(String),
 }
 
-const XXHASH32_PRIME_1: u32 = 2_654_435_761;
-const XXHASH32_PRIME_2: u32 = 2_246_822_519;
-const XXHASH32_PRIME_3: u32 = 3_266_489_917;
-const XXHASH32_PRIME_4: u32 = 668_265_263;
-const XXHASH32_PRIME_5: u32 = 374_761_393;
-const HASHLINE_MODULUS: u32 = 0x1000;
-
 fn main() {
     env_logger::init();
     if env::args_os().len() == 1 {
@@ -1392,11 +1386,11 @@ fn source_from_text(
             SourceLine {
                 number,
                 text: text.to_owned(),
-                hash: hash_line(number, text),
+                hash: crate::hash::hash_line(number, text),
             }
         })
         .collect();
-    let file_hash = hash_text(&text);
+    let file_hash = crate::hash::hash_text(&text);
     let detection = Detection {
         file: path.to_path_buf(),
         language,
@@ -2863,99 +2857,6 @@ fn range_hashlines(source: &SourceFile, start_line: usize, end_line: usize) -> V
             text: line.text.clone(),
         })
         .collect()
-}
-
-fn hash_text(text: &str) -> String {
-    blake3::hash(text.as_bytes()).to_hex().to_string()
-}
-
-fn hash_line(_line: usize, text: &str) -> String {
-    let text = text.strip_suffix('\r').unwrap_or(text);
-    let normalized = text.split_whitespace().collect::<String>();
-    format!(
-        "{:03x}",
-        xxhash32(normalized.as_bytes(), 0) % HASHLINE_MODULUS
-    )
-}
-
-fn xxhash32(bytes: &[u8], seed: u32) -> u32 {
-    let mut index = 0;
-    let mut hash;
-
-    if bytes.len() >= 16 {
-        let mut v1 = seed
-            .wrapping_add(XXHASH32_PRIME_1)
-            .wrapping_add(XXHASH32_PRIME_2);
-        let mut v2 = seed.wrapping_add(XXHASH32_PRIME_2);
-        let mut v3 = seed;
-        let mut v4 = seed.wrapping_sub(XXHASH32_PRIME_1);
-
-        while index <= bytes.len() - 16 {
-            v1 = xxhash32_round(v1, read_u32_le(bytes, index));
-            index += 4;
-            v2 = xxhash32_round(v2, read_u32_le(bytes, index));
-            index += 4;
-            v3 = xxhash32_round(v3, read_u32_le(bytes, index));
-            index += 4;
-            v4 = xxhash32_round(v4, read_u32_le(bytes, index));
-            index += 4;
-        }
-
-        hash = v1
-            .rotate_left(1)
-            .wrapping_add(v2.rotate_left(7))
-            .wrapping_add(v3.rotate_left(12))
-            .wrapping_add(v4.rotate_left(18));
-    } else {
-        hash = seed.wrapping_add(XXHASH32_PRIME_5);
-    }
-
-    let length_bytes = bytes.len().to_le_bytes();
-    let length = u32::from_le_bytes([
-        length_bytes[0],
-        length_bytes[1],
-        length_bytes[2],
-        length_bytes[3],
-    ]);
-    hash = hash.wrapping_add(length);
-
-    while index + 4 <= bytes.len() {
-        hash = hash
-            .wrapping_add(read_u32_le(bytes, index).wrapping_mul(XXHASH32_PRIME_3))
-            .rotate_left(17)
-            .wrapping_mul(XXHASH32_PRIME_4);
-        index += 4;
-    }
-
-    while index < bytes.len() {
-        hash = hash
-            .wrapping_add(u32::from(bytes[index]).wrapping_mul(XXHASH32_PRIME_5))
-            .rotate_left(11)
-            .wrapping_mul(XXHASH32_PRIME_1);
-        index += 1;
-    }
-
-    hash ^= hash >> 15;
-    hash = hash.wrapping_mul(XXHASH32_PRIME_2);
-    hash ^= hash >> 13;
-    hash = hash.wrapping_mul(XXHASH32_PRIME_3);
-    hash ^ (hash >> 16)
-}
-
-fn xxhash32_round(accumulator: u32, input: u32) -> u32 {
-    accumulator
-        .wrapping_add(input.wrapping_mul(XXHASH32_PRIME_2))
-        .rotate_left(13)
-        .wrapping_mul(XXHASH32_PRIME_1)
-}
-
-fn read_u32_le(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([
-        bytes[offset],
-        bytes[offset + 1],
-        bytes[offset + 2],
-        bytes[offset + 3],
-    ])
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {
