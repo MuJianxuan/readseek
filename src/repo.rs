@@ -17,7 +17,7 @@ const MAPS_DIR: &str = "maps";
 const MAGIC: [u8; 4] = *b"RSMP";
 const SCHEMA_VERSION: u32 = 2;
 
-const HEADER_SIZE: usize = 64;
+const HEADER_SIZE: usize = size_of::<Header>();
 const SYM_ENTRY_SIZE: usize = 32;
 const BLAKE3_RAW_LEN: usize = 32;
 const ENGINE_TAG_NONE: u8 = 0xff;
@@ -32,7 +32,6 @@ const _: () = assert!(
 struct Header {
     magic: [u8; 4],
     version: U32<LittleEndian>,
-    flags: U32<LittleEndian>,
     lang_tag: U32<LittleEndian>,
     engine_tag: u8,
     _pad0: [u8; 3],
@@ -317,7 +316,6 @@ pub(crate) fn store_map(
     let header = Header {
         magic: MAGIC,
         version: U32::new(SCHEMA_VERSION),
-        flags: U32::new(0),
         lang_tag: U32::new(language as u32),
         engine_tag,
         _pad0: [0u8; 3],
