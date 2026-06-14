@@ -20,6 +20,10 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
         return Ok(SourceMap { symbols });
     };
 
+    if !language_has_symbols(source.detection.language) {
+        return Ok(SourceMap { symbols });
+    }
+
     let mut parser = Parser::new();
     parser
         .set_language(&language)
@@ -360,7 +364,7 @@ fn symbol_for_node(
     })
 }
 
-fn node_line_range(node: Node<'_>) -> (usize, usize) {
+pub(crate) fn node_line_range(node: Node<'_>) -> (usize, usize) {
     let start_line = node_start_line(node);
     let end_position = node.end_position();
     let end_line = if end_position.column == 0 && end_position.row + 1 > start_line {

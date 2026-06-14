@@ -1609,7 +1609,7 @@ fn source_map(source: &SourceFile) -> Result<SourceMap> {
     match cache::load_source_map(source) {
         Ok(Some(source_map)) => return Ok(source_map),
         Ok(None) => {}
-        Err(error) => drop(error),
+        Err(error) => log::warn!("cache load error: {error:#}"),
     }
 
     parse_and_cache_source_map(source)
@@ -1618,7 +1618,7 @@ fn source_map(source: &SourceFile) -> Result<SourceMap> {
 fn parse_and_cache_source_map(source: &SourceFile) -> Result<SourceMap> {
     let source_map = symbols::parse_source_map(source)?;
     if let Err(error) = cache::store_source_map(source, &source_map) {
-        drop(error);
+        log::warn!("cache store error: {error:#}");
     }
 
     Ok(source_map)
@@ -2521,7 +2521,7 @@ fn nodes_match(
 ) -> bool {
     if let Some(meta) = pattern_meta(pattern, pattern_node) {
         if meta.kind == PatternMetaKind::Single {
-            let (start_line, end_line) = node_line_range(source_node);
+            let (start_line, end_line) = symbols::node_line_range(source_node);
             let Some(text) = node_text(source_node, &source.text) else {
                 return false;
             };
@@ -2572,8 +2572,8 @@ fn child_nodes_match(
                 if count > 0 {
                     let start_node = source_children[source_index];
                     let end_node = source_children[source_index + count - 1];
-                    let (start_line, _) = node_line_range(start_node);
-                    let (_, end_line) = node_line_range(end_node);
+                    let (start_line, _) = symbols::node_line_range(start_node);
+                    let (_, end_line) = symbols::node_line_range(end_node);
                     let Some(text) = source
                         .text
                         .get(start_node.start_byte()..end_node.end_byte())
@@ -2687,7 +2687,7 @@ fn search_match(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let (start_line, end_line) = node_line_range(node);
+    let (start_line, end_line) = symbols::node_line_range(node);
 
     Ok(SearchMatch {
         pattern_index: 0,
@@ -2698,18 +2698,6 @@ fn search_match(
         hashlines: range_hashlines(source, start_line, end_line),
         captures,
     })
-}
-
-fn node_line_range(node: tree_sitter::Node<'_>) -> (usize, usize) {
-    let start_line = node.start_position().row + 1;
-    let end_position = node.end_position();
-    let end_line = if end_position.column == 0 && end_position.row + 1 > start_line {
-        end_position.row
-    } else {
-        end_position.row + 1
-    };
-
-    (start_line, end_line)
 }
 
 fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
