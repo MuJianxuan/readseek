@@ -1780,14 +1780,42 @@ fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Option<Symbol> 
 
 fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
     let name = definition_name(command)?;
+    let search_name = definition_search_name(&name);
+    let mut candidates = Vec::new();
+    let mut macro_definitions = Vec::new();
+    for path in definition_candidate_paths(command, search_name)? {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if !text.contains(search_name) {
+            continue;
+        }
+
+        candidates.push((path, text));
+    }
+
+    for (path, text) in &candidates {
+        if !text
+            .lines()
+            .any(|line| macro_definition_name(line) == Some(search_name))
+        {
+            continue;
+        }
+        let Ok(source) = source_from_text(path, text.clone(), command.language, false, None) else {
+            continue;
+        };
+        macro_definitions.extend(macro_definition_locations(&source, search_name));
+    }
+
+    if !macro_definitions.is_empty() {
+        return Ok(DefinitionOutput {
+            definitions: macro_definitions,
+        });
+    }
+
     let mut definitions = Vec::new();
-    for path in command_paths(
-        &command.target,
-        command.cached,
-        command.others,
-        command.ignored,
-    )? {
-        let Ok(source) = load_source(&path, command.language, BinaryMode::Reject) else {
+    for (path, text) in candidates {
+        let Ok(source) = source_from_text(&path, text, command.language, false, None) else {
             continue;
         };
         let Ok(source_map) = source_map(&source) else {
@@ -1840,6 +1868,58 @@ fn definition_name(command: &DefinitionCommand) -> Result<String> {
         (None, false) => bail!("definition requires a name or --stdin identify context"),
         (None, true) => definition_name_from_stdin(),
     }
+}
+
+fn definition_search_name(name: &str) -> &str {
+    name.rsplit('.')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(name)
+}
+
+fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<DefinitionLocation> {
+    if !matches!(source.detection.language, Language::C | Language::Cpp) {
+        return Vec::new();
+    }
+
+    source
+        .lines
+        .iter()
+        .filter(|line| macro_definition_name(&line.text) == Some(name))
+        .map(|line| DefinitionLocation {
+            file: source.path.clone(),
+            language: source.detection.language,
+            file_hash: source.file_hash.clone(),
+            symbol: Symbol {
+                kind: "macro".to_owned(),
+                name: name.to_owned(),
+                address: name.to_owned(),
+                start_line: line.number,
+                end_line: line.number,
+                start_hash: line.hash.clone(),
+                end_hash: line.hash.clone(),
+            },
+            line_hash: line.hash.clone(),
+            text: line.text.clone(),
+        })
+        .collect()
+}
+
+fn macro_definition_name(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix("#define")?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+
+    let rest = rest.trim_start();
+    let name_len = rest
+        .find(|ch: char| !matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
+        .unwrap_or(rest.len());
+    if name_len == 0 {
+        return None;
+    }
+
+    Some(&rest[..name_len])
 }
 
 fn definition_name_from_stdin() -> Result<String> {
@@ -2004,6 +2084,143 @@ fn command_paths(target: &Path, cached: bool, others: bool, ignored: bool) -> Re
     Ok(paths)
 }
 
+fn definition_candidate_paths(
+    command: &DefinitionCommand,
+    search_name: &str,
+) -> Result<Vec<PathBuf>> {
+    if let Some(paths) = git_definition_candidate_paths(
+        &command.target,
+        command.cached,
+        command.others,
+        command.ignored,
+        search_name,
+    )? {
+        return Ok(paths);
+    }
+
+    command_paths(
+        &command.target,
+        command.cached,
+        command.others,
+        command.ignored,
+    )
+}
+
+fn git_definition_candidate_paths(
+    target: &Path,
+    cached: bool,
+    others: bool,
+    ignored: bool,
+    search_name: &str,
+) -> Result<Option<Vec<PathBuf>>> {
+    let original_target = target;
+    let Ok(repository) = git2::Repository::discover(target) else {
+        return Ok(None);
+    };
+
+    if ignored && !others {
+        bail!("--ignored requires --others");
+    }
+
+    let workdir = repository
+        .workdir()
+        .context("Git repository has no work tree")?;
+    let target = target
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", target.display()))?;
+    let workdir = workdir
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", workdir.display()))?;
+    let scope = target
+        .strip_prefix(&workdir)
+        .with_context(|| format!("{} is outside Git work tree", target.display()))?;
+    let output_root = output_root_for_scope(original_target, scope)?;
+    let default_selection = !has_git_selection_flags(cached, others, ignored);
+    let cached = cached || default_selection;
+    let others = others || default_selection;
+
+    let mut paths = BTreeSet::new();
+    if cached {
+        collect_cached_definition_paths(&repository, &output_root, scope, search_name, &mut paths)?;
+    }
+    if others {
+        collect_other_definition_paths(
+            &repository,
+            &workdir,
+            &output_root,
+            scope,
+            ignored,
+            search_name,
+            &mut paths,
+        )?;
+    }
+
+    Ok(Some(paths.into_iter().collect()))
+}
+
+fn collect_cached_definition_paths(
+    repository: &git2::Repository,
+    output_root: &Path,
+    scope: &Path,
+    search_name: &str,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let index = repository.index().context("read Git index")?;
+    for entry in index.iter() {
+        let relative = git_path(&entry.path)?;
+        if !path_is_in_scope(&relative, scope) {
+            continue;
+        }
+
+        let Ok(blob) = repository.find_blob(entry.id) else {
+            continue;
+        };
+        if bytes_contain(blob.content(), search_name.as_bytes()) {
+            paths.insert(output_root.join(relative));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_other_definition_paths(
+    repository: &git2::Repository,
+    workdir: &Path,
+    output_root: &Path,
+    scope: &Path,
+    ignored: bool,
+    search_name: &str,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let mut other_paths = BTreeSet::new();
+    collect_other_paths(
+        repository,
+        workdir,
+        output_root,
+        scope,
+        ignored,
+        &mut other_paths,
+    )?;
+
+    for path in other_paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if text.contains(search_name) {
+            paths.insert(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+}
+
 fn git_search_paths(
     target: &Path,
     cached: bool,
@@ -2065,7 +2282,7 @@ fn output_root_for_scope(target: &Path, scope: &Path) -> Result<PathBuf> {
 
 fn collect_cached_paths(
     repository: &git2::Repository,
-    workdir: &Path,
+    _workdir: &Path,
     output_root: &Path,
     scope: &Path,
     paths: &mut BTreeSet<PathBuf>,
@@ -2073,7 +2290,9 @@ fn collect_cached_paths(
     let index = repository.index().context("read Git index")?;
     for entry in index.iter() {
         let relative = git_path(&entry.path)?;
-        insert_scoped_file(workdir, output_root, scope, &relative, paths);
+        if path_is_in_scope(&relative, scope) {
+            paths.insert(output_root.join(relative));
+        }
     }
 
     Ok(())
