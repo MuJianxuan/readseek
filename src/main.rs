@@ -2037,15 +2037,17 @@ fn reference_columns(text: &str, name: &str) -> Vec<usize> {
 }
 
 fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
-    let mut results = Vec::new();
-
-    for path in command_paths(
+    let paths = command_paths(
         &command.target,
         command.cached,
         command.others,
         command.ignored,
-    )? {
-        let Some(result) = search_file(&path, command.language, &command.pattern)? else {
+    )?;
+    let pattern = compile_search(&command.pattern);
+    let mut results = Vec::new();
+
+    for path in paths {
+        let Some(result) = search_file(&path, command.language, &pattern)? else {
             continue;
         };
         if !result.matches.is_empty() {
@@ -2384,7 +2386,7 @@ fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()
 fn search_file(
     path: &Path,
     override_language: Option<Language>,
-    pattern_text: &str,
+    pattern: &SearchPattern,
 ) -> Result<Option<SearchFileOutput>> {
     let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
         return Ok(None);
@@ -2393,8 +2395,6 @@ fn search_file(
     let Some(language) = symbols::tree_sitter_language(language_id) else {
         return Ok(None);
     };
-
-    let pattern = compile_search_pattern(pattern_text);
     let mut parser = Parser::new();
     parser
         .set_language(&language)
@@ -2414,7 +2414,7 @@ fn search_file(
         search_pattern_root(pattern_tree.root_node()).context("empty search pattern")?;
     collect_search_matches(
         &source,
-        &pattern,
+        pattern,
         pattern_root,
         tree.root_node(),
         &mut matches,
@@ -2428,7 +2428,7 @@ fn search_file(
     }))
 }
 
-fn compile_search_pattern(pattern: &str) -> SearchPattern {
+fn compile_search(pattern: &str) -> SearchPattern {
     let mut text = String::with_capacity(pattern.len());
     let mut metas = Vec::new();
     let bytes = pattern.as_bytes();
