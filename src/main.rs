@@ -328,6 +328,7 @@ enum Language {
     Typst,
     Toml,
     Tsx,
+    Vimscript,
     Zig,
     Unknown,
 }
@@ -648,6 +649,14 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         extensions: &["typ"],
         file_names: &[],
         syntax_names: &["Typst"],
+    },
+    LanguageSpec {
+        language: Language::Vimscript,
+        id: "vimscript",
+        aliases: &["vimscript", "vim", "viml"],
+        extensions: &["vim", "vimrc", "gvimrc"],
+        file_names: &[".vimrc", ".gvimrc"],
+        syntax_names: &["VimL", "Vimscript"],
     },
     LanguageSpec {
         language: Language::Zig,

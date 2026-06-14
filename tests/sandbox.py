@@ -516,6 +516,15 @@ def main():
             "build",
         )
 
+        expect_mapped_symbol(
+            "map: vimscript function",
+            "plugin.vim",
+            "function! s:greet(name) abort\n  echo a:name\nendfunction\n",
+            "vimscript",
+            "function",
+            "s:greet",
+        )
+
         expect_supported_file(
             "file: meson build",
             "meson.build",
@@ -542,6 +551,7 @@ def main():
             ("lua", "sample.lua", "function greet()\n  return 'hello'\nend\n"),
             ("perl", "sample.pl", "sub greet { return \"hello\"; }\n"),
             ("zig", "sample.zig", "pub fn main() void {}\n"),
+            ("vimscript", "plugin.vim", "function! Greet() abort\nendfunction\n"),
         ]
         for language, file_name, contents in supported_files:
             expect_supported_file(
@@ -557,6 +567,7 @@ def main():
             ("lua", "parser.lua", "function greet()\n  return 'hello'\nend\n"),
             ("perl", "parser.pl", "sub greet { return \"hello\"; }\n"),
             ("zig", "parser.zig", "pub fn main() void {}\n"),
+            ("vimscript", "parser.vim", "function! Greet() abort\nendfunction\n"),
         ]
         for language, file_name, contents in mapped_languages:
             expect_mapped_language(

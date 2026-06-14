@@ -78,6 +78,7 @@ pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::La
         Language::TypeScript => tree_sitter_typescript_language,
         Language::Tsx => tree_sitter_tsx_language,
         Language::Toml => tree_sitter_toml_language,
+        Language::Vimscript => tree_sitter_vim_language,
         Language::Zig => tree_sitter_zig_language,
         Language::Unknown => return None,
     };
@@ -228,6 +229,10 @@ fn tree_sitter_toml_language() -> tree_sitter::Language {
     tree_sitter_toml_ng::LANGUAGE.into()
 }
 
+fn tree_sitter_vim_language() -> tree_sitter::Language {
+    tree_sitter_vim::language()
+}
+
 fn tree_sitter_zig_language() -> tree_sitter::Language {
     tree_sitter_zig::LANGUAGE.into()
 }
@@ -316,6 +321,7 @@ fn symbol_for_node(
         Language::Php => php_symbol(node, source),
         Language::Ruby => ruby_symbol(node, source),
         Language::Swift => swift_symbol(node, source),
+        Language::Vimscript => vimscript_symbol(node, source),
         Language::Assembly
         | Language::Css
         | Language::Dockerfile
@@ -466,6 +472,21 @@ fn bash_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         }
         _ => None,
     }
+}
+
+fn vimscript_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+    match node.kind() {
+        "function_definition" => named_child_of_kind(node, "function_declaration")
+            .and_then(|declaration| named_child(declaration, source, "name"))
+            .map(|name| ("function".to_owned(), name)),
+        _ => None,
+    }
+}
+
+fn named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {

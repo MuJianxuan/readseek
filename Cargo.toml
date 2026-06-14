@@ -61,6 +61,7 @@ tree-sitter-riscv = "0.3.1"
 tree-sitter-gdscript = "6.1.0"
 tree-sitter-sequel = "0.3.11"
 tree-sitter-toml-ng = "0.7.0"
+tree-sitter-vim = "0.4.0"
 tree-sitter-zig = "1.1"
 ts-parser-perl = "1.1"
 [dev-dependencies]
