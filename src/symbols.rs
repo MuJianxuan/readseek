@@ -498,6 +498,9 @@ fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
         "namespace_definition" => named_symbol(node, source, "name", "namespace"),
+        "preproc_def" | "preproc_function_def" => {
+            descendant_identifier(node, source).map(|name| ("macro".to_owned(), name))
+        }
         _ => None,
     }
 }

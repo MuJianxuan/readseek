@@ -1848,11 +1848,11 @@ fn definition_name_from_stdin() -> Result<String> {
         .read_to_string(&mut text)
         .context("read identify context from stdin")?;
     let input: IdentifyInput = serde_json::from_str(&text).context("parse identify context")?;
-    if let Some(symbol) = input.symbol {
-        return Ok(symbol.qualified_name);
-    }
     if let Some(identifier) = input.identifier {
         return Ok(identifier.text);
+    }
+    if let Some(symbol) = input.symbol {
+        return Ok(symbol.qualified_name);
     }
     bail!("identify context has no symbol or identifier")
 }

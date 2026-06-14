@@ -741,7 +741,7 @@ def main():
             ):
                 passed(name)
 
-        name = "definition: identify context prefers qualified name"
+        name = "definition: identify context prefers identifier"
         qualified_definition_path = write_file(
             definitions_dir,
             "qualified.ts",
@@ -761,9 +761,9 @@ def main():
             definitions = data.get("definitions", [])
             if all(
                 [
-                    assert_equal(name, len(definitions), 1),
-                    assert_equal(name, definitions[0].get("file"), qualified_definition_path),
-                    assert_equal(name, definitions[0]["symbol"].get("qualified_name"), "Second.greet"),
+                    assert_equal(name, len(definitions), 2),
+                    assert_equal(name, definitions[0]["symbol"].get("qualified_name"), "First.greet"),
+                    assert_equal(name, definitions[1]["symbol"].get("qualified_name"), "Second.greet"),
                 ]
             ):
                 passed(name)
