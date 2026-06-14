@@ -75,7 +75,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
             continue;
         };
         for symbol in source_map.symbols {
-            if symbol.address != name && symbol.name != search_name {
+            if symbol.qualified_name != name && symbol.name != search_name {
                 continue;
             }
             let line = source
@@ -110,7 +110,7 @@ pub(crate) fn compact_definitions(output: &DefinitionOutput) -> CompactOutput {
                 text: definition.text.clone(),
                 kind: Some(definition.symbol.kind.clone()),
                 name: Some(definition.symbol.name.clone()),
-                qualified_name: Some(definition.symbol.address.clone()),
+                qualified_name: Some(definition.symbol.qualified_name.clone()),
             })
             .collect(),
     }
@@ -148,7 +148,7 @@ fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<Definition
             symbol: Symbol {
                 kind: "macro".to_owned(),
                 name: name.to_owned(),
-                address: name.to_owned(),
+                qualified_name: name.to_owned(),
                 start_line: line.number,
                 end_line: line.number,
                 start_hash: line.hash.clone(),
@@ -225,7 +225,7 @@ pub(crate) fn compact_references(output: &ReferencesOutput) -> CompactOutput {
                     text: reference.text.clone(),
                     kind: symbol.map(|symbol| symbol.kind.clone()),
                     name: symbol.map(|symbol| symbol.name.clone()),
-                    qualified_name: symbol.map(|symbol| symbol.address.clone()),
+                    qualified_name: symbol.map(|symbol| symbol.qualified_name.clone()),
                 }
             })
             .collect(),

@@ -7,7 +7,7 @@ use crate::symbols;
 use crate::{SearchCapture, SearchFileOutput, SearchMatch};
 use anyhow::{Context, Result, bail};
 use std::path::Path;
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Node, Parser, Tree};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternMetaKind {
@@ -26,6 +26,7 @@ pub(crate) struct PatternMeta {
 pub(crate) struct SearchPattern {
     pub(crate) text: String,
     pub(crate) metas: Vec<PatternMeta>,
+    pub(crate) tree: Option<Tree>,
 }
 
 #[derive(Clone, Debug)]
@@ -45,11 +46,11 @@ pub(crate) fn search_file(
     let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
         return Ok(None);
     };
-    let language_id = source.detection.language;
+    let detected_language = source.detection.language;
     if source.detection.engine != AnalysisEngine::TreeSitter {
         return Ok(None);
     }
-    let Some(language) = symbols::tree_sitter_language(language_id) else {
+    let Some(language) = symbols::tree_sitter_language(detected_language) else {
         return Ok(None);
     };
     let mut parser = Parser::new();
@@ -59,16 +60,26 @@ pub(crate) fn search_file(
     let tree = parser
         .parse(&source.text, None)
         .ok_or_else(|| anyhow::anyhow!("tree-sitter parse failed"))?;
-    let pattern_tree = parser
-        .parse(&pattern.text, None)
-        .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
-    if pattern_tree.root_node().has_error() {
-        bail!("pattern is not valid {} syntax", language_id.id());
-    }
+
+    let owned_pattern_tree;
+    let pattern_tree_ref = if let Some(pre_parsed) = &pattern.tree {
+        if pre_parsed.root_node().has_error() {
+            bail!("pattern is not valid {} syntax", detected_language.id());
+        }
+        pre_parsed
+    } else {
+        owned_pattern_tree = parser
+            .parse(&pattern.text, None)
+            .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
+        if owned_pattern_tree.root_node().has_error() {
+            bail!("pattern is not valid {} syntax", detected_language.id());
+        }
+        &owned_pattern_tree
+    };
+    let pattern_root =
+        search_pattern_root(pattern_tree_ref.root_node()).context("empty search pattern")?;
 
     let mut matches = Vec::new();
-    let pattern_root =
-        search_pattern_root(pattern_tree.root_node()).context("empty search pattern")?;
     collect_search_matches(
         &source,
         pattern,
@@ -79,7 +90,7 @@ pub(crate) fn search_file(
 
     Ok(Some(SearchFileOutput {
         file: source.path,
-        language: language_id,
+        language: detected_language,
         engine: source.detection.engine,
         file_hash: source.file_hash,
         matches,
@@ -135,7 +146,23 @@ pub(crate) fn compile_search(pattern: &str) -> SearchPattern {
         index = name_end;
     }
 
-    SearchPattern { text, metas }
+    SearchPattern {
+        text,
+        metas,
+        tree: None,
+    }
+}
+
+/// Pre-compile the pattern text into a tree-sitter tree for the given language.
+///
+/// This allows the pattern tree to be reused across multiple files of the same
+/// language, avoiding redundant parsing.
+pub(crate) fn prepare_pattern_tree(pattern: &mut SearchPattern, language: &tree_sitter::Language) {
+    let mut parser = Parser::new();
+    if parser.set_language(language).is_err() {
+        return;
+    }
+    pattern.tree = parser.parse(&pattern.text, None);
 }
 
 fn search_pattern_root(root: Node<'_>) -> Option<Node<'_>> {
@@ -344,7 +371,6 @@ fn search_match(
     let (start_line, end_line) = symbols::node_line_range(node);
 
     Ok(SearchMatch {
-        pattern_index: 0,
         start_line,
         end_line,
         start_hash: line_hash(source, start_line)?,

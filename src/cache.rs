@@ -144,7 +144,7 @@ fn symbol_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol> {
     Ok(Symbol {
         kind: row.get(0)?,
         name: row.get(1)?,
-        address: row.get(2)?,
+        qualified_name: row.get(2)?,
         start_line: usize::try_from(row.get::<_, i64>(3)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 3,
@@ -219,7 +219,7 @@ pub(crate) fn store_source_map(source: &SourceFile, source_map: &SourceMap) -> R
                 cache_id,
                 symbol.kind,
                 symbol.name,
-                symbol.address,
+                symbol.qualified_name,
                 i64::try_from(symbol.start_line)?,
                 i64::try_from(symbol.end_line)?,
                 symbol.start_hash,

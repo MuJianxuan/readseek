@@ -95,7 +95,6 @@ pub(crate) struct SearchFileOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SearchMatch {
-    pattern_index: usize,
     start_line: usize,
     end_line: usize,
     start_hash: String,
@@ -268,7 +267,13 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
         command.others,
         command.ignored,
     )?;
-    let pattern = crate::search::compile_search(&command.pattern);
+    let mut pattern = crate::search::compile_search(&command.pattern);
+    if let Some(language) = command
+        .language
+        .and_then(crate::symbols::tree_sitter_language)
+    {
+        crate::search::prepare_pattern_tree(&mut pattern, &language);
+    }
     let mut results = Vec::new();
 
     for path in paths {

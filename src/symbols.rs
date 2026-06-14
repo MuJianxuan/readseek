@@ -107,7 +107,7 @@ fn collect_symbols(
     let symbol = symbol_for_node(node, source, language, parent, lines);
     let next_parent = symbol
         .as_ref()
-        .map(|symbol| symbol.address.clone())
+        .map(|symbol| symbol.qualified_name.clone())
         .or_else(|| parent.map(ToOwned::to_owned));
     if let Some(symbol) = symbol {
         symbols.push(symbol);
@@ -206,12 +206,12 @@ fn symbol_for_node(
     let (start_line, end_line) = symbol_line_range(language, node);
     let start_hash = line_hash(lines, start_line)?;
     let end_hash = line_hash(lines, end_line)?;
-    let address = parent.map_or_else(|| name.clone(), |parent| format!("{parent}.{name}"));
+    let qualified_name = parent.map_or_else(|| name.clone(), |parent| format!("{parent}.{name}"));
 
     Some(Symbol {
         kind,
         name,
-        address,
+        qualified_name,
         start_line,
         end_line,
         start_hash,

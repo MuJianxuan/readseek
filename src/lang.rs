@@ -4,8 +4,14 @@
 use anyhow::{Context, Result};
 use serde::{Serialize, Serializer};
 use std::path::Path;
+use std::sync::OnceLock;
 use strum_macros::{Display, EnumString};
 use syntect::parsing::SyntaxSet;
+
+fn cached_syntax_set() -> &'static SyntaxSet {
+    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
 
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
@@ -504,7 +510,7 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
         return Ok((language, None));
     }
 
-    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let syntax_set = cached_syntax_set();
     let syntax = syntax_set
         .find_syntax_for_file(path)
         .with_context(|| format!("detect syntax for {}", path.display()))?;

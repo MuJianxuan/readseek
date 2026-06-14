@@ -31,8 +31,7 @@ pub(crate) struct HashLine {
 pub(crate) struct Symbol {
     pub(crate) kind: String,
     pub(crate) name: String,
-    #[serde(rename = "qualified_name")]
-    pub(crate) address: String,
+    pub(crate) qualified_name: String,
     pub(crate) start_line: usize,
     pub(crate) end_line: usize,
     pub(crate) start_hash: String,

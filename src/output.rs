@@ -1,8 +1,8 @@
 use crate::cli::ReadCommand;
 use crate::lang::{AnalysisEngine, BinaryMode, Language};
 use crate::source::{
-    HashLine, SourceFile, Symbol, SymbolLookup, load_source, source_from_text, source_map,
-    symbol_at_line_in_map, symbol_at_line_uncached,
+    HashLine, SourceFile, Symbol, SymbolLookup, load_source, range_hashlines, source_from_text,
+    source_map, symbol_at_line_in_map, symbol_at_line_uncached,
 };
 use crate::{Target, TargetAddress, cache};
 use anyhow::{Context, Result, bail};
@@ -236,7 +236,15 @@ pub(crate) fn symbol_address<'a>(
 fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
     if let Some(lookup) = cache::symbol_by_address(source, address)? {
         return match lookup {
-            SymbolLookup::Found(symbol) => symbol_output_for_symbol(source, symbol),
+            SymbolLookup::Found(symbol) => Ok(SymbolOutput {
+                file: source.path.clone(),
+                language: source.detection.language,
+                engine: source.detection.engine,
+                line_count: source.lines.len(),
+                file_hash: source.file_hash.clone(),
+                hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
+                symbol,
+            }),
             SymbolLookup::NotFound => bail!("symbol not found: {address}"),
             SymbolLookup::Ambiguous => bail!("qualified symbol name is ambiguous: {address}"),
         };
@@ -246,7 +254,7 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
     let matches = source_map
         .symbols
         .iter()
-        .filter(|symbol| symbol.address == address || symbol.name == address)
+        .filter(|symbol| symbol.qualified_name == address || symbol.name == address)
         .collect::<Vec<_>>();
 
     let symbol = match matches.as_slice() {
@@ -255,7 +263,15 @@ fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
         _ => bail!("qualified symbol name is ambiguous: {address}"),
     };
 
-    symbol_output_for_symbol(source, symbol)
+    Ok(SymbolOutput {
+        file: source.path.clone(),
+        language: source.detection.language,
+        engine: source.detection.engine,
+        line_count: source.lines.len(),
+        file_hash: source.file_hash.clone(),
+        hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
+        symbol,
+    })
 }
 
 pub(crate) fn symbol_command_output(
@@ -270,7 +286,15 @@ pub(crate) fn symbol_command_output(
     let line = target_line.context("symbol requires qualified name or target line/hash")?;
     if let Some(lookup) = cache::symbol_at_line(source, line)? {
         return match lookup {
-            SymbolLookup::Found(symbol) => symbol_output_for_symbol(source, symbol),
+            SymbolLookup::Found(symbol) => Ok(SymbolOutput {
+                file: source.path.clone(),
+                language: source.detection.language,
+                engine: source.detection.engine,
+                line_count: source.lines.len(),
+                file_hash: source.file_hash.clone(),
+                hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
+                symbol,
+            }),
             SymbolLookup::NotFound => bail!("symbol not found at line {line}"),
             SymbolLookup::Ambiguous => unreachable!("line lookup returns at most one symbol"),
         };
@@ -279,20 +303,14 @@ pub(crate) fn symbol_command_output(
     let source_map = source_map(source)?;
     let symbol = symbol_at_line_in_map(&source_map, line)
         .with_context(|| format!("symbol not found at line {line}"))?;
-    symbol_output_for_symbol(source, symbol)
-}
-
-fn symbol_output_for_symbol(source: &SourceFile, symbol: Symbol) -> Result<SymbolOutput> {
-    let read = read_output(source, Some(symbol.start_line), Some(symbol.end_line))?;
-
     Ok(SymbolOutput {
         file: source.path.clone(),
         language: source.detection.language,
         engine: source.detection.engine,
         line_count: source.lines.len(),
         file_hash: source.file_hash.clone(),
+        hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
         symbol,
-        hashlines: read.hashlines,
     })
 }
 
