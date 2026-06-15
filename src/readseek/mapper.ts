@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 
 import { readseekMap, readseekMapContent } from "../readseek-client.js";
+import { throwIfAborted } from "../runtime.js";
 import type { FileMap, MapOptions } from "./types.js";
 
 export const READSEEK_MAPPER_NAME = "readseek";
@@ -19,14 +20,6 @@ export const READSEEK_MAPPER_IDENTITY: MapperIdentity = {
   mapperName: READSEEK_MAPPER_NAME,
   mapperVersion: READSEEK_MAPPER_VERSION,
 };
-
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) return;
-  const reason = signal.reason;
-  throw reason instanceof Error ? reason : new Error("aborted");
-}
-
 export async function generateMapWithIdentity(
   filePath: string,
   options: MapOptions = {},
