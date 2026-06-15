@@ -10,6 +10,22 @@ use serde::Serialize;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) enum Format {
+    #[default]
+    Json,
+    Plain,
+}
+
+impl argh::FromArgValue for Format {
+    fn from_arg_value(value: &str) -> Result<Self, String> {
+        match value {
+            "json" => Ok(Self::Json),
+            "plain" => Ok(Self::Plain),
+            _ => Err(format!("invalid format '{value}': expected json or plain")),
+        }
+    }
+}
 #[derive(Debug, Serialize)]
 pub(crate) struct ReadOutput {
     file: PathBuf,

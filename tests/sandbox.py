@@ -812,7 +812,7 @@ def main():
                 passed(name)
 
         name = "definition: compact locations"
-        data = readseek_json(name, ["def", "--compact", definitions_dir, "target"])
+        data = readseek_json(name, ["def", "--format", "plain", definitions_dir, "target"])
         if data:
             locations = data.get("locations", [])
             if all(
@@ -931,7 +931,7 @@ def main():
                 passed(name)
 
         name = "references: compact locations"
-        data = readseek_json(name, ["refs", "--compact", references_dir, "target"])
+        data = readseek_json(name, ["refs", "--format", "plain", references_dir, "target"])
         if data:
             locations = data.get("locations", [])
             if all(

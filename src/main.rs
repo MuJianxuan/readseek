@@ -151,19 +151,17 @@ fn load_source(input: &cli::InputArgs, binary_mode: BinaryMode) -> Result<(Targe
 
 fn print_def_output(command: &DefCommand) -> Result<()> {
     let output = navigation::def_output(command)?;
-    if command.compact {
-        print_json(&navigation::compact_defs(&output))
-    } else {
-        print_json(&output)
+    match command.format {
+        crate::output::Format::Plain => print_json(&navigation::compact_defs(&output)),
+        crate::output::Format::Json => print_json(&output),
     }
 }
 
 fn print_refs_output(command: &RefsCommand) -> Result<()> {
     let output = navigation::refs_output(command)?;
-    if command.compact {
-        print_json(&navigation::compact_refs(&output))
-    } else {
-        print_json(&output)
+    match command.format {
+        crate::output::Format::Plain => print_json(&navigation::compact_refs(&output)),
+        crate::output::Format::Json => print_json(&output),
     }
 }
 

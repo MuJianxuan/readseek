@@ -191,9 +191,9 @@ pub(crate) struct DefCommand {
     #[argh(switch)]
     pub(crate) stdin: bool,
 
-    /// emit flat quickfix-friendly locations
-    #[argh(switch)]
-    pub(crate) compact: bool,
+    /// output format
+    #[argh(option, long = "format", default = "crate::output::Format::Json")]
+    pub(crate) format: crate::output::Format,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -226,9 +226,9 @@ pub(crate) struct RefsCommand {
     #[argh(positional)]
     pub(crate) name: String,
 
-    /// emit flat quickfix-friendly locations
-    #[argh(switch)]
-    pub(crate) compact: bool,
+    /// output format
+    #[argh(option, long = "format", default = "crate::output::Format::Json")]
+    pub(crate) format: crate::output::Format,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
