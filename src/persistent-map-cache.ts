@@ -13,7 +13,7 @@ import { resolveReadseekJsonSettings } from "./readseek-settings.js";
  * 3. `$XDG_CACHE_HOME/pi-readseek/maps` (when non-empty).
  * 4. `~/.cache/pi-readseek/maps`.
  */
-export function resolveCacheDir(): string {
+function resolveCacheDir(): string {
   const explicit = process.env.PI_HASHLINE_MAP_CACHE_DIR;
   if (explicit && explicit.length > 0) return explicit;
 
@@ -170,11 +170,8 @@ async function tryWriteCachedRaw(key: string, map: FileMap): Promise<boolean> {
   }
 }
 
-/**
- * Low-level atomic write. Internal helper (exported so tests can seed fixtures
- * without going through the eviction counter).
- */
-export async function writeCachedRaw(key: string, map: FileMap): Promise<void> {
+/** Low-level atomic write. Internal helper. */
+async function writeCachedRaw(key: string, map: FileMap): Promise<void> {
   await tryWriteCachedRaw(key, map);
 }
 

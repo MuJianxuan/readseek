@@ -70,7 +70,7 @@ export function buildReadseekLines(startLine: number, rawLines: string[]): Reads
   return rawLines.map((raw, index) => buildReadseekLine(startLine + index, raw));
 }
 
-export function renderReadseekLine(line: ReadseekLine): string {
+function renderReadseekLine(line: ReadseekLine): string {
   return `${line.anchor}|${line.display}`;
 }
 
