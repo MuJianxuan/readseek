@@ -44,13 +44,9 @@ pub(crate) struct DetectCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// read document contents from stdin
-    #[argh(switch)]
-    pub(crate) stdin: bool,
-
-    /// document path to use with --stdin
+    /// read document contents from stdin as the given path
     #[argh(option)]
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -66,13 +62,9 @@ pub(crate) struct ReadCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// read document contents from stdin
-    #[argh(switch)]
-    pub(crate) stdin: bool,
-
-    /// document path to use with --stdin
+    /// read document contents from stdin as the given path
     #[argh(option)]
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
 
     /// first line to include
     #[argh(option)]
@@ -100,13 +92,9 @@ pub(crate) struct MapCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// read document contents from stdin
-    #[argh(switch)]
-    pub(crate) stdin: bool,
-
-    /// document path to use with --stdin
+    /// read document contents from stdin as the given path
     #[argh(option)]
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -122,13 +110,9 @@ pub(crate) struct SymbolCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// read document contents from stdin
-    #[argh(switch)]
-    pub(crate) stdin: bool,
-
-    /// document path to use with --stdin
+    /// read document contents from stdin as the given path
     #[argh(option)]
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
 
     /// one-based target line
     #[argh(option)]
@@ -152,13 +136,9 @@ pub(crate) struct IdentifyCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// read document contents from stdin
-    #[argh(switch)]
-    pub(crate) stdin: bool,
-
-    /// document path to use with --stdin
+    /// read document contents from stdin as the given path
     #[argh(option)]
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
 
     /// one-based cursor line
     #[argh(option)]
@@ -316,22 +296,17 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
 
 fn parse_input_target_with(
     target: Option<&str>,
-    stdin: bool,
-    path: Option<&Path>,
+    stdin: Option<&Path>,
     parse: fn(&str) -> Result<Target>,
 ) -> Result<Target> {
-    if stdin {
+    if let Some(path) = stdin {
         if target.is_some() {
             bail!("target cannot be combined with --stdin");
         }
-        let path = path.context("--stdin requires --path")?;
         return Ok(Target {
             path: path.to_path_buf(),
             address: None,
         });
-    }
-    if path.is_some() {
-        bail!("--path requires --stdin");
     }
     parse(target.context("target required")?)
 }
@@ -377,18 +352,12 @@ fn is_line_hash(value: &str) -> bool {
 
 pub(crate) struct InputArgs {
     pub(crate) target: Option<String>,
-    pub(crate) stdin: bool,
-    pub(crate) path: Option<PathBuf>,
+    pub(crate) stdin: Option<PathBuf>,
     pub(crate) language: Option<Language>,
 }
 
 impl InputArgs {
     pub(crate) fn to_target(&self) -> Result<Target> {
-        parse_input_target_with(
-            self.target.as_deref(),
-            self.stdin,
-            self.path.as_deref(),
-            parse_target,
-        )
+        parse_input_target_with(self.target.as_deref(), self.stdin.as_deref(), parse_target)
     }
 }

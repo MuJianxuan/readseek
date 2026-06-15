@@ -624,7 +624,7 @@ def main():
         name = "file: stdin path"
         data = readseek_json(
             name,
-            ["detect", "--stdin", "--path", "buffer.ts"],
+            ["detect", "--stdin", "buffer.ts"],
             stdin="class BufferGreeter {}\n",
         )
         if data and all(
@@ -639,7 +639,7 @@ def main():
         name = "read: stdin path"
         data = readseek_json(
             name,
-            ["read", "--stdin", "--path", "buffer.ts", "--offset", "2", "--end", "2"],
+            ["read", "--stdin", "buffer.ts", "--offset", "2", "--end", "2"],
             stdin="one\ntwo\nthree\n",
         )
         if data and all(
@@ -657,7 +657,7 @@ def main():
         name = "map: stdin path"
         data = readseek_json(
             name,
-            ["map", "--stdin", "--path", "buffer.ts"],
+            ["map", "--stdin", "buffer.ts"],
             stdin=buffer_source,
         )
         if data:
@@ -675,7 +675,7 @@ def main():
         name = "symbol: stdin target line"
         data = readseek_json(
             name,
-            ["symbol", "--stdin", "--path", "buffer.ts", "--line", "2"],
+            ["symbol", "--stdin", "buffer.ts", "--line", "2"],
             stdin=buffer_source,
         )
         if data and all(
@@ -690,7 +690,7 @@ def main():
         name = "identify: cursor identifier and symbol"
         data = readseek_json(
             name,
-            ["identify", "--stdin", "--path", "buffer.ts", "--line", "2", "--column", "3"],
+            ["identify", "--stdin", "buffer.ts", "--line", "2", "--column", "3"],
             stdin=buffer_source,
         )
         if data and all(

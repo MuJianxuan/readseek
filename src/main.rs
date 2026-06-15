@@ -76,8 +76,7 @@ fn run() -> Result<()> {
 fn run_detect(command: &cli::DetectCommand) -> Result<()> {
     let input = cli::InputArgs {
         target: command.target.clone(),
-        stdin: command.stdin,
-        path: command.path.clone(),
+        stdin: command.stdin.clone(),
         language: command.language,
     };
     let (_, source) = load_source(&input, BinaryMode::Reject)?;
@@ -87,8 +86,7 @@ fn run_detect(command: &cli::DetectCommand) -> Result<()> {
 fn run_read(command: &cli::ReadCommand) -> Result<()> {
     let input = cli::InputArgs {
         target: command.target.clone(),
-        stdin: command.stdin,
-        path: command.path.clone(),
+        stdin: command.stdin.clone(),
         language: command.language,
     };
     let (target, source) = load_source(&input, BinaryMode::Lossy)?;
@@ -101,8 +99,7 @@ fn run_read(command: &cli::ReadCommand) -> Result<()> {
 fn run_map(command: &cli::MapCommand) -> Result<()> {
     let input = cli::InputArgs {
         target: command.target.clone(),
-        stdin: command.stdin,
-        path: command.path.clone(),
+        stdin: command.stdin.clone(),
         language: command.language,
     };
     let (_, source) = load_source(&input, BinaryMode::Reject)?;
@@ -112,14 +109,13 @@ fn run_map(command: &cli::MapCommand) -> Result<()> {
 fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
     let input = cli::InputArgs {
         target: command.target.clone(),
-        stdin: command.stdin,
-        path: command.path.clone(),
+        stdin: command.stdin.clone(),
         language: command.language,
     };
     let target = input.to_target()?;
     let source = output::load_source_for_input(
         &target.path,
-        input.stdin,
+        input.stdin.as_ref(),
         input.language,
         BinaryMode::Reject,
     )?;
@@ -132,8 +128,7 @@ fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
 fn run_identify(command: &cli::IdentifyCommand) -> Result<()> {
     let input = cli::InputArgs {
         target: command.target.clone(),
-        stdin: command.stdin,
-        path: command.path.clone(),
+        stdin: command.stdin.clone(),
         language: command.language,
     };
     let (target, source) = load_source(&input, BinaryMode::Reject)?;
@@ -144,8 +139,12 @@ fn run_identify(command: &cli::IdentifyCommand) -> Result<()> {
 
 fn load_source(input: &cli::InputArgs, binary_mode: BinaryMode) -> Result<(Target, SourceFile)> {
     let target = input.to_target()?;
-    let source =
-        output::load_source_for_input(&target.path, input.stdin, input.language, binary_mode)?;
+    let source = output::load_source_for_input(
+        &target.path,
+        input.stdin.as_ref(),
+        input.language,
+        binary_mode,
+    )?;
     Ok((target, source))
 }
 

@@ -198,16 +198,16 @@ pub(crate) fn resolve_explicit_target_line(
 
 pub(crate) fn load_source_for_input(
     path: &Path,
-    stdin: bool,
+    stdin: Option<&PathBuf>,
     override_language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
-    if stdin {
+    if let Some(stdin_path) = stdin {
         let mut text = String::new();
         io::stdin()
             .read_to_string(&mut text)
             .context("read stdin")?;
-        return source_from_text(path, &text, override_language, false, None);
+        return source_from_text(stdin_path, &text, override_language, false, None);
     }
     load_source(path, override_language, binary_mode)
 }
