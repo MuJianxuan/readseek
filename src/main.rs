@@ -217,8 +217,7 @@ fn run_update(command: &UpdateCommand) -> Result<()> {
             ignored: false,
         },
     )?;
-    println!("{stats:?}");
-    Ok(())
+    print_json(&stats)
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {

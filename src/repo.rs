@@ -66,7 +66,7 @@ const _: () = assert!(
     "SymEntry must be exactly 30 bytes",
 );
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub(crate) struct UpdateStats {
     pub(crate) created: usize,
     pub(crate) removed: usize,
