@@ -11,6 +11,7 @@ use crate::symbols;
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
@@ -86,10 +87,20 @@ pub(crate) fn def_output(command: &DefCommand) -> Result<DefOutput> {
             .map(|path| def_locations_in_path(path, &name, search_name, command.language, None))
             .collect::<Result<Vec<_>>>()?
     };
+    let mut seen = BTreeSet::new();
     let mut definitions = Vec::new();
 
     for definition in results.into_iter().flatten() {
-        push_unique_definition(&mut definitions, definition);
+        let key = (
+            definition.file.clone(),
+            definition.symbol.kind.clone(),
+            definition.symbol.name.clone(),
+            definition.symbol.start_line,
+            definition.symbol.end_line,
+        );
+        if seen.insert(key) {
+            definitions.push(definition);
+        }
     }
 
     Ok(DefOutput { definitions })
@@ -169,23 +180,6 @@ fn def_search_name(name: &str) -> &str {
         .next()
         .filter(|part| !part.is_empty())
         .unwrap_or(name)
-}
-
-fn push_unique_definition(definitions: &mut Vec<DefLocation>, definition: DefLocation) {
-    if !definitions
-        .iter()
-        .any(|existing| same_definition(existing, &definition))
-    {
-        definitions.push(definition);
-    }
-}
-
-fn same_definition(left: &DefLocation, right: &DefLocation) -> bool {
-    left.file == right.file
-        && left.symbol.kind == right.symbol.kind
-        && left.symbol.name == right.symbol.name
-        && left.symbol.start_line == right.symbol.start_line
-        && left.symbol.end_line == right.symbol.end_line
 }
 
 fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
