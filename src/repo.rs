@@ -99,32 +99,7 @@ pub(crate) fn init(dir: &Path) -> Result<PathBuf> {
 
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
 
-    append_to_gitignore(&dir)?;
     Ok(readseek_dir)
-}
-
-fn append_to_gitignore(dir: &Path) -> Result<()> {
-    let gitignore = dir.join(".gitignore");
-    let entry = format!("/{READSEEK_DIR}\n");
-
-    let needs_append = match fs::read_to_string(&gitignore) {
-        Ok(contents) => !contents
-            .lines()
-            .any(|line| line.trim() == format!("/{READSEEK_DIR}")),
-        Err(_) => true,
-    };
-
-    if needs_append {
-        let mut contents = fs::read_to_string(&gitignore).unwrap_or_default();
-        if !contents.ends_with('\n') && !contents.is_empty() {
-            contents.push('\n');
-        }
-        contents.push_str(&entry);
-        fs::write(&gitignore, contents)
-            .with_context(|| format!("append to {}", gitignore.display()))?;
-    }
-
-    Ok(())
 }
 
 fn hex_hash_to_raw(hex_str: &str) -> Result<[u8; BLAKE3_RAW_LEN]> {
