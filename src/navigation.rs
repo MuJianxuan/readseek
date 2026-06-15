@@ -5,7 +5,7 @@ use crate::output::is_identifier_byte;
 use crate::output::{
     CompactLocation, CompactOutput, DefLocation, DefOutput, RefLocation, RefsOutput,
 };
-use crate::paths::{command_paths, contains_identifier, def_candidate_paths};
+use crate::paths::{bytes_contain_identifier, command_paths, def_candidate_paths};
 use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -113,12 +113,15 @@ fn def_locations_in_path(
     language: Option<Language>,
     readseek_dir: Option<&Path>,
 ) -> Result<Vec<DefLocation>> {
-    let Ok(text) = fs::read_to_string(path) else {
+    let Ok(bytes) = fs::read(path) else {
         return Ok(Vec::new());
     };
-    if !contains_identifier(&text, search_name) {
+    if !bytes_contain_identifier(&bytes, search_name.as_bytes()) {
         return Ok(Vec::new());
     }
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Ok(Vec::new());
+    };
     let Ok(source) = source_from_text(path, &text, language, false, None) else {
         return Ok(Vec::new());
     };
@@ -259,12 +262,15 @@ pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
     let references: Vec<RefLocation> = paths
         .par_iter()
         .flat_map(|path| {
-            let Ok(text) = fs::read_to_string(path) else {
+            let Ok(bytes) = fs::read(path) else {
                 return vec![];
             };
-            if !contains_identifier(&text, name) {
+            if !bytes_contain_identifier(&bytes, name.as_bytes()) {
                 return vec![];
             }
+            let Ok(text) = String::from_utf8(bytes) else {
+                return vec![];
+            };
             let Ok(source) = source_from_text(path, &text, command.language, false, None) else {
                 return vec![];
             };

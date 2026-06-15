@@ -191,7 +191,7 @@ pub(crate) fn contains_identifier(text: &str, identifier: &str) -> bool {
     bytes_contain_identifier(text.as_bytes(), identifier.as_bytes())
 }
 
-fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
+pub(crate) fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
     if identifier.is_empty() {
         return true;
     }
