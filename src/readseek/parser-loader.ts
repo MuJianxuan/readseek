@@ -76,8 +76,3 @@ export async function getWasmParser(langId: WasmLanguageId): Promise<WasmParser 
   }
 }
 
-export function __resetWasmParserLoaderForTests(): void {
-  initPromise = null;
-  languages.clear();
-  languageLoads.clear();
-}

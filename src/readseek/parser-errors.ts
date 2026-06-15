@@ -17,6 +17,3 @@ export function reportParserError(
   console.error(`[readseek] ${context}: ${causeMessage(err)}`);
 }
 
-export function __resetParserErrorReporterForTests(): void {
-  emitted.clear();
-}

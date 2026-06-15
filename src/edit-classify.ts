@@ -62,9 +62,6 @@ export function classifyEdit(oldContent: string, newContent: string): EditClassi
 
 let difftCachedResult: boolean | null = null;
 
-export function _resetDifftCache(): void {
-  difftCachedResult = null;
-}
 
 export async function isDifftAvailable(): Promise<boolean> {
   if (difftCachedResult !== null) return difftCachedResult;

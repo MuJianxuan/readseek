@@ -19,18 +19,6 @@ export interface ReadseekSettingsResult {
   warnings: ReadseekSettingsWarning[];
 }
 
-let pathOverride: { globalSettingsPath?: string; projectSettingsPath?: string } | null = null;
-
-export function __setReadseekSettingsPathsForTest(paths: {
-  globalSettingsPath?: string;
-  projectSettingsPath?: string;
-}): void {
-  pathOverride = { ...paths };
-}
-
-export function __resetReadseekSettingsPathsForTest(): void {
-  pathOverride = null;
-}
 
 function defaultGlobalSettingsPath(): string {
   return join(homedir(), ".pi/agent/readseek/settings.json");
@@ -137,10 +125,8 @@ function mergeSettings(base: ReadseekJsonSettings, override: ReadseekJsonSetting
 }
 
 export function resolveReadseekJsonSettings(): ReadseekSettingsResult {
-  const globalPath = pathOverride?.globalSettingsPath ?? defaultGlobalSettingsPath();
-  const projectPath = pathOverride?.projectSettingsPath ?? defaultProjectSettingsPath();
-  const globalResult = readSettingsFile(globalPath);
-  const projectResult = readSettingsFile(projectPath);
+  const globalResult = readSettingsFile(defaultGlobalSettingsPath());
+  const projectResult = readSettingsFile(defaultProjectSettingsPath());
   return {
     settings: mergeSettings(globalResult.settings, projectResult.settings),
     warnings: [...globalResult.warnings, ...projectResult.warnings],
