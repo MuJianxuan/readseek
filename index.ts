@@ -6,6 +6,9 @@ import { registerSgTool, isSgAvailable } from "./src/sg.js";
 import { registerWriteTool } from "./src/write.js";
 import { registerLsTool } from "./src/ls.js";
 import { registerFindTool } from "./src/find.js";
+import { registerReadseekCommand } from "./src/readseek-command.js";
+import { hasReadseekDir } from "./src/readseek-repo.js";
+import { readseekUpdate } from "./src/readseek-client.js";
 import { applyContextHygieneStaleContext } from "./src/context-application.js";
 import {
   createContextHygieneTracker,
@@ -83,6 +86,13 @@ export default function piReadseekExtension(pi: ExtensionAPI): void {
   registerWriteTool(pi, { onFileAnchored: noteRead });
   registerLsTool(pi);
   registerFindTool(pi);
+  registerReadseekCommand(pi);
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (hasReadseekDir(ctx.cwd)) {
+      readseekUpdate(ctx.cwd).catch(() => {});
+    }
+  });
 
   pi.on("tool_call", (event: any) => {
     recordToolCall(

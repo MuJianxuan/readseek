@@ -135,6 +135,8 @@ function readseekPackageDir(): string {
 }
 
 export function readseekBinaryPath(): string {
+	if (process.env.READSEEK_BIN) return process.env.READSEEK_BIN;
+
 	const platformPackage = (() => {
 		switch (process.platform) {
 			case "darwin":
@@ -166,8 +168,8 @@ interface RunReadseekOptions {
 	stdin?: string;
 }
 
-async function runReadseek(args: string[], options: RunReadseekOptions = {}): Promise<unknown> {
-	const stdout = await new Promise<string>((resolve, reject) => {
+async function runReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
+	return new Promise<string>((resolve, reject) => {
 		const stdin = options.stdin;
 		const stdio: StdioOptions = [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"];
 		const child = spawn(readseekBinaryPath(), args, { stdio, signal: options.signal });
@@ -212,6 +214,10 @@ async function runReadseek(args: string[], options: RunReadseekOptions = {}): Pr
 			else reject(new Error((stderr || `readseek exited with status ${code}`).replace(/^error:\s*/i, "")));
 		});
 	});
+}
+
+async function runReadseek(args: string[], options: RunReadseekOptions = {}): Promise<unknown> {
+	const stdout = await runReadseekRaw(args, options);
 	return JSON.parse(stdout) as unknown;
 }
 
@@ -382,4 +388,15 @@ export async function readseekMapContent(
 		await runReadseek(["map", "--stdin", "--path", filePath], { signal: options.signal, stdin: content }),
 	);
 	return fileMapFromReadseekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
+}
+
+export interface ReadseekUpdateStats {
+	created: number;
+	removed: number;
+	unchanged: number;
+}
+
+export async function readseekUpdate(cwd: string): Promise<ReadseekUpdateStats> {
+	const stdout = await runReadseekRaw(["update", cwd]);
+	return JSON.parse(stdout) as ReadseekUpdateStats;
 }
