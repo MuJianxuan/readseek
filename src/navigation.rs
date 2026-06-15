@@ -202,8 +202,16 @@ pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
             let Ok(source) = source_from_text(path, &text, command.language, false, None) else {
                 return vec![];
             };
-            let mut parser = tree_sitter::Parser::new();
-            refs_in_source(&source, name, &mut parser, readseek_dir.as_deref())
+            let needs_parser = matches!(
+                source.detection.language,
+                crate::lang::Language::C | crate::lang::Language::Cpp
+            );
+            let mut parser = if needs_parser {
+                Some(tree_sitter::Parser::new())
+            } else {
+                None
+            };
+            refs_in_source(&source, name, parser.as_mut(), readseek_dir.as_deref())
         })
         .collect();
 
@@ -245,11 +253,13 @@ fn validate_ref_name(name: &str) -> Result<()> {
 fn refs_in_source(
     source: &SourceFile,
     name: &str,
-    parser: &mut Parser,
+    parser: Option<&mut Parser>,
     readseek_dir: Option<&Path>,
 ) -> Vec<RefLocation> {
     let source_map = source_map_with_dir(source, readseek_dir).ok();
-    let ignored_ranges = ref_ignored_ranges(source, parser);
+    let ignored_ranges = parser
+        .map(|p| ref_ignored_ranges(source, p))
+        .unwrap_or_default();
     let line_starts = &source.line_starts;
     let mut references = Vec::new();
 

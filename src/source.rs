@@ -199,11 +199,6 @@ pub(crate) fn source_map_with_dir(
     symbols::parse_source_map(source)
 }
 
-pub(crate) fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {
-    let source_map = source_map(source)?;
-    Ok(find_symbol(&source_map, line))
-}
-
 pub(crate) fn find_symbol(source_map: &SourceMap, line: usize) -> Option<Symbol> {
     let symbols = &source_map.symbols;
     let idx = symbols.partition_point(|s| s.start_line <= line);

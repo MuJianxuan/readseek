@@ -2,7 +2,7 @@ use crate::cli::ReadCommand;
 use crate::lang::{BinaryMode, EngineField, Language};
 use crate::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
-    source_map, symbol_at_line_uncached,
+    source_map,
 };
 use crate::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
@@ -382,7 +382,8 @@ pub(crate) fn identify_output(
         .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
     let identifier = identifier_at_column(&source_line.text, column);
-    let symbol = symbol_at_line_uncached(source, line)?;
+    let source_map = source_map(source)?;
+    let symbol = find_symbol(&source_map, line);
 
     Ok(IdentifyOutput {
         file: source.path.clone(),

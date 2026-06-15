@@ -23,6 +23,7 @@ use crate::target::Target;
 mod cli;
 mod flags;
 mod hash;
+mod ignore;
 mod lang;
 mod navigation;
 mod output;

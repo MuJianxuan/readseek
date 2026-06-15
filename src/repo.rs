@@ -100,7 +100,6 @@ pub(crate) fn init(dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
 
     append_to_gitignore(&dir)?;
-
     Ok(readseek_dir)
 }
 
