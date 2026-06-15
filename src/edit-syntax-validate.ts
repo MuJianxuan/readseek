@@ -1,6 +1,5 @@
 import type { Node as SyntaxNode, Parser as WasmParser, Tree } from "web-tree-sitter";
-import { detectLanguage } from "./readseek/language-detect.js";
-import { getWasmParser } from "./readseek/parser-loader.js";
+import { getWasmParser, type WasmLanguageId } from "./readseek/parser-loader.js";
 import { reportParserError } from "./readseek/parser-errors.js";
 
 export interface ValidateInput {
@@ -75,15 +74,31 @@ function dedupeSortLines(
   return out.map((o) => o.key);
 }
 
+const EXTENSION_TO_LANGUAGE: Record<string, WasmLanguageId> = {
+	".rs": "rust",
+	".c": "cpp",
+	".cc": "cpp",
+	".cpp": "cpp",
+	".cxx": "cpp",
+	".h": "c-header",
+	".hpp": "c-header",
+	".hxx": "c-header",
+	".java": "java",
+};
+
+function detectWasmLang(filePath: string): WasmLanguageId | null {
+	for (const [ext, langId] of Object.entries(EXTENSION_TO_LANGUAGE)) {
+		if (filePath.toLowerCase().endsWith(ext)) return langId;
+	}
+	return null;
+}
+
 export async function validateSyntaxRegression(
-  input: ValidateInput,
+	input: ValidateInput,
 ): Promise<ValidateResult | null> {
-  const lang = detectLanguage(input.filePath);
-  if (!lang) return null;
-  if (lang.id !== "rust" && lang.id !== "cpp" && lang.id !== "c-header" && lang.id !== "java") {
-    return null;
-  }
-  const parser = await getWasmParser(lang.id);
+	const langId = detectWasmLang(input.filePath);
+	if (!langId) return null;
+	const parser = await getWasmParser(langId);
   if (!parser) return null;
 
   try {
@@ -109,12 +124,12 @@ export async function validateSyntaxRegression(
       ...afterStats.missing,
     ]);
     return { errorLines, newErrorCount, newMissingCount };
-  } catch (err) {
-    reportParserError(`wasm:syntax-validate:${lang.id}:${err instanceof Error ? err.message : String(err)}`, err, {
-      context: `tree-sitter syntax validation failed for ${lang.id}`,
-    });
-    return null;
-  } finally {
-    parser.delete();
+	} catch (err) {
+		reportParserError(`wasm:syntax-validate:${langId}:${err instanceof Error ? err.message : String(err)}`, err, {
+			context: `tree-sitter syntax validation failed for ${langId}`,
+		});
+		return null;
+	} finally {
+		parser.delete();
   }
 }

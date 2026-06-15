@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 export interface ReadseekJsonSettings {
   grep?: { maxLines?: number; maxBytes?: number };
-  mapCache?: { dir?: string; enabled?: boolean };
   edit?: { diffDisplay?: "collapsed" | "expanded" };
 }
 
@@ -77,16 +76,6 @@ function validateSettings(raw: unknown, source: string): ReadseekSettingsResult 
     if (Object.keys(grep).length > 0) settings.grep = grep;
   }
 
-  if (isRecord(raw.mapCache)) {
-    const mapCache: NonNullable<ReadseekJsonSettings["mapCache"]> = {};
-    if ("dir" in raw.mapCache) {
-      if (typeof raw.mapCache.dir === "string" && raw.mapCache.dir.length > 0) mapCache.dir = raw.mapCache.dir;
-      else warnings.push(invalid(source, "mapCache.dir"));
-    }
-    const enabled = readBoolean(raw.mapCache, "enabled", "mapCache.enabled", source, warnings);
-    if (enabled !== undefined) mapCache.enabled = enabled;
-    if (Object.keys(mapCache).length > 0) settings.mapCache = mapCache;
-  }
 
   if (isRecord(raw.edit)) {
     const edit: NonNullable<ReadseekJsonSettings["edit"]> = {};
@@ -117,8 +106,6 @@ function mergeSettings(base: ReadseekJsonSettings, override: ReadseekJsonSetting
   const merged: ReadseekJsonSettings = {};
   const grep = { ...(base.grep ?? {}), ...(override.grep ?? {}) };
   if (Object.keys(grep).length > 0) merged.grep = grep;
-  const mapCache = { ...(base.mapCache ?? {}), ...(override.mapCache ?? {}) };
-  if (Object.keys(mapCache).length > 0) merged.mapCache = mapCache;
   const edit = { ...(base.edit ?? {}), ...(override.edit ?? {}) };
   if (Object.keys(edit).length > 0) merged.edit = edit;
   return merged;
