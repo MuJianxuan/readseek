@@ -159,7 +159,12 @@ fn symbol_for_node(
         _ => return None,
     }?;
 
-    let (start_line, end_line) = symbol_line_range(language, node);
+    let (start_line, end_line) = if language == Language::Markdown && node.kind() == "atx_heading" {
+        let start = node.start_position().row + 1;
+        (start, start)
+    } else {
+        node_line_range(node)
+    };
     let start_hash = line_hash(lines, start_line)?;
     let end_hash = line_hash(lines, end_line)?;
     let qualified_name = parent.map_or_else(|| name.clone(), |parent| format!("{parent}.{name}"));
@@ -176,7 +181,7 @@ fn symbol_for_node(
 }
 
 pub(crate) fn node_line_range(node: Node<'_>) -> (usize, usize) {
-    let start_line = node_start_line(node);
+    let start_line = node.start_position().row + 1;
     let end_position = node.end_position();
     let end_line = if end_position.column == 0 && end_position.row + 1 > start_line {
         end_position.row
@@ -185,19 +190,6 @@ pub(crate) fn node_line_range(node: Node<'_>) -> (usize, usize) {
     };
 
     (start_line, end_line)
-}
-
-fn node_start_line(node: Node<'_>) -> usize {
-    node.start_position().row + 1
-}
-
-fn symbol_line_range(language: Language, node: Node<'_>) -> (usize, usize) {
-    if language == Language::Markdown && node.kind() == "atx_heading" {
-        let start_line = node_start_line(node);
-        return (start_line, start_line);
-    }
-
-    node_line_range(node)
 }
 
 fn rust_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
@@ -221,7 +213,23 @@ fn js_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "class_declaration" => named_symbol(node, source, "name", "class"),
         "interface_declaration" => named_symbol(node, source, "name", "interface"),
         "type_alias_declaration" => named_symbol(node, source, "name", "type"),
-        "lexical_declaration" | "variable_declaration" => variable_function_symbol(node, source),
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            let mut result = None;
+            for child in node.children(&mut cursor) {
+                if child.kind() != "variable_declarator" {
+                    continue;
+                }
+                let value = child.child_by_field_name("value")?;
+                if !matches!(value.kind(), "arrow_function" | "function_expression") {
+                    continue;
+                }
+                result =
+                    named_child(child, source, "name").map(|name| ("function".to_owned(), name));
+                break;
+            }
+            result
+        }
         _ => None,
     }
 }
@@ -260,24 +268,21 @@ fn make_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
 fn markdown_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
         "atx_heading" | "setext_heading" => {
-            markdown_heading_name(node, source).map(|name| ("heading".to_owned(), name))
+            let text = node.utf8_text(source.as_bytes()).ok()?.trim();
+            let name = text
+                .trim_start_matches('#')
+                .trim()
+                .trim_end_matches('#')
+                .trim();
+            name.lines()
+                .next()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(ToOwned::to_owned)
+                .map(|name| ("heading".to_owned(), name))
         }
         _ => None,
     }
-}
-
-fn markdown_heading_name(node: Node<'_>, source: &str) -> Option<String> {
-    let text = node.utf8_text(source.as_bytes()).ok()?.trim();
-    let name = text
-        .trim_start_matches('#')
-        .trim()
-        .trim_end_matches('#')
-        .trim();
-    name.lines()
-        .next()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn bash_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
@@ -291,17 +296,15 @@ fn bash_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
 
 fn vimscript_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
-        "function_definition" => named_child_of_kind(node, "function_declaration")
-            .and_then(|declaration| named_child(declaration, source, "name"))
-            .map(|name| ("function".to_owned(), name)),
+        "function_definition" => {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor)
+                .find(|child| child.kind() == "function_declaration")
+                .and_then(|declaration| named_child(declaration, source, "name"))
+                .map(|name| ("function".to_owned(), name))
+        }
         _ => None,
     }
-}
-
-fn named_child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .find(|child| child.kind() == kind)
 }
 
 fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
@@ -313,61 +316,53 @@ fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
         "namespace_definition" => named_symbol(node, source, "name", "namespace"),
-        "declaration" | "type_definition" => c_declaration_symbol(node, source),
+        "declaration" | "type_definition" => {
+            let text = node.utf8_text(source.as_bytes()).ok()?;
+            if contains_word(text, "typedef") {
+                node.child_by_field_name("declarator")
+                    .and_then(|declarator| declarator_identifier(declarator, source))
+                    .or_else(|| last_identifier(text))
+                    .map(|name| ("type".to_owned(), name))
+            } else if node.kind() == "declaration" && {
+                let mut current = node;
+                loop {
+                    match current.parent() {
+                        Some(parent) => match parent.kind() {
+                            "translation_unit"
+                            | "namespace_definition"
+                            | "linkage_specification" => {
+                                break true;
+                            }
+                            "function_definition"
+                            | "compound_statement"
+                            | "class_specifier"
+                            | "struct_specifier"
+                            | "enum_specifier" => {
+                                break false;
+                            }
+                            _ => current = parent,
+                        },
+                        None => break false,
+                    }
+                }
+            } {
+                if let Some(function) = descendant_of_kind(node, "function_declarator") {
+                    function
+                        .child_by_field_name("declarator")
+                        .and_then(|declarator| declarator_identifier(declarator, source))
+                        .map(|name| ("function".to_owned(), name))
+                } else {
+                    last_identifier(text).map(|name| ("variable".to_owned(), name))
+                }
+            } else {
+                None
+            }
+        }
         "preproc_def" | "preproc_function_def" => {
             descendant_identifier(node, source).map(|name| ("macro".to_owned(), name))
         }
         _ => None,
     }
-}
-
-fn c_declaration_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
-    let text = node.utf8_text(source.as_bytes()).ok()?;
-    if contains_word(text, "typedef") {
-        return c_typedef_symbol(node, text, source);
-    }
-    if node.kind() != "declaration" || !is_c_file_scope_declaration(node) {
-        return None;
-    }
-
-    if let Some(function) = descendant_of_kind(node, "function_declarator") {
-        return function
-            .child_by_field_name("declarator")
-            .and_then(|declarator| declarator_identifier(declarator, source))
-            .map(|name| ("function".to_owned(), name));
-    }
-
-    last_identifier(text).map(|name| ("variable".to_owned(), name))
-}
-
-fn c_typedef_symbol(node: Node<'_>, text: &str, source: &str) -> Option<(String, String)> {
-    if !contains_word(text, "typedef") {
-        return None;
-    }
-
-    let name = node
-        .child_by_field_name("declarator")
-        .and_then(|declarator| declarator_identifier(declarator, source))
-        .or_else(|| last_identifier(text))?;
-
-    Some(("type".to_owned(), name))
-}
-
-fn is_c_file_scope_declaration(node: Node<'_>) -> bool {
-    let mut current = node;
-    while let Some(parent) = current.parent() {
-        match parent.kind() {
-            "translation_unit" | "namespace_definition" | "linkage_specification" => return true,
-            "function_definition"
-            | "compound_statement"
-            | "class_specifier"
-            | "struct_specifier"
-            | "enum_specifier" => return false,
-            _ => current = parent,
-        }
-    }
-
-    false
 }
 
 fn descendant_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
@@ -514,27 +509,25 @@ fn swift_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
             Some(("class".to_owned(), format!("{declaration_kind} {name}")))
         }
         "function_declaration" | "protocol_function_declaration" => {
-            swift_function_name(node, source).map(|name| ("function".to_owned(), name))
+            let name = child_text(node, source, "name")?;
+            let start_byte = node.start_byte();
+            let end_byte = node
+                .child_by_field_name("body")
+                .map_or_else(|| node.end_byte(), |body| body.start_byte());
+            let prefix = source.get(start_byte..end_byte)?.trim();
+            let func_name = if prefix.starts_with("func ")
+                || prefix.starts_with("static func ")
+                || prefix.starts_with("class func ")
+            {
+                prefix.trim_end().to_owned()
+            } else {
+                name
+            };
+            Some(("function".to_owned(), func_name))
         }
         "deinit_declaration" => Some(("deinit".to_owned(), "deinit".to_owned())),
         _ => None,
     }
-}
-
-fn swift_function_name(node: Node<'_>, source: &str) -> Option<String> {
-    let name = child_text(node, source, "name")?;
-    let start_byte = node.start_byte();
-    let end_byte = node
-        .child_by_field_name("body")
-        .map_or_else(|| node.end_byte(), |body| body.start_byte());
-    let prefix = source.get(start_byte..end_byte)?.trim();
-    if prefix.starts_with("func ")
-        || prefix.starts_with("static func ")
-        || prefix.starts_with("class func ")
-    {
-        return Some(prefix.trim_end().to_owned());
-    }
-    Some(name)
 }
 
 fn child_text(node: Node<'_>, source: &str, field: &str) -> Option<String> {
@@ -543,24 +536,6 @@ fn child_text(node: Node<'_>, source: &str, field: &str) -> Option<String> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn variable_function_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() != "variable_declarator" {
-            continue;
-        }
-
-        let value = child.child_by_field_name("value")?;
-        if !matches!(value.kind(), "arrow_function" | "function_expression") {
-            continue;
-        }
-
-        return named_child(child, source, "name").map(|name| ("function".to_owned(), name));
-    }
-
-    None
 }
 
 fn named_child(node: Node<'_>, source: &str, field: &str) -> Option<String> {

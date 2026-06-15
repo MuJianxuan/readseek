@@ -1,7 +1,7 @@
 use crate::hash::{hash_line, hash_text};
 use crate::lang::{
-    BinaryMode, DocumentKind, EngineField, Language, analysis_engine, detect_by_path,
-    detect_language, document_kind, extract_plain_text, is_binary_mime, normalize_source_text,
+    BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
+    extract_plain_text, language_spec, normalize_source_text,
 };
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -104,8 +104,12 @@ pub(crate) fn source_from_text(
         detect_language(path, &text)?
     };
     let language = language.unwrap_or(detected_language);
-    let engine = EngineField(analysis_engine(language));
-    let kind = document_kind(language);
+    let engine = EngineField(language_spec(language).and_then(|spec| spec.engine));
+    let kind = if language == Language::Unknown {
+        DocumentKind::Text
+    } else {
+        DocumentKind::Source
+    };
     let file_hash = hash_text(&text);
     let mut line_starts = Vec::new();
     let mut offset = 0;
@@ -145,7 +149,13 @@ pub(crate) fn source_from_text(
 fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
-    let binary = is_binary_mime(mime.as_deref()) || bytes.contains(&0);
+    let binary = mime.as_deref().is_some_and(|mime| {
+        mime.starts_with("application/")
+            || mime.starts_with("audio/")
+            || mime.starts_with("font/")
+            || mime.starts_with("image/")
+            || mime.starts_with("video/")
+    }) || bytes.contains(&0);
 
     if binary && binary_mode == BinaryMode::Reject {
         bail!(

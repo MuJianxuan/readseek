@@ -118,30 +118,15 @@ fn hex_hash_to_raw(hex_str: &str) -> Result<[u8; BLAKE3_RAW_LEN]> {
     Ok(raw)
 }
 
-fn hash_subdir(hash_hex: &str) -> &str {
-    &hash_hex[..2]
-}
-
-fn hash_filename(hash_hex: &str) -> &str {
-    &hash_hex[2..]
-}
-
 fn map_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
     readseek_dir
         .join(MAPS_DIR)
-        .join(hash_subdir(hash_hex))
-        .join(hash_filename(hash_hex))
+        .join(&hash_hex[..2])
+        .join(&hash_hex[2..])
 }
 
 fn def_index_path(readseek_dir: &Path) -> PathBuf {
     readseek_dir.join(DEF_INDEX_FILE)
-}
-
-fn engine_from_tag(tag: u8) -> Result<Option<AnalysisEngine>> {
-    if tag == ENGINE_TAG_NONE {
-        return Ok(None);
-    }
-    Ok(Some(AnalysisEngine::try_from(tag)?))
 }
 
 pub(crate) fn load_map(
@@ -191,7 +176,11 @@ pub(crate) fn load_map(
 
     let language = Language::try_from(header.lang_tag.get())
         .with_context(|| format!("unknown language tag {}", header.lang_tag.get()))?;
-    let engine = engine_from_tag(header.engine_tag)?;
+    let engine = if header.engine_tag == ENGINE_TAG_NONE {
+        None
+    } else {
+        Some(AnalysisEngine::try_from(header.engine_tag)?)
+    };
 
     let sym_count = header.sym_count.get() as usize;
     if sym_count == 0 {
@@ -407,23 +396,18 @@ pub(crate) fn load_def_index(
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
-    let dir = path.parent().context("map path has no parent")?;
-    let tmp = tempfile_in(dir);
-    fs::write(&tmp, data).with_context(|| format!("write {}", tmp.display()))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
-    Ok(())
-}
-
-fn tempfile_in(dir: &Path) -> PathBuf {
     use std::time::{SystemTime, UNIX_EPOCH};
+    let dir = path.parent().context("map path has no parent")?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let pid = std::process::id();
-    let name = format!(".tmp-{pid}-{ts:x}");
-    dir.join(name)
+    let tmp = dir.join(format!(".tmp-{pid}-{ts:x}"));
+    fs::write(&tmp, data).with_context(|| format!("write {}", tmp.display()))?;
+    fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]

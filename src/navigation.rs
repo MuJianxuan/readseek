@@ -35,8 +35,30 @@ struct SymbolInput {
 }
 
 pub(crate) fn def_output(command: &DefCommand) -> Result<DefOutput> {
-    let name = def_name(command)?;
-    let search_name = def_search_name(&name);
+    let name = match (command.name.as_ref(), command.stdin) {
+        (Some(name), _) => Ok::<String, anyhow::Error>(name.clone()),
+        (None, false) => bail!("definition requires a name or --stdin identify context"),
+        (None, true) => {
+            let mut text = String::new();
+            io::stdin()
+                .read_to_string(&mut text)
+                .context("read identify context from stdin")?;
+            let input: IdentifyInput =
+                serde_json::from_str(&text).context("parse identify context")?;
+            if let Some(identifier) = input.identifier {
+                Ok(identifier.text)
+            } else if let Some(symbol) = input.symbol {
+                Ok(symbol.qualified_name)
+            } else {
+                bail!("identify context has no symbol or identifier")
+            }
+        }
+    }?;
+    let search_name = name
+        .rsplit('.')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(&name);
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
     let results = if let Some(readseek_dir) = readseek_dir.as_deref() {
         if let Some(index_entries) = crate::repo::load_def_index(readseek_dir, &name)? {
@@ -170,21 +192,6 @@ pub(crate) fn compact_defs(output: &DefOutput) -> CompactOutput {
     }
 }
 
-fn def_name(command: &DefCommand) -> Result<String> {
-    match (command.name.as_ref(), command.stdin) {
-        (Some(name), _) => Ok(name.clone()),
-        (None, false) => bail!("definition requires a name or --stdin identify context"),
-        (None, true) => def_name_from_stdin(),
-    }
-}
-
-fn def_search_name(name: &str) -> &str {
-    name.rsplit('.')
-        .next()
-        .filter(|part| !part.is_empty())
-        .unwrap_or(name)
-}
-
 fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
@@ -193,7 +200,19 @@ fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
     source
         .lines
         .iter()
-        .filter(|line| macro_def_name(&line.text) == Some(name))
+        .filter(|line| {
+            let Some(rest) = line.text.trim_start().strip_prefix("#define") else {
+                return false;
+            };
+            if !rest.starts_with(char::is_whitespace) {
+                return false;
+            }
+            let rest = rest.trim_start();
+            let name_len = rest
+                .find(|ch: char| !matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
+                .unwrap_or(rest.len());
+            name_len > 0 && &rest[..name_len] == name
+        })
         .map(|line| DefLocation {
             file: source.path.clone(),
             language: source.detection.language,
@@ -214,41 +233,14 @@ fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
         .collect()
 }
 
-fn macro_def_name(line: &str) -> Option<&str> {
-    let rest = line.trim_start().strip_prefix("#define")?;
-    if !rest.starts_with(char::is_whitespace) {
-        return None;
-    }
-
-    let rest = rest.trim_start();
-    let name_len = rest
-        .find(|ch: char| !matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
-        .unwrap_or(rest.len());
-    if name_len == 0 {
-        return None;
-    }
-
-    Some(&rest[..name_len])
-}
-
-fn def_name_from_stdin() -> Result<String> {
-    let mut text = String::new();
-    io::stdin()
-        .read_to_string(&mut text)
-        .context("read identify context from stdin")?;
-    let input: IdentifyInput = serde_json::from_str(&text).context("parse identify context")?;
-    if let Some(identifier) = input.identifier {
-        return Ok(identifier.text);
-    }
-    if let Some(symbol) = input.symbol {
-        return Ok(symbol.qualified_name);
-    }
-    bail!("identify context has no symbol or identifier")
-}
-
 pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
-    validate_ref_name(&command.name)?;
     let name = &command.name;
+    if name.is_empty() {
+        bail!("reference name must not be empty");
+    }
+    if !name.bytes().all(is_identifier_byte) {
+        bail!("reference name must be an ASCII identifier");
+    }
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
     let paths = command_paths(
         &command.target,
@@ -312,16 +304,6 @@ pub(crate) fn compact_refs(output: &RefsOutput) -> CompactOutput {
     }
 }
 
-fn validate_ref_name(name: &str) -> Result<()> {
-    if name.is_empty() {
-        bail!("reference name must not be empty");
-    }
-    if !name.bytes().all(is_identifier_byte) {
-        bail!("reference name must be an ASCII identifier");
-    }
-    Ok(())
-}
-
 fn refs_in_source(
     source: &SourceFile,
     name: &str,
@@ -350,7 +332,8 @@ fn refs_in_source(
         let Some(line) = source.lines.get(line_idx) else {
             continue;
         };
-        if is_ignored_ref(byte_index, &ignored_ranges) {
+        let index = ignored_ranges.partition_point(|&(start, _)| start <= byte_index);
+        if index > 0 && byte_index < ignored_ranges[index - 1].1 {
             continue;
         }
         compact.push((line.number, byte_index - line_starts[line_idx] + 1));
@@ -425,7 +408,10 @@ fn ref_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, u
 }
 
 fn collect_ref_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
-    if is_ref_noise_node(node.kind()) {
+    if node.kind() == "comment"
+        || node.kind().ends_with("string_literal")
+        || node.kind() == "char_literal"
+    {
         ranges.push((node.start_byte(), node.end_byte()));
         return;
     }
@@ -434,13 +420,4 @@ fn collect_ref_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) 
     for child in node.children(&mut cursor) {
         collect_ref_ignored_ranges(child, ranges);
     }
-}
-
-fn is_ref_noise_node(kind: &str) -> bool {
-    kind == "comment" || kind.ends_with("string_literal") || kind == "char_literal"
-}
-
-fn is_ignored_ref(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
-    let index = ranges.partition_point(|&(start, _)| start <= byte_offset);
-    index > 0 && byte_offset < ranges[index - 1].1
 }

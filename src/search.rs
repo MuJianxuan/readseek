@@ -75,8 +75,12 @@ pub(crate) fn search_file(
         }
         &owned_pattern_tree
     };
-    let pattern_root =
-        search_pattern_root(pattern_tree_ref.root_node()).context("empty search pattern")?;
+    let pattern_root = if pattern_tree_ref.root_node().named_child_count() == 1 {
+        pattern_tree_ref.root_node().named_child(0)
+    } else {
+        Some(pattern_tree_ref.root_node())
+    }
+    .context("empty search pattern")?;
 
     let mut matches = Vec::new();
     collect_search_matches(
@@ -162,14 +166,6 @@ pub(crate) fn prepare_pattern_tree(pattern: &mut SearchPattern, language: &tree_
         return;
     }
     pattern.tree = parser.parse(&pattern.text, None);
-}
-
-fn search_pattern_root(root: Node<'_>) -> Option<Node<'_>> {
-    if root.named_child_count() == 1 {
-        root.named_child(0)
-    } else {
-        Some(root)
-    }
 }
 
 fn collect_search_matches<'a>(

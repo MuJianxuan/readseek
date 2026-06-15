@@ -1,4 +1,3 @@
-use crate::cli::ReadCommand;
 use crate::lang::{BinaryMode, EngineField, Language};
 use crate::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
@@ -213,39 +212,6 @@ pub(crate) fn load_source_for_input(
     load_source(path, override_language, binary_mode)
 }
 
-pub(crate) fn resolve_read_range(
-    command: &ReadCommand,
-    target_line: Option<usize>,
-) -> Result<(Option<usize>, Option<usize>)> {
-    let start = match (command.offset, target_line) {
-        (Some(start), Some(line)) if start != line => {
-            bail!("target line conflicts with --offset")
-        }
-        (Some(start), _) | (_, Some(start)) => Some(start),
-        (None, None) => None,
-    };
-
-    if command.end.is_some() && command.limit.is_some() {
-        bail!("cannot combine --end with --limit");
-    }
-
-    let end = if let Some(limit) = command.limit {
-        if limit == 0 {
-            bail!("limit must be greater than zero");
-        }
-        let start_line = start.unwrap_or(1);
-        Some(
-            start_line
-                .checked_add(limit - 1)
-                .context("read range exceeds supported line numbers")?,
-        )
-    } else {
-        command.end
-    };
-
-    Ok((start, end))
-}
-
 pub(crate) fn read_output(
     source: &SourceFile,
     start: Option<usize>,
@@ -313,41 +279,37 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
     })
 }
 
-fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
-    let source_map = source_map(source)?;
-    let mut matches = source_map
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.qualified_name == address || symbol.name == address);
-
-    let symbol = matches
-        .next()
-        .with_context(|| format!("symbol not found: {address}"))?;
-
-    if matches.next().is_some() {
-        bail!("qualified symbol name is ambiguous: {address}");
-    }
-
-    let symbol = symbol.clone();
-
-    Ok(SymbolOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count: source.lines.len(),
-        file_hash: source.file_hash.clone(),
-        hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
-        symbol,
-    })
-}
-
 pub(crate) fn symbol_command_output(
     source: &SourceFile,
     address: Option<&str>,
     target_line: Option<usize>,
 ) -> Result<SymbolOutput> {
     if let Some(address) = address {
-        return symbol_output(source, address);
+        let source_map = source_map(source)?;
+        let mut matches = source_map
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.qualified_name == address || symbol.name == address);
+
+        let symbol = matches
+            .next()
+            .with_context(|| format!("symbol not found: {address}"))?;
+
+        if matches.next().is_some() {
+            bail!("qualified symbol name is ambiguous: {address}");
+        }
+
+        let symbol = symbol.clone();
+
+        return Ok(SymbolOutput {
+            file: source.path.clone(),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            line_count: source.lines.len(),
+            file_hash: source.file_hash.clone(),
+            hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
+            symbol,
+        });
     }
 
     let line = target_line.context("symbol requires qualified name or target line/hash")?;
@@ -382,7 +344,37 @@ pub(crate) fn identify_output(
     let source_line = source
         .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
-    let identifier = identifier_at_column(&source_line.text, column);
+    let identifier = {
+        let bytes = source_line.text.as_bytes();
+        if bytes.is_empty() {
+            None
+        } else {
+            let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
+            if !is_identifier_byte(bytes[index])
+                && index > 0
+                && is_identifier_byte(bytes[index - 1])
+            {
+                index -= 1;
+            }
+            if is_identifier_byte(bytes[index]) {
+                let mut start = index;
+                while start > 0 && is_identifier_byte(bytes[start - 1]) {
+                    start -= 1;
+                }
+                let mut end = index + 1;
+                while end < bytes.len() && is_identifier_byte(bytes[end]) {
+                    end += 1;
+                }
+                Some(IdentifierOutput {
+                    text: source_line.text[start..end].to_owned(),
+                    start_column: start + 1,
+                    end_column: end + 1,
+                })
+            } else {
+                None
+            }
+        }
+    };
     let source_map = source_map(source)?;
     let symbol = find_symbol(&source_map, line);
 
@@ -402,36 +394,6 @@ pub(crate) fn identify_output(
         }],
         identifier,
         symbol,
-    })
-}
-
-fn identifier_at_column(text: &str, column: usize) -> Option<IdentifierOutput> {
-    let bytes = text.as_bytes();
-    if bytes.is_empty() {
-        return None;
-    }
-    let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
-    if !is_identifier_byte(bytes[index]) {
-        if index > 0 && is_identifier_byte(bytes[index - 1]) {
-            index -= 1;
-        } else {
-            return None;
-        }
-    }
-
-    let mut start = index;
-    while start > 0 && is_identifier_byte(bytes[start - 1]) {
-        start -= 1;
-    }
-    let mut end = index + 1;
-    while end < bytes.len() && is_identifier_byte(bytes[end]) {
-        end += 1;
-    }
-
-    Some(IdentifierOutput {
-        text: text[start..end].to_owned(),
-        start_column: start + 1,
-        end_column: end + 1,
     })
 }
 

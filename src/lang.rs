@@ -8,11 +8,6 @@ use std::sync::OnceLock;
 use strum_macros::{Display, EnumString};
 use syntect::parsing::SyntaxSet;
 
-fn cached_syntax_set() -> &'static SyntaxSet {
-    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
-}
-
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
@@ -601,11 +596,22 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
         return Ok((language, None));
     }
 
-    if let Some(language) = detect_by_shebang(text) {
-        return Ok((language, None));
+    // Shebang detection
+    if let Some(line) = text.lines().next() {
+        if line.starts_with("#!") {
+            if line.contains("python") {
+                return Ok((Language::Python, None));
+            }
+            if line.contains("node") {
+                return Ok((Language::JavaScript, None));
+            }
+        }
     }
 
-    let syntax_set = cached_syntax_set();
+    let syntax_set = {
+        static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+        SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+    };
     let syntax = syntax_set
         .find_syntax_for_file(path)
         .with_context(|| format!("detect syntax for {}", path.display()))?;
@@ -615,7 +621,14 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
     };
 
     Ok((
-        language_from_syntax(&syntax.name),
+        LANGUAGE_SPECS
+            .iter()
+            .find_map(|spec| {
+                spec.syntax_names
+                    .contains(&syntax.name.as_str())
+                    .then_some(spec.language)
+            })
+            .unwrap_or(Language::Unknown),
         Some(syntax.name.clone()),
     ))
 }
@@ -638,42 +651,8 @@ pub(crate) fn detect_by_path(path: &Path) -> Option<Language> {
     })
 }
 
-fn detect_by_shebang(text: &str) -> Option<Language> {
-    let line = text.lines().next()?;
-    if !line.starts_with("#!") {
-        return None;
-    }
-
-    if line.contains("python") {
-        Some(Language::Python)
-    } else if line.contains("node") {
-        Some(Language::JavaScript)
-    } else {
-        None
-    }
-}
-
-fn language_from_syntax(name: &str) -> Language {
-    LANGUAGE_SPECS
-        .iter()
-        .find_map(|spec| spec.syntax_names.contains(&name).then_some(spec.language))
-        .unwrap_or(Language::Unknown)
-}
-
 pub(crate) fn language_spec(language: Language) -> Option<&'static LanguageSpec> {
     LANGUAGE_SPECS.iter().find(|spec| spec.language == language)
-}
-
-pub(crate) fn analysis_engine(language: Language) -> Option<AnalysisEngine> {
-    language_spec(language).and_then(|spec| spec.engine)
-}
-
-pub(crate) fn document_kind(language: Language) -> DocumentKind {
-    if language == Language::Unknown {
-        DocumentKind::Text
-    } else {
-        DocumentKind::Source
-    }
 }
 
 pub(crate) fn extract_plain_text(
@@ -694,14 +673,4 @@ pub(crate) fn extract_plain_text(
 pub(crate) fn normalize_source_text(text: &str) -> String {
     let without_bom = text.strip_prefix('\u{feff}').unwrap_or(text);
     without_bom.replace("\r\n", "\n").replace('\r', "\n")
-}
-
-pub(crate) fn is_binary_mime(mime: Option<&str>) -> bool {
-    mime.is_some_and(|mime| {
-        mime.starts_with("application/")
-            || mime.starts_with("audio/")
-            || mime.starts_with("font/")
-            || mime.starts_with("image/")
-            || mime.starts_with("video/")
-    })
 }
