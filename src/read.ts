@@ -20,7 +20,7 @@ import { formatFileMapWithBudget } from "./readseek/formatter.js";
 import { findSymbol, type SymbolMatch } from "./readseek/symbol-lookup.js";
 import { formatAmbiguous, formatNotFound } from "./readseek/symbol-error-format.js";
 import { buildReadOutput } from "./read-output.js";
-import { buildReadRehydrateDescriptor } from "./context-hygiene.js";
+
 import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { readseekRead } from "./readseek-client.js";
@@ -681,14 +681,6 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 					text: mapText,
 				},
 				...(bundleMetadata ? { bundle: bundleMetadata } : {}),
-				rehydrate: buildReadRehydrateDescriptor({
-					path: p.path,
-					offset: p.offset,
-					limit: p.limit,
-					symbol: p.symbol,
-					map: p.map,
-					bundle: p.bundle,
-				}),
 			});
 
 			return succeed({
@@ -696,7 +688,6 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				details: {
 					truncation: truncation.truncated ? truncation : undefined,
 					readseekValue: readOutput.readseekValue,
-					contextHygiene: readOutput.contextHygiene,
 				},
 			});
 		},

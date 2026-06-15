@@ -9,7 +9,7 @@ import { buildReadseekError, buildReadseekLine, type ReadseekLine } from "./read
 import { resolveToCwd } from "./path-utils.js";
 import { isReadseekAvailable, readseekSearch, type ReadseekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
-import { buildSearchRehydrateDescriptor } from "./context-hygiene.js";
+
 import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, renderToolLabel, summaryLine } from "./tui-render-utils.js";
 
 type SgParams = { pattern: string; lang?: string; path?: string; cached?: boolean; others?: boolean; ignored?: boolean };
@@ -135,15 +135,6 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
           },
         };
       }
-      const rehydrate = buildSearchRehydrateDescriptor({
-        pattern: p.pattern,
-        lang: p.lang,
-        path: p.path,
-        cached: p.cached,
-        others: p.others,
-        ignored: p.ignored,
-      });
-
       const searchPath = resolveToCwd(p.path ?? ".", ctx.cwd);
       let searchPathIsFile = false;
 
@@ -206,12 +197,11 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
           signal,
         });
         if (results.length === 0) {
-          const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [], rehydrate });
+          const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [] });
           return {
             content: [{ type: "text", text: emptyOutput.text }],
             details: {
               readseekValue: emptyOutput.readseekValue,
-              contextHygiene: emptyOutput.contextHygiene,
             },
           };
         }
@@ -240,12 +230,11 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
         }
 
         if (readseekFiles.length === 0) {
-          const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [], rehydrate });
+          const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [] });
           return {
             content: [{ type: "text", text: emptyOutput.text }],
             details: {
               readseekValue: emptyOutput.readseekValue,
-              contextHygiene: emptyOutput.contextHygiene,
             },
           };
         }
@@ -253,7 +242,6 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
         const builtOutput = buildSgOutput({
           pattern: p.pattern,
           files: readseekFiles,
-          rehydrate,
         });
         for (const readseekFile of readseekFiles) {
           options.onFileAnchored?.(readseekFile.path);
@@ -262,7 +250,6 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
           content: [{ type: "text", text: builtOutput.text }],
           details: {
             readseekValue: builtOutput.readseekValue,
-            contextHygiene: builtOutput.contextHygiene,
           },
         };
       } catch (err: any) {

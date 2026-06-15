@@ -9,7 +9,7 @@ import { buildReadseekError, buildReadseekLine, buildReadseekWarning, type Reads
 import { looksLikeBinary } from "./binary-detect.js";
 import { getOrGenerateMap } from "./map-cache.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
-import { buildContextHygieneMetadata, buildFileResource, type ContextHygieneMetadata } from "./context-hygiene.js";
+
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildPendingWritePreviewData, buildWritePreviewKey, resolvePendingDiffPreview, type PendingDiffPreviewResult } from "./pending-diff-preview.js";
 import { generateCompactOrFullDiff, normalizeToLF, hasBareCarriageReturn } from "./edit-diff.js";
@@ -91,7 +91,6 @@ export interface WriteResult extends WriteDiffFields {
     diffData?: DiffData;
     map?: { appended: boolean };
   };
-  contextHygiene: ContextHygieneMetadata;
 }
 
 function readPreviousTextForDiff(filePath: string): string {
@@ -185,11 +184,6 @@ export async function executeWrite(opts: {
   const { path: filePath, content, map: requestMap, cwd } = opts;
   const warnings: string[] = [];
   const readseekWarnings: ReadseekWarning[] = [];
-  const contextHygiene = buildContextHygieneMetadata({
-    tool: "write",
-    classification: "mutation",
-    resources: [buildFileResource(filePath)],
-  });
 
   if (hasBareCarriageReturn(content)) {
     const message = "File content contains bare CR (\\r) line endings; write refuses to emit anchors that read/edit would normalize differently.";
@@ -204,7 +198,6 @@ export async function executeWrite(opts: {
         lines: [],
         warnings: readseekWarnings,
       },
-      contextHygiene,
     };
   }
   const previousContent = readPreviousTextForDiff(filePath);
@@ -239,7 +232,6 @@ export async function executeWrite(opts: {
         lines: [],
         warnings: readseekWarnings,
       },
-      contextHygiene,
     };
   }
 
@@ -309,7 +301,6 @@ export async function executeWrite(opts: {
       diffData,
       ...(requestMap !== undefined ? { map: { appended: mapAppended } } : {}),
     },
-    contextHygiene,
   };
 }
 
@@ -391,7 +382,6 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
               error: buildReadseekError("binary-content", binaryWarning.message),
             },
             warnings: result.warnings,
-            contextHygiene: result.contextHygiene,
           },
         };
       }
@@ -408,7 +398,6 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
               error: buildReadseekError("bare-cr", bareCrWarning.message),
             },
             warnings: result.warnings,
-            contextHygiene: result.contextHygiene,
           },
         };
       }
@@ -421,7 +410,6 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
           ...(result.writeState ? { writeState: result.writeState } : {}),
           readseekValue: result.readseekValue,
           warnings: result.warnings,
-          contextHygiene: result.contextHygiene,
         },
       };
       });

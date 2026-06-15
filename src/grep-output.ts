@@ -4,14 +4,6 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { resolveGrepOutputBudget } from "./grep-budget.js";
-import {
-  buildContextHygieneMetadata,
-  buildFileResource,
-  buildSymbolResource,
-  type ContextHygieneMetadata,
-  type ContextHygieneRehydrateDescriptor,
-  type ContextHygieneResource,
-} from "./context-hygiene.js";
 
 export interface GrepOutputRecord extends ReadseekLine {
   path: string;
@@ -64,7 +56,6 @@ export interface BuildGrepOutputInput {
   scopeMode?: "symbol";
   scopeWarnings?: GrepScopeWarning[];
   passthroughLines?: string[];
-  rehydrate?: ContextHygieneRehydrateDescriptor | null;
 }
 
 export interface GrepOutputResult {
@@ -87,7 +78,6 @@ export interface GrepOutputResult {
       warnings: GrepScopeWarning[];
     };
   };
-  contextHygiene: ContextHygieneMetadata;
 }
 
 function renderEntry(displayPath: string, entry: GrepOutputEntry): string {
@@ -174,24 +164,8 @@ export function buildGrepOutput(input: BuildGrepOutputInput): GrepOutputResult {
     readseekValue.scopes = buildScopeMetadata(input.groups, input.scopeWarnings ?? []);
   }
 
-  const contextHygieneResources: ContextHygieneResource[] = [];
-  for (const record of input.records) {
-    contextHygieneResources.push(buildFileResource(record.path));
-  }
-  for (const group of input.groups) {
-    if (!group.scope) continue;
-    contextHygieneResources.push(buildFileResource(group.absolutePath));
-    contextHygieneResources.push(buildSymbolResource(group.absolutePath, group.scope.symbol.name, group.scope.symbol.kind));
-  }
-  const contextHygiene = buildContextHygieneMetadata({
-    tool: "grep",
-    classification: "search-context",
-    resources: contextHygieneResources,
-    rehydrate: input.rehydrate ?? undefined,
-  });
   return {
     text,
     readseekValue,
-    contextHygiene,
   };
 }

@@ -9,7 +9,7 @@ import { looksLikeBinary } from "./binary-detect.js";
 import { ensureHashInit, formatHashlineDisplay, escapeControlCharsForDisplay } from "./hashline.js";
 import { buildReadseekError, buildReadseekLine } from "./readseek-value.js";
 import { buildGrepOutput } from "./grep-output.js";
-import { buildGrepRehydrateDescriptor } from "./context-hygiene.js";
+
 import { getOrGenerateMap } from "./map-cache.js";
 import { scopeGrepGroupsToSymbols } from "./grep-symbol-scope.js";
 import { resolveToCwd } from "./path-utils.js";
@@ -672,17 +672,6 @@ if (p.scope === "symbol" && !summary) {
 				scopeMode: p.scope === "symbol" && !summary ? "symbol" : undefined,
 				scopeWarnings,
 				passthroughLines,
-				rehydrate: buildGrepRehydrateDescriptor({
-					pattern: p.pattern,
-					path: p.path,
-					glob: p.glob,
-					literal: p.literal,
-					ignoreCase: p.ignoreCase,
-					context: p.context,
-					summary: p.summary,
-					scope: p.scope,
-					scopeContext: p.scopeContext,
-				}),
 			});
 
 			if (!summary && readseekRecords.length > 0) {
@@ -705,7 +694,6 @@ if (p.scope === "symbol" && !summary) {
 				details: {
 					...compactDetails,
 					readseekValue: builtOutput.readseekValue,
-					contextHygiene: builtOutput.contextHygiene,
 				},
 			};
 		},

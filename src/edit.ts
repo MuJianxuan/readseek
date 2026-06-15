@@ -21,7 +21,7 @@ import { buildEditPreviewKey, buildPendingEditPreviewData, resolvePendingDiffPre
 import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
-import { buildContextHygieneMetadata, buildFileResource, type ContextHygieneMetadata } from "./context-hygiene.js";
+
 import { resolveEditDiffDisplay } from "./readseek-settings.js";
 
 const EDIT_PENDING_PREVIEW_STATE_KEY = "hashline-edit-pending-preview";
@@ -100,11 +100,10 @@ function buildEditError(
 	message: string,
 	hint?: string,
 	errorDetails?: Record<string, unknown>,
-	contextHygiene?: ContextHygieneMetadata,
 ): {
 	content: [{ type: "text"; text: string }];
 	isError: true;
-	details: EditToolDetails & { readseekValue: any; contextHygiene?: ContextHygieneMetadata };
+	details: EditToolDetails & { readseekValue: any };
 } {
 	return {
 		content: [{ type: "text", text: message }],
@@ -119,8 +118,7 @@ function buildEditError(
 				path,
 				error: buildReadseekError(code, message, hint, errorDetails),
 			},
-			...(contextHygiene ? { contextHygiene } : {}),
-		} as EditToolDetails & { readseekValue: any; contextHygiene?: ContextHygieneMetadata },
+		} as EditToolDetails & { readseekValue: any },
 	};
 }
 
@@ -491,11 +489,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			}
 
 			if (input.postEditVerify === true) {
-				const postWriteMutationContextHygiene = buildContextHygieneMetadata({
-					tool: "edit",
-					classification: "mutation",
-					resources: [buildFileResource(absolutePath)],
-				});
 				let verifiedContent: string;
 				try {
 					const verified = await fsReadFile(absolutePath, "utf-8");
@@ -506,7 +499,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 							fsCode: err?.code,
 							fsMessage: err?.message,
 						},
-						postWriteMutationContextHygiene,
 					);
 				}
 				if (verifiedContent !== writeContent) {
@@ -515,7 +507,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 							expectedLength: writeContent.length,
 							actualLength: verifiedContent.length,
 						},
-						postWriteMutationContextHygiene,
 					);
 				}
 			}
@@ -580,7 +571,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 					diffData,
 					firstChangedLine: anchorResult.firstChangedLine ?? diffResult.firstChangedLine,
 					readseekValue: builtOutput.readseekValue,
-					contextHygiene: builtOutput.contextHygiene,
 				} as EditToolDetails & {
 					diffData: typeof diffData;
 					readseekValue: {
@@ -594,7 +584,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 						warnings: string[];
 						noopEdits: unknown[];
 					};
-					contextHygiene: ContextHygieneMetadata;
 				},
 			};
 				});

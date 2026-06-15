@@ -5,14 +5,7 @@ import {
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { buildReadseekLines, renderReadseekLines, type ReadseekLine, type ReadseekWarning } from "./readseek-value.js";
-import {
-  buildContextHygieneMetadata,
-  buildFileResource,
-  buildSymbolResource,
-  type ContextHygieneMetadata,
-  type ContextHygieneRehydrateDescriptor,
-  type ContextHygieneResource,
-} from "./context-hygiene.js";
+
 
 export interface ReadSymbolMetadata {
   query: string;
@@ -65,7 +58,6 @@ export interface ReadOutputInput {
   symbol?: ReadSymbolMetadata | null;
   map?: ReadMapMetadata;
   bundle?: ReadBundleMetadata | null;
-  rehydrate?: ContextHygieneRehydrateDescriptor | null;
 }
 
 export interface ReadOutputResult {
@@ -101,7 +93,6 @@ export interface ReadOutputResult {
       warnings: ReadseekWarning[];
     };
   };
-  contextHygiene: ContextHygieneMetadata;
 }
 
 export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
@@ -187,26 +178,9 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
     };
   }
 
-  const contextHygieneResources: ContextHygieneResource[] = [buildFileResource(input.path)];
-  if (input.symbol) {
-    contextHygieneResources.push(buildSymbolResource(input.path, input.symbol.name, input.symbol.kind));
-  }
-  if (input.bundle?.applied) {
-    for (const support of input.bundle.localSupport) {
-      contextHygieneResources.push(buildSymbolResource(input.path, support.symbol.name, support.symbol.kind));
-    }
-  }
-  const contextHygiene = buildContextHygieneMetadata({
-    tool: "read",
-    classification: "read-context",
-    resources: contextHygieneResources,
-    rehydrate: input.rehydrate ?? undefined,
-  });
-
   return {
     text,
     lines,
     readseekValue,
-    contextHygiene,
   };
 }
