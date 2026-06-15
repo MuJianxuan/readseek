@@ -17,7 +17,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const READSEEK_DIR: &str = ".readseek";
 const MAPS_DIR: &str = "maps";
-const DEF_INDEX_FILE: &str = "def-index.json";
+const DEF_INDEX_DIR: &str = "def-index";
 const MAGIC: [u8; 4] = *b"RSMP";
 const SCHEMA_VERSION: u32 = 4;
 
@@ -107,6 +107,9 @@ pub(crate) fn init(dir: &Path) -> Result<PathBuf> {
     }
 
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
+    let def_index_dir = readseek_dir.join(DEF_INDEX_DIR);
+    fs::create_dir_all(&def_index_dir)
+        .with_context(|| format!("create {}", def_index_dir.display()))?;
 
     Ok(readseek_dir)
 }
@@ -125,8 +128,18 @@ fn map_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
         .join(&hash_hex[2..])
 }
 
-fn def_index_path(readseek_dir: &Path) -> PathBuf {
-    readseek_dir.join(DEF_INDEX_FILE)
+fn shard_prefix(name: &str) -> char {
+    name.chars()
+        .next()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(char::is_ascii_lowercase)
+        .unwrap_or('_')
+}
+
+fn def_index_shard_path(readseek_dir: &Path, name: &str) -> PathBuf {
+    readseek_dir
+        .join(DEF_INDEX_DIR)
+        .join(format!("{}.json", shard_prefix(name)))
 }
 
 pub(crate) fn load_map(
@@ -384,7 +397,7 @@ pub(crate) fn load_def_index(
     readseek_dir: &Path,
     name: &str,
 ) -> Result<Option<Vec<DefIndexEntry>>> {
-    let path = def_index_path(readseek_dir);
+    let path = def_index_shard_path(readseek_dir, name);
     if !path.exists() {
         return Ok(None);
     }
@@ -473,28 +486,67 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
         }
     }
 
-    let mut index = std::collections::BTreeMap::<String, Vec<DefIndexEntry>>::new();
+    let mut shards: std::collections::BTreeMap<
+        char,
+        std::collections::BTreeMap<String, Vec<DefIndexEntry>>,
+    > = std::collections::BTreeMap::new();
     for entry in index_entries {
-        index
+        let prefix = shard_prefix(&entry.name);
+        shards
+            .entry(prefix)
+            .or_default()
             .entry(entry.name.clone())
             .or_default()
             .push(entry.clone());
         if entry.qualified_name != entry.name {
-            index
+            let prefix = shard_prefix(&entry.qualified_name);
+            shards
+                .entry(prefix)
+                .or_default()
                 .entry(entry.qualified_name.clone())
                 .or_default()
                 .push(entry);
         }
     }
-    for entries in index.values_mut() {
-        entries.sort_by(|left, right| {
-            left.qualified_name
-                .cmp(&right.qualified_name)
-                .then_with(|| left.path.cmp(&right.path))
-        });
+    for inner in shards.values_mut() {
+        for entries in inner.values_mut() {
+            entries.sort_by(|left, right| {
+                left.qualified_name
+                    .cmp(&right.qualified_name)
+                    .then_with(|| left.path.cmp(&right.path))
+            });
+        }
     }
-    let index_data = serde_json::to_vec(&index).context("serialize definition index")?;
-    write_atomic(&def_index_path(&readseek_dir), &index_data)?;
+    let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
+    fs::create_dir_all(&shard_dir).with_context(|| format!("create {}", shard_dir.display()))?;
+    let mut written_prefixes = std::collections::BTreeSet::new();
+    for (prefix, shard) in &shards {
+        let data = serde_json::to_vec(shard).context("serialize definition index shard")?;
+        let path = shard_dir.join(format!("{prefix}.json"));
+        write_atomic(&path, &data)?;
+        written_prefixes.insert(*prefix);
+    }
+
+    for entry in
+        fs::read_dir(&shard_dir).with_context(|| format!("read {}", shard_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            if stem.len() == 1 {
+                let prefix = stem.chars().next().unwrap();
+                if !written_prefixes.contains(&prefix) {
+                    fs::remove_file(&path)?;
+                }
+            }
+        }
+    }
+    // Remove legacy single-file index if present
+    let legacy_path = readseek_dir.join("def-index.json");
+    if legacy_path.exists() {
+        fs::remove_file(&legacy_path).ok();
+    }
 
     let maps_root = readseek_dir.join(MAPS_DIR);
     if maps_root.is_dir() {
