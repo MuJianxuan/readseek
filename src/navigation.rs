@@ -1,12 +1,11 @@
-use crate::cli::{DefinitionCommand, ReferencesCommand};
+use crate::cli::{DefCommand, RefsCommand};
 use crate::flags::GitFlags;
 use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
 use crate::output::{
-    CompactLocation, CompactOutput, DefinitionLocation, DefinitionOutput, ReferenceLocation,
-    ReferencesOutput,
+    CompactLocation, CompactOutput, DefLocation, DefOutput, RefLocation, RefsOutput,
 };
-use crate::paths::{command_paths, definition_candidate_paths};
+use crate::paths::{command_paths, def_candidate_paths};
 use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -33,14 +32,14 @@ struct SymbolInput {
     qualified_name: String,
 }
 
-pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<DefinitionOutput> {
-    let name = definition_name(command)?;
-    let search_name = definition_search_name(&name);
+pub(crate) fn def_output(command: &DefCommand) -> Result<DefOutput> {
+    let name = def_name(command)?;
+    let search_name = def_search_name(&name);
     let readseek_dir = crate::repo::find_readseek_dir(std::path::Path::new("."));
     let mut macro_definitions = Vec::new();
     let mut definitions = Vec::new();
 
-    for path in definition_candidate_paths(command, search_name)? {
+    for path in def_candidate_paths(command, search_name)? {
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
@@ -51,7 +50,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
             continue;
         };
 
-        macro_definitions.extend(macro_definition_locations(&source, search_name));
+        macro_definitions.extend(macro_def_locations(&source, search_name));
 
         let Ok(source_map) = source_map_with_dir(&source, readseek_dir.as_deref()) else {
             continue;
@@ -63,7 +62,7 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
             let line = source
                 .line(symbol.start_line)
                 .context("definition symbol line is out of range")?;
-            definitions.push(DefinitionLocation {
+            definitions.push(DefLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
                 engine: source.detection.engine,
@@ -76,14 +75,14 @@ pub(crate) fn definition_output(command: &DefinitionCommand) -> Result<Definitio
     }
 
     if !macro_definitions.is_empty() {
-        return Ok(DefinitionOutput {
+        return Ok(DefOutput {
             definitions: macro_definitions,
         });
     }
-    Ok(DefinitionOutput { definitions })
+    Ok(DefOutput { definitions })
 }
 
-pub(crate) fn compact_definitions(output: &DefinitionOutput) -> CompactOutput {
+pub(crate) fn compact_defs(output: &DefOutput) -> CompactOutput {
     CompactOutput {
         locations: output
             .definitions
@@ -102,22 +101,22 @@ pub(crate) fn compact_definitions(output: &DefinitionOutput) -> CompactOutput {
     }
 }
 
-fn definition_name(command: &DefinitionCommand) -> Result<String> {
+fn def_name(command: &DefCommand) -> Result<String> {
     match (command.name.as_ref(), command.stdin) {
         (Some(name), _) => Ok(name.clone()),
         (None, false) => bail!("definition requires a name or --stdin identify context"),
-        (None, true) => definition_name_from_stdin(),
+        (None, true) => def_name_from_stdin(),
     }
 }
 
-fn definition_search_name(name: &str) -> &str {
+fn def_search_name(name: &str) -> &str {
     name.rsplit('.')
         .next()
         .filter(|part| !part.is_empty())
         .unwrap_or(name)
 }
 
-fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<DefinitionLocation> {
+fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
@@ -125,8 +124,8 @@ fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<Definition
     source
         .lines
         .iter()
-        .filter(|line| macro_definition_name(&line.text) == Some(name))
-        .map(|line| DefinitionLocation {
+        .filter(|line| macro_def_name(&line.text) == Some(name))
+        .map(|line| DefLocation {
             file: source.path.clone(),
             language: source.detection.language,
             engine: source.detection.engine,
@@ -146,7 +145,7 @@ fn macro_definition_locations(source: &SourceFile, name: &str) -> Vec<Definition
         .collect()
 }
 
-fn macro_definition_name(line: &str) -> Option<&str> {
+fn macro_def_name(line: &str) -> Option<&str> {
     let rest = line.trim_start().strip_prefix("#define")?;
     if !rest.starts_with(char::is_whitespace) {
         return None;
@@ -163,7 +162,7 @@ fn macro_definition_name(line: &str) -> Option<&str> {
     Some(&rest[..name_len])
 }
 
-fn definition_name_from_stdin() -> Result<String> {
+fn def_name_from_stdin() -> Result<String> {
     let mut text = String::new();
     io::stdin()
         .read_to_string(&mut text)
@@ -178,8 +177,8 @@ fn definition_name_from_stdin() -> Result<String> {
     bail!("identify context has no symbol or identifier")
 }
 
-pub(crate) fn references_output(command: &ReferencesCommand) -> Result<ReferencesOutput> {
-    validate_reference_name(&command.name)?;
+pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
+    validate_ref_name(&command.name)?;
     let name = &command.name;
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
     let paths = command_paths(
@@ -191,7 +190,7 @@ pub(crate) fn references_output(command: &ReferencesCommand) -> Result<Reference
         },
     )?;
 
-    let references: Vec<ReferenceLocation> = paths
+    let references: Vec<RefLocation> = paths
         .par_iter()
         .flat_map(|path| {
             let Ok(text) = fs::read_to_string(path) else {
@@ -204,14 +203,14 @@ pub(crate) fn references_output(command: &ReferencesCommand) -> Result<Reference
                 return vec![];
             };
             let mut parser = tree_sitter::Parser::new();
-            references_in_source(&source, name, &mut parser, readseek_dir.as_deref())
+            refs_in_source(&source, name, &mut parser, readseek_dir.as_deref())
         })
         .collect();
 
-    Ok(ReferencesOutput { references })
+    Ok(RefsOutput { references })
 }
 
-pub(crate) fn compact_references(output: &ReferencesOutput) -> CompactOutput {
+pub(crate) fn compact_refs(output: &RefsOutput) -> CompactOutput {
     CompactOutput {
         locations: output
             .references
@@ -233,7 +232,7 @@ pub(crate) fn compact_references(output: &ReferencesOutput) -> CompactOutput {
     }
 }
 
-fn validate_reference_name(name: &str) -> Result<()> {
+fn validate_ref_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("reference name must not be empty");
     }
@@ -243,14 +242,14 @@ fn validate_reference_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn references_in_source(
+fn refs_in_source(
     source: &SourceFile,
     name: &str,
     parser: &mut Parser,
     readseek_dir: Option<&Path>,
-) -> Vec<ReferenceLocation> {
+) -> Vec<RefLocation> {
     let source_map = source_map_with_dir(source, readseek_dir).ok();
-    let ignored_ranges = reference_ignored_ranges(source, parser);
+    let ignored_ranges = ref_ignored_ranges(source, parser);
     let line_starts = &source.line_starts;
     let mut references = Vec::new();
 
@@ -268,7 +267,7 @@ fn references_in_source(
         let Some(line) = source.lines.get(line_idx) else {
             continue;
         };
-        if is_ignored_reference(byte_index, &ignored_ranges) {
+        if is_ignored_ref(byte_index, &ignored_ranges) {
             continue;
         }
         let column = byte_index - line_starts[line_idx] + 1;
@@ -276,7 +275,7 @@ fn references_in_source(
             .as_ref()
             .and_then(|source_map| find_symbol(source_map, line.number));
 
-        references.push(ReferenceLocation {
+        references.push(RefLocation {
             file: source.path.clone(),
             language: source.detection.language,
             engine: source.detection.engine,
@@ -291,7 +290,7 @@ fn references_in_source(
     references
 }
 
-fn reference_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, usize)> {
+fn ref_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, usize)> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
@@ -310,27 +309,27 @@ fn reference_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(us
     };
 
     let mut ranges = Vec::new();
-    collect_reference_ignored_ranges(tree.root_node(), &mut ranges);
+    collect_ref_ignored_ranges(tree.root_node(), &mut ranges);
     ranges
 }
 
-fn collect_reference_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
-    if is_reference_noise_node(node.kind()) {
+fn collect_ref_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
+    if is_ref_noise_node(node.kind()) {
         ranges.push((node.start_byte(), node.end_byte()));
         return;
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_reference_ignored_ranges(child, ranges);
+        collect_ref_ignored_ranges(child, ranges);
     }
 }
 
-fn is_reference_noise_node(kind: &str) -> bool {
+fn is_ref_noise_node(kind: &str) -> bool {
     kind == "comment" || kind.ends_with("string_literal") || kind == "char_literal"
 }
 
-fn is_ignored_reference(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
+fn is_ignored_ref(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
     ranges
         .iter()
         .any(|&(start, end)| start <= byte_offset && byte_offset < end)

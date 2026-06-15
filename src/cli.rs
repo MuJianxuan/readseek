@@ -28,8 +28,8 @@ pub(crate) enum Command {
     Map(MapCommand),
     Symbol(SymbolCommand),
     Identify(IdentifyCommand),
-    Definition(DefinitionCommand),
-    References(ReferencesCommand),
+    Def(DefCommand),
+    Refs(RefsCommand),
     Search(SearchCommand),
     Init(InitCommand),
     Update(UpdateCommand),
@@ -175,10 +175,10 @@ pub(crate) struct IdentifyCommand {
 
 /// find structural symbol definitions
 #[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "definition")]
+#[argh(subcommand, name = "def")]
 #[argh(help_triggers("-h", "--help"))]
 #[allow(clippy::struct_excessive_bools)]
-pub(crate) struct DefinitionCommand {
+pub(crate) struct DefCommand {
     /// file or directory to search
     #[argh(positional)]
     pub(crate) target: PathBuf,
@@ -214,10 +214,10 @@ pub(crate) struct DefinitionCommand {
 
 /// find identifier references
 #[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "references")]
+#[argh(subcommand, name = "refs")]
 #[argh(help_triggers("-h", "--help"))]
 #[allow(clippy::struct_excessive_bools)]
-pub(crate) struct ReferencesCommand {
+pub(crate) struct RefsCommand {
     /// file or directory to search
     #[argh(positional)]
     pub(crate) target: PathBuf,

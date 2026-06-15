@@ -710,7 +710,7 @@ def main():
         definitions_dir = os.path.join(tmpdir, "definitions")
         os.mkdir(definitions_dir)
         definition_path = write_file(definitions_dir, "defs.rs", "fn target() {}\nfn other() {}\n")
-        data = readseek_json(name, ["definition", definitions_dir, "target"])
+        data = readseek_json(name, ["def", definitions_dir, "target"])
         if data:
             definitions = data.get("definitions", [])
             if all(
@@ -730,7 +730,7 @@ def main():
             "defs.h",
             "typedef unsigned int __u32;\ntypedef __u32 u32;\n__extension__ typedef unsigned long long __u64;\n",
         )
-        data = readseek_json(name, ["definition", definitions_dir, "u32"])
+        data = readseek_json(name, ["def", definitions_dir, "u32"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, len(definitions), 1) and all(
@@ -744,7 +744,7 @@ def main():
                 passed(name)
 
         name = "definition: C extension typedef lookup"
-        data = readseek_json(name, ["definition", definitions_dir, "__u64"])
+        data = readseek_json(name, ["def", definitions_dir, "__u64"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, len(definitions), 1) and all(
@@ -763,7 +763,7 @@ def main():
             "decls.h",
             "int foo(void);\nextern int global_count;\nstatic const struct ops driver_ops = {};\nvoid caller(void) { int local_value; }\n",
         )
-        data = readseek_json(name, ["definition", definitions_dir, "foo"])
+        data = readseek_json(name, ["def", definitions_dir, "foo"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, len(definitions), 1) and all(
@@ -777,7 +777,7 @@ def main():
                 passed(name)
 
         name = "definition: C extern declaration lookup"
-        data = readseek_json(name, ["definition", definitions_dir, "global_count"])
+        data = readseek_json(name, ["def", definitions_dir, "global_count"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, len(definitions), 1) and all(
@@ -791,7 +791,7 @@ def main():
                 passed(name)
 
         name = "definition: C static object declaration lookup"
-        data = readseek_json(name, ["definition", definitions_dir, "driver_ops"])
+        data = readseek_json(name, ["def", definitions_dir, "driver_ops"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, len(definitions), 1) and all(
@@ -805,14 +805,14 @@ def main():
                 passed(name)
 
         name = "definition: C local declaration ignored"
-        data = readseek_json(name, ["definition", definitions_dir, "local_value"])
+        data = readseek_json(name, ["def", definitions_dir, "local_value"])
         if data:
             definitions = data.get("definitions", [])
             if assert_equal(name, definitions, []):
                 passed(name)
 
         name = "definition: compact locations"
-        data = readseek_json(name, ["definition", "--compact", definitions_dir, "target"])
+        data = readseek_json(name, ["def", "--compact", definitions_dir, "target"])
         if data:
             locations = data.get("locations", [])
             if all(
@@ -838,7 +838,7 @@ def main():
         )
         data = readseek_json(
             name,
-            ["definition", "--stdin", definitions_dir],
+            ["def", "--stdin", definitions_dir],
             stdin=json.dumps(
                 {
                     "identifier": {"text": "greet"},
@@ -860,7 +860,7 @@ def main():
         name = "definition: identify context falls back to identifier"
         data = readseek_json(
             name,
-            ["definition", "--stdin", definitions_dir],
+            ["def", "--stdin", definitions_dir],
             stdin=json.dumps({"identifier": {"text": "target"}, "symbol": None}),
         )
         if data:
@@ -875,14 +875,14 @@ def main():
                 passed(name)
 
         name = "references: project identifier lookup"
-        references_dir = os.path.join(tmpdir, "references")
+        references_dir = os.path.join(tmpdir, "refs")
         os.mkdir(references_dir)
         reference_path = write_file(
             references_dir,
             "refs.rs",
             "fn target() {}\nfn caller() {\n  target();\n  let target_value = 1;\n}\n",
         )
-        data = readseek_json(name, ["references", references_dir, "target"])
+        data = readseek_json(name, ["refs", references_dir, "target"])
         if data:
             references = data.get("references", [])
             if all(
@@ -912,7 +912,7 @@ def main():
             "refs.c",
             "void target(void);\nvoid caller(void) {\n  target();\n  /* target */\n  const char *name = \"target\";\n  char initial = 't';\n}\n",
         )
-        data = readseek_json(name, ["references", c_references_dir, "target", "--language", "c"])
+        data = readseek_json(name, ["refs", c_references_dir, "target", "--language", "c"])
         if data:
             references = [
                 reference
@@ -931,7 +931,7 @@ def main():
                 passed(name)
 
         name = "references: compact locations"
-        data = readseek_json(name, ["references", "--compact", references_dir, "target"])
+        data = readseek_json(name, ["refs", "--compact", references_dir, "target"])
         if data:
             locations = data.get("locations", [])
             if all(

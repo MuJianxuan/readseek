@@ -1,4 +1,4 @@
-use crate::cli::DefinitionCommand;
+use crate::cli::DefCommand;
 use crate::flags::GitFlags;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
@@ -33,16 +33,13 @@ pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBu
     Ok(paths)
 }
 
-pub(crate) fn definition_candidate_paths(
-    command: &DefinitionCommand,
-    search_name: &str,
-) -> Result<Vec<PathBuf>> {
+pub(crate) fn def_candidate_paths(command: &DefCommand, search_name: &str) -> Result<Vec<PathBuf>> {
     let flags = GitFlags {
         cached: command.cached,
         others: command.others,
         ignored: command.ignored,
     };
-    if let Some(paths) = git_definition_candidate_paths(&command.target, flags, search_name)? {
+    if let Some(paths) = git_def_candidate_paths(&command.target, flags, search_name)? {
         return Ok(paths);
     }
 
@@ -86,7 +83,7 @@ fn resolve_git_scope(target: &Path, flags: GitFlags) -> Result<Option<GitScope>>
     }))
 }
 
-fn git_definition_candidate_paths(
+fn git_def_candidate_paths(
     target: &Path,
     flags: GitFlags,
     search_name: &str,
@@ -100,7 +97,7 @@ fn git_definition_candidate_paths(
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_definition_paths(
+        collect_cached_def_paths(
             &scope.repository,
             &scope.workdir,
             &scope.output_root,
@@ -110,7 +107,7 @@ fn git_definition_candidate_paths(
         )?;
     }
     if others {
-        collect_other_definition_paths(
+        collect_other_def_paths(
             &scope.repository,
             &scope.workdir,
             &scope.output_root,
@@ -124,7 +121,7 @@ fn git_definition_candidate_paths(
     Ok(Some(paths.into_iter().collect()))
 }
 
-fn collect_cached_definition_paths(
+fn collect_cached_def_paths(
     repository: &git2::Repository,
     workdir: &Path,
     output_root: &Path,
@@ -154,7 +151,7 @@ fn collect_cached_definition_paths(
     Ok(())
 }
 
-fn collect_other_definition_paths(
+fn collect_other_def_paths(
     repository: &git2::Repository,
     workdir: &Path,
     output_root: &Path,

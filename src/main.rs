@@ -11,9 +11,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::{env, process};
 
-use crate::cli::{
-    Cli, DefinitionCommand, InitCommand, ReferencesCommand, SearchCommand, UpdateCommand,
-};
+use crate::cli::{Cli, DefCommand, InitCommand, RefsCommand, SearchCommand, UpdateCommand};
 use crate::flags::GitFlags;
 use crate::lang::BinaryMode;
 use crate::output::SearchOutput;
@@ -62,11 +60,11 @@ fn run() -> Result<()> {
         crate::cli::Command::Map(command) => run_map(&command)?,
         crate::cli::Command::Symbol(command) => run_symbol(&command)?,
         crate::cli::Command::Identify(command) => run_identify(&command)?,
-        crate::cli::Command::Definition(command) => {
-            print_definition_output(&command)?;
+        crate::cli::Command::Def(command) => {
+            print_def_output(&command)?;
         }
-        crate::cli::Command::References(command) => {
-            print_references_output(&command)?;
+        crate::cli::Command::Refs(command) => {
+            print_refs_output(&command)?;
         }
         crate::cli::Command::Search(command) => print_json(&search_output(&command)?)?,
         crate::cli::Command::Init(command) => run_init(&command)?,
@@ -151,19 +149,19 @@ fn load_source(input: &cli::InputArgs, binary_mode: BinaryMode) -> Result<(Targe
     Ok((target, source))
 }
 
-fn print_definition_output(command: &DefinitionCommand) -> Result<()> {
-    let output = navigation::definition_output(command)?;
+fn print_def_output(command: &DefCommand) -> Result<()> {
+    let output = navigation::def_output(command)?;
     if command.compact {
-        print_json(&navigation::compact_definitions(&output))
+        print_json(&navigation::compact_defs(&output))
     } else {
         print_json(&output)
     }
 }
 
-fn print_references_output(command: &ReferencesCommand) -> Result<()> {
-    let output = navigation::references_output(command)?;
+fn print_refs_output(command: &RefsCommand) -> Result<()> {
+    let output = navigation::refs_output(command)?;
     if command.compact {
-        print_json(&navigation::compact_references(&output))
+        print_json(&navigation::compact_refs(&output))
     } else {
         print_json(&output)
     }

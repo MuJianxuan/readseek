@@ -66,12 +66,12 @@ pub(crate) struct IdentifierOutput {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct DefinitionOutput {
-    pub(crate) definitions: Vec<DefinitionLocation>,
+pub(crate) struct DefOutput {
+    pub(crate) definitions: Vec<DefLocation>,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct DefinitionLocation {
+pub(crate) struct DefLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     pub(crate) engine: EngineField,
@@ -84,12 +84,12 @@ pub(crate) struct DefinitionLocation {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReferencesOutput {
-    pub(crate) references: Vec<ReferenceLocation>,
+pub(crate) struct RefsOutput {
+    pub(crate) references: Vec<RefLocation>,
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ReferenceLocation {
+pub(crate) struct RefLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     pub(crate) engine: EngineField,
