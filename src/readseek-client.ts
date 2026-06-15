@@ -389,14 +389,3 @@ export async function readseekMapContent(
 	);
 	return fileMapFromReadseekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
 }
-
-export interface ReadseekUpdateStats {
-	created: number;
-	removed: number;
-	unchanged: number;
-}
-
-export async function readseekUpdate(cwd: string): Promise<ReadseekUpdateStats> {
-	const stdout = await runReadseekRaw(["update", cwd]);
-	return JSON.parse(stdout) as ReadseekUpdateStats;
-}

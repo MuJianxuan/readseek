@@ -3,9 +3,8 @@ import { Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { findReadseekDir, initReadseekDir } from "./readseek-repo.js";
-import { readseekUpdate } from "./readseek-client.js";
 
-type ReadseekAction = "init" | "deinit" | "update" | null;
+type ReadseekAction = "init" | "deinit" | null;
 
 function stripFromGitignore(dir: string): void {
 	const gitignorePath = join(dir, ".gitignore");
@@ -35,7 +34,6 @@ async function init(ctx: ExtensionContext): Promise<void> {
 	}
 	initReadseekDir(projectDir);
 	ctx.ui.notify("Initialized .readseek/", "info");
-	await readseekUpdate(projectDir);
 }
 
 export function registerReadseekCommand(pi: ExtensionAPI): void {
@@ -98,12 +96,7 @@ export function registerReadseekCommand(pi: ExtensionAPI): void {
 
 								if (initialized) {
 									lines.push(
-										row(
-											`${accent("▶")} ${dim("[u]")} Update  ${dim("refresh map cache")}`,
-										),
-									);
-									lines.push(
-										row(`  ${dim("[d]")} Deinit  ${dim("remove .readseek/")}`),
+										row(`${accent("▶")} ${dim("[d]")} Deinit  ${dim("remove .readseek/")}`),
 									);
 								} else {
 									lines.push(
@@ -137,10 +130,6 @@ export function registerReadseekCommand(pi: ExtensionAPI): void {
 									done("deinit");
 									return;
 								}
-								if (initialized && (data === "u" || data === "U")) {
-									done("update");
-									return;
-								}
 							},
 
 							invalidate(): void {},
@@ -161,10 +150,6 @@ export function registerReadseekCommand(pi: ExtensionAPI): void {
 
 			if (action === "init") await init(ctx);
 			else if (action === "deinit") await deinit(ctx);
-			else if (action === "update") {
-				await readseekUpdate(ctx.cwd);
-				ctx.ui.notify("Map cache updated", "info");
-			}
 		},
 	});
 }
