@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Format {
@@ -106,10 +107,10 @@ pub(crate) struct RefsOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RefLocation {
-    pub(crate) file: PathBuf,
+    pub(crate) file: Arc<PathBuf>,
     pub(crate) language: Language,
     pub(crate) engine: EngineField,
-    pub(crate) file_hash: String,
+    pub(crate) file_hash: Arc<str>,
     pub(crate) line: usize,
     pub(crate) column: usize,
     pub(crate) line_hash: String,
@@ -124,7 +125,7 @@ pub(crate) struct CompactOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CompactLocation {
-    pub(crate) file: PathBuf,
+    pub(crate) file: Arc<PathBuf>,
     pub(crate) line: usize,
     pub(crate) column: usize,
     pub(crate) line_hash: String,

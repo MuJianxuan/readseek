@@ -14,6 +14,7 @@ use serde::Deserialize;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
+use std::sync::Arc;
 use tree_sitter::{Node, Parser};
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +143,7 @@ pub(crate) fn compact_defs(output: &DefOutput) -> CompactOutput {
             .definitions
             .iter()
             .map(|definition| CompactLocation {
-                file: definition.file.clone(),
+                file: Arc::new(definition.file.clone()),
                 line: definition.symbol.start_line,
                 column: 1,
                 line_hash: definition.line_hash.clone(),
@@ -332,10 +333,11 @@ fn refs_in_source(
         .map(|p| ref_ignored_ranges(source, p))
         .unwrap_or_default();
     let line_starts = &source.line_starts;
-    let mut references = Vec::new();
 
     let text_bytes = source.text.as_bytes();
     let name_bytes = name.as_bytes();
+
+    let mut compact: Vec<(usize, usize)> = Vec::new();
     for byte_index in memchr::memmem::find_iter(text_bytes, name_bytes) {
         let before = byte_index.checked_sub(1).map(|i| text_bytes[i]);
         let after = text_bytes.get(byte_index + name.len()).copied();
@@ -351,23 +353,50 @@ fn refs_in_source(
         if is_ignored_ref(byte_index, &ignored_ranges) {
             continue;
         }
-        let column = byte_index - line_starts[line_idx] + 1;
-        let symbol = source_map
-            .as_ref()
-            .and_then(|source_map| find_symbol(source_map, line.number));
+        compact.push((line.number, byte_index - line_starts[line_idx] + 1));
+    }
+
+    if compact.is_empty() {
+        return Vec::new();
+    }
+
+    compact.sort_unstable_by_key(|(l, _)| *l);
+
+    let file = Arc::new(source.path.clone());
+    let file_hash: Arc<str> = Arc::from(source.file_hash.as_str());
+    let language = source.detection.language;
+    let engine = source.detection.engine;
+
+    let mut references = Vec::with_capacity(compact.len());
+    let mut last_line = 0;
+    let mut cached_line_hash = String::new();
+    let mut cached_text = String::new();
+    let mut cached_symbol: Option<Symbol> = None;
+
+    for (line_number, column) in compact {
+        if line_number != last_line {
+            let line = &source.lines[line_number - 1];
+            last_line = line_number;
+            cached_line_hash.clone_from(&line.hash);
+            cached_text.clone_from(&line.text);
+            cached_symbol = source_map
+                .as_ref()
+                .and_then(|sm| find_symbol(sm, line_number));
+        }
 
         references.push(RefLocation {
-            file: source.path.clone(),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            file_hash: source.file_hash.clone(),
-            line: line.number,
+            file: Arc::clone(&file),
+            language,
+            engine,
+            file_hash: Arc::clone(&file_hash),
+            line: line_number,
             column,
-            line_hash: line.hash.clone(),
-            text: line.text.clone(),
-            symbol: symbol.clone(),
+            line_hash: cached_line_hash.clone(),
+            text: cached_text.clone(),
+            symbol: cached_symbol.clone(),
         });
     }
+
     references
 }
 
