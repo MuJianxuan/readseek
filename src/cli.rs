@@ -36,7 +36,6 @@ pub(crate) enum Command {
     Refs(RefsCommand),
     Search(SearchCommand),
     Init(InitCommand),
-    Update(UpdateCommand),
 }
 
 /// detect the file type
@@ -267,16 +266,6 @@ pub(crate) struct SearchCommand {
 #[argh(subcommand, name = "init")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct InitCommand {
-    /// path to a directory (defaults to current directory)
-    #[argh(positional)]
-    pub(crate) path: Option<PathBuf>,
-}
-
-/// synchronize .readseek/ with source files
-#[derive(Debug, FromArgs)]
-#[argh(subcommand, name = "update")]
-#[argh(help_triggers("-h", "--help"))]
-pub(crate) struct UpdateCommand {
     /// path to a directory (defaults to current directory)
     #[argh(positional)]
     pub(crate) path: Option<PathBuf>,

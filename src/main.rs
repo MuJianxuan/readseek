@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::{env, process};
 
-use crate::cli::{Cli, DefCommand, InitCommand, RefsCommand, SearchCommand, UpdateCommand};
+use crate::cli::{Cli, DefCommand, InitCommand, RefsCommand, SearchCommand};
 use crate::flags::GitFlags;
 use crate::lang::BinaryMode;
 use crate::output::SearchOutput;
@@ -60,7 +60,12 @@ fn run() -> Result<()> {
     if let Some(path) = cli.output {
         OUTPUT_FILE.set(path).ok();
     }
-    match cli.command.context("command required")? {
+    let command = cli.command.context("command required")?;
+    if !matches!(command, crate::cli::Command::Init(_)) {
+        ensure_updated()?;
+    }
+
+    match command {
         crate::cli::Command::Detect(command) => run_detect(&command)?,
         crate::cli::Command::Read(command) => run_read(&command)?,
         crate::cli::Command::Map(command) => run_map(&command)?,
@@ -74,7 +79,6 @@ fn run() -> Result<()> {
         }
         crate::cli::Command::Search(command) => print_json(&search_output(&command)?)?,
         crate::cli::Command::Init(command) => run_init(&command)?,
-        crate::cli::Command::Update(command) => run_update(&command)?,
     }
 
     Ok(())
@@ -204,12 +208,20 @@ fn search_output(command: &SearchCommand) -> Result<SearchOutput> {
 fn run_init(command: &InitCommand) -> Result<()> {
     let path = command.path.as_deref().unwrap_or(Path::new("."));
     repo::init(path)?;
+    update_at(path)?;
     Ok(())
 }
 
-fn run_update(command: &UpdateCommand) -> Result<()> {
-    let path = command.path.as_deref().unwrap_or(Path::new("."));
-    let stats = repo::update(
+fn ensure_updated() -> Result<()> {
+    let cwd = env::current_dir()?;
+    if repo::find_readseek_dir(&cwd).is_some() {
+        update_at(&cwd)?;
+    }
+    Ok(())
+}
+
+fn update_at(path: &Path) -> Result<()> {
+    repo::update(
         path,
         GitFlags {
             cached: true,
@@ -217,7 +229,7 @@ fn run_update(command: &UpdateCommand) -> Result<()> {
             ignored: false,
         },
     )?;
-    print_json(&stats)
+    Ok(())
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {

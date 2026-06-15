@@ -37,8 +37,6 @@ readseek \- structural source-code reader with stable line hashing
     \fItarget\fR \fIpattern\fR
 
 \fBreadseek init\fR [\fIpath\fR]
-
-\fBreadseek update\fR [\fIpath\fR]
 .fi
 .SH DESCRIPTION
 .B readseek
@@ -182,12 +180,8 @@ boundary hashes, and hashlines for each match.
 .B init
 Initialize a \fI.readseek/\fR directory under \fIpath\fR (defaults to the current
 directory). This directory holds the source-map cache used by other commands.
-.TP
-.B update
-Synchronize the \fI.readseek/\fR source-map cache with the current state of
-source files under \fIpath\fR (defaults to the current directory). This pre-builds
-symbol maps so that subsequent \fBdefinition\fR and \fBreferences\fR calls are
-fast and up to date.
+When a \fI.readseek/\fR directory exists, readseek refreshes the cache internally
+on each invocation.
 
 .SH OPTIONS
 .TP
