@@ -126,7 +126,7 @@ fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
         BinaryMode::Reject,
     )?;
     let target_line = output::resolve_explicit_target_line(&source, &target, command.line)?;
-    let address = output::symbol_address(&target, command.name.as_deref())?;
+    let address = command.name.as_deref();
     let output = output::symbol_command_output(&source, address, target_line)?;
     print_json(&output)
 }

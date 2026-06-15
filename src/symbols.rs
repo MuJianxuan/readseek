@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
+use crate::output::is_identifier_byte;
 use crate::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
@@ -419,7 +420,7 @@ fn contains_word(text: &str, word: &str) -> bool {
         }
         let before = index.checked_sub(1).map(|before_index| bytes[before_index]);
         let after = bytes.get(index + word.len()).copied();
-        if before.is_some_and(is_c_identifier_byte) || after.is_some_and(is_c_identifier_byte) {
+        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
             continue;
         }
         return true;
@@ -433,12 +434,12 @@ fn last_identifier(text: &str) -> Option<String> {
     let mut index = bytes.len();
     while index > 0 {
         index -= 1;
-        if !is_c_identifier_byte(bytes[index]) {
+        if !is_identifier_byte(bytes[index]) {
             continue;
         }
 
         let end = index + 1;
-        while index > 0 && is_c_identifier_byte(bytes[index - 1]) {
+        while index > 0 && is_identifier_byte(bytes[index - 1]) {
             index -= 1;
         }
         if bytes[index].is_ascii_digit() {
@@ -448,10 +449,6 @@ fn last_identifier(text: &str) -> Option<String> {
     }
 
     None
-}
-
-fn is_c_identifier_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn csharp_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {

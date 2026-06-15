@@ -161,7 +161,7 @@ pub(crate) fn resolve_target_line(source: &SourceFile, target: &Target) -> Resul
             .find_map(|line| (line.hash == *hash).then_some(line.number))
             .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
             .map(Some),
-        None | Some(TargetAddress::Symbol(_)) => Ok(None),
+        None => Ok(None),
     }
 }
 
@@ -170,9 +170,6 @@ pub(crate) fn resolve_explicit_target_line(
     target: &Target,
     line: Option<usize>,
 ) -> Result<Option<usize>> {
-    if matches!(target.address, Some(TargetAddress::Symbol(_))) {
-        return resolve_target_line(source, target);
-    }
     let target_line = resolve_target_line(source, target)?;
     match (target_line, line) {
         (Some(target_line), Some(line)) if target_line != line => {
@@ -299,32 +296,22 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
     })
 }
 
-pub(crate) fn symbol_address<'a>(
-    target: &'a Target,
-    address: Option<&'a str>,
-) -> Result<Option<&'a str>> {
-    match (target.address.as_ref(), address) {
-        (Some(TargetAddress::Symbol(_)), Some(_)) => {
-            bail!("qualified symbol name specified both in target and as argument")
-        }
-        (Some(TargetAddress::Symbol(symbol)), None) => Ok(Some(symbol.as_str())),
-        (_, address) => Ok(address),
-    }
-}
-
 fn symbol_output(source: &SourceFile, address: &str) -> Result<SymbolOutput> {
     let source_map = source_map(source)?;
-    let matches = source_map
+    let mut matches = source_map
         .symbols
         .iter()
-        .filter(|symbol| symbol.qualified_name == address || symbol.name == address)
-        .collect::<Vec<_>>();
+        .filter(|symbol| symbol.qualified_name == address || symbol.name == address);
 
-    let symbol = match matches.as_slice() {
-        [] => bail!("symbol not found: {address}"),
-        [symbol] => (*symbol).clone(),
-        _ => bail!("qualified symbol name is ambiguous: {address}"),
-    };
+    let symbol = matches
+        .next()
+        .with_context(|| format!("symbol not found: {address}"))?;
+
+    if matches.next().is_some() {
+        bail!("qualified symbol name is ambiguous: {address}");
+    }
+
+    let symbol = symbol.clone();
 
     Ok(SymbolOutput {
         file: source.path.clone(),

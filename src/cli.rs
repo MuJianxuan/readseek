@@ -299,11 +299,11 @@ pub(crate) struct UpdateCommand {
 }
 
 pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, String> {
-    let alias = value.to_ascii_lowercase().replace(['-', '_'], "");
-    if alias == "unknown" {
-        return Ok(Language::Unknown);
+    if let Ok(language) = value.parse::<Language>() {
+        return Ok(language);
     }
 
+    let alias = value.to_ascii_lowercase().replace(['-', '_'], "");
     LANGUAGE_SPECS
         .iter()
         .find_map(|spec| {

@@ -587,34 +587,6 @@ pub(crate) enum DocumentKind {
     Text,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DocumentFormat {
-    PlainText,
-}
-
-impl DocumentFormat {
-    pub(crate) const fn id(self) -> &'static str {
-        match self {
-            Self::PlainText => "plain-text",
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct DocumentExtractor {
-    pub(crate) format: DocumentFormat,
-    pub(crate) extensions: &'static [&'static str],
-    pub(crate) mime_prefixes: &'static [&'static str],
-    pub(crate) extract: fn(&Path, &[u8], BinaryMode) -> Result<String>,
-}
-
-pub(crate) const DOCUMENT_EXTRACTORS: &[DocumentExtractor] = &[DocumentExtractor {
-    format: DocumentFormat::PlainText,
-    extensions: &["txt"],
-    mime_prefixes: &["text/"],
-    extract: extract_plain_text,
-}];
-
 impl Serialize for Language {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -704,28 +676,6 @@ pub(crate) fn document_kind(language: Language) -> DocumentKind {
     }
 }
 
-pub(crate) fn document_extractor(path: &Path, mime: Option<&str>) -> &'static DocumentExtractor {
-    let extension = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(str::to_ascii_lowercase);
-
-    DOCUMENT_EXTRACTORS
-        .iter()
-        .find(|extractor| {
-            extension
-                .as_deref()
-                .is_some_and(|extension| extractor.extensions.contains(&extension))
-                || mime.is_some_and(|mime| {
-                    extractor
-                        .mime_prefixes
-                        .iter()
-                        .any(|prefix| mime.starts_with(prefix))
-                })
-        })
-        .unwrap_or(&DOCUMENT_EXTRACTORS[0])
-}
-
 pub(crate) fn extract_plain_text(
     path: &Path,
     bytes: &[u8],
@@ -738,7 +688,7 @@ pub(crate) fn extract_plain_text(
             .with_context(|| format!("{} is not UTF-8 text", path.display()))?
     };
 
-    Ok(normalize_source_text(&text))
+    Ok(text)
 }
 
 pub(crate) fn normalize_source_text(text: &str) -> String {
@@ -747,13 +697,11 @@ pub(crate) fn normalize_source_text(text: &str) -> String {
 }
 
 pub(crate) fn is_binary_mime(mime: Option<&str>) -> bool {
-    let Some(mime) = mime else {
-        return false;
-    };
-
-    mime.starts_with("application/")
-        || mime.starts_with("audio/")
-        || mime.starts_with("font/")
-        || mime.starts_with("image/")
-        || mime.starts_with("video/")
+    mime.is_some_and(|mime| {
+        mime.starts_with("application/")
+            || mime.starts_with("audio/")
+            || mime.starts_with("font/")
+            || mime.starts_with("image/")
+            || mime.starts_with("video/")
+    })
 }

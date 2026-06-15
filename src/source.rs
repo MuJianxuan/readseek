@@ -1,7 +1,7 @@
 use crate::hash::{hash_line, hash_text};
 use crate::lang::{
     BinaryMode, DocumentKind, EngineField, Language, analysis_engine, detect_by_path,
-    detect_language, document_extractor, document_kind, is_binary_mime, normalize_source_text,
+    detect_language, document_kind, extract_plain_text, is_binary_mime, normalize_source_text,
 };
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -146,7 +146,6 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
     let binary = is_binary_mime(mime.as_deref()) || bytes.contains(&0);
-    let extractor = document_extractor(path, mime.as_deref());
 
     if binary && binary_mode == BinaryMode::Reject {
         bail!(
@@ -156,8 +155,8 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         );
     }
 
-    let text = (extractor.extract)(path, &bytes, binary_mode)
-        .with_context(|| format!("extract {} from {}", extractor.format.id(), path.display()))?;
+    let text = extract_plain_text(path, &bytes, binary_mode)
+        .with_context(|| format!("extract from {}", path.display()))?;
 
     Ok(LoadedDocument { text, binary, mime })
 }

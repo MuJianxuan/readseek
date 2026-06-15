@@ -13,6 +13,4 @@ pub(crate) struct Target {
 pub(crate) enum TargetAddress {
     Line(usize),
     Hash(String),
-    #[allow(dead_code)]
-    Symbol(String),
 }
