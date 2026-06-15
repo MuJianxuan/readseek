@@ -29,10 +29,9 @@ pub(crate) struct SearchPattern {
     pub(crate) tree: Option<Tree>,
 }
 
-#[derive(Clone, Debug)]
-struct SearchCaptureRange {
-    name: String,
-    text: String,
+struct SearchCaptureRange<'a> {
+    name: &'a str,
+    text: &'a str,
     start_line: usize,
     end_line: usize,
 }
@@ -173,9 +172,9 @@ fn search_pattern_root(root: Node<'_>) -> Option<Node<'_>> {
     }
 }
 
-fn collect_search_matches(
-    source: &SourceFile,
-    pattern: &SearchPattern,
+fn collect_search_matches<'a>(
+    source: &'a SourceFile,
+    pattern: &'a SearchPattern,
     pattern_node: Node<'_>,
     source_node: Node<'_>,
     matches: &mut Vec<SearchMatch>,
@@ -193,12 +192,12 @@ fn collect_search_matches(
     Ok(())
 }
 
-fn nodes_match(
-    source: &SourceFile,
-    pattern: &SearchPattern,
+fn nodes_match<'a>(
+    source: &'a SourceFile,
+    pattern: &'a SearchPattern,
     pattern_node: Node<'_>,
     source_node: Node<'_>,
-    captures: &mut Vec<SearchCaptureRange>,
+    captures: &mut Vec<SearchCaptureRange<'a>>,
 ) -> bool {
     if let Some(meta) = pattern_meta(pattern, pattern_node) {
         if meta.kind == PatternMetaKind::Single {
@@ -232,14 +231,14 @@ fn nodes_match(
     )
 }
 
-fn child_nodes_match(
-    source: &SourceFile,
-    pattern: &SearchPattern,
+fn child_nodes_match<'a>(
+    source: &'a SourceFile,
+    pattern: &'a SearchPattern,
     pattern_children: &[Node<'_>],
     source_children: &[Node<'_>],
     pattern_index: usize,
     source_index: usize,
-    captures: &mut Vec<SearchCaptureRange>,
+    captures: &mut Vec<SearchCaptureRange<'a>>,
 ) -> bool {
     if pattern_index == pattern_children.len() {
         return source_index == source_children.len();
@@ -311,10 +310,10 @@ fn child_nodes_match(
     false
 }
 
-fn bind_capture(
-    captures: &mut Vec<SearchCaptureRange>,
-    name: &str,
-    text: &str,
+fn bind_capture<'a>(
+    captures: &mut Vec<SearchCaptureRange<'a>>,
+    name: &'a str,
+    text: &'a str,
     start_line: usize,
     end_line: usize,
 ) -> bool {
@@ -326,8 +325,8 @@ fn bind_capture(
     }
 
     captures.push(SearchCaptureRange {
-        name: name.to_owned(),
-        text: text.to_owned(),
+        name,
+        text,
         start_line,
         end_line,
     });
@@ -351,13 +350,13 @@ fn node_text<'a>(node: Node<'_>, text: &'a str) -> Option<&'a str> {
 fn search_match(
     source: &SourceFile,
     node: Node<'_>,
-    capture_ranges: Vec<SearchCaptureRange>,
+    capture_ranges: Vec<SearchCaptureRange<'_>>,
 ) -> Result<SearchMatch> {
     let captures = capture_ranges
         .into_iter()
         .map(|capture| {
             Ok(SearchCapture {
-                name: capture.name,
+                name: capture.name.to_owned(),
                 start_line: capture.start_line,
                 end_line: capture.end_line,
                 start_hash: line_hash(source, capture.start_line)?,

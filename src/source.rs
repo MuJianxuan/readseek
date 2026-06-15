@@ -45,6 +45,7 @@ pub(crate) struct SourceFile {
     pub(crate) kind: DocumentKind,
     pub(crate) detection: Detection,
     pub(crate) lines: Vec<SourceLine>,
+    pub(crate) line_starts: Vec<usize>,
     pub(crate) file_hash: String,
 }
 
@@ -106,13 +107,19 @@ pub(crate) fn source_from_text(
     let engine = EngineField(analysis_engine(language));
     let kind = document_kind(language);
     let file_hash = hash_text(&text);
+    let mut line_starts = Vec::new();
+    let mut offset = 0;
     let lines = text
-        .lines()
+        .split_terminator('\n')
         .enumerate()
-        .map(|(index, text)| SourceLine {
-            number: index + 1,
-            text: text.to_owned(),
-            hash: hash_line(index + 1, text),
+        .map(|(index, part)| {
+            line_starts.push(offset);
+            offset += part.len() + 1;
+            SourceLine {
+                number: index + 1,
+                text: part.to_owned(),
+                hash: hash_line(index + 1, part),
+            }
         })
         .collect();
 
@@ -130,6 +137,7 @@ pub(crate) fn source_from_text(
             syntax,
         },
         lines,
+        line_starts,
         file_hash,
     })
 }
@@ -194,16 +202,17 @@ pub(crate) fn source_map_with_dir(
 
 pub(crate) fn symbol_at_line_uncached(source: &SourceFile, line: usize) -> Result<Option<Symbol>> {
     let source_map = source_map(source)?;
-    Ok(symbol_at_line_in_map(&source_map, line))
+    Ok(find_symbol(&source_map, line))
 }
 
-pub(crate) fn symbol_at_line_in_map(source_map: &SourceMap, line: usize) -> Option<Symbol> {
-    source_map
-        .symbols
-        .iter()
-        .filter(|symbol| symbol.start_line <= line && line <= symbol.end_line)
-        .min_by_key(|symbol| symbol.end_line - symbol.start_line)
-        .cloned()
+pub(crate) fn find_symbol(source_map: &SourceMap, line: usize) -> Option<Symbol> {
+    let symbols = &source_map.symbols;
+    let idx = symbols.partition_point(|s| s.start_line <= line);
+    (0..idx)
+        .rev()
+        .take_while(|&i| symbols[i].end_line >= line)
+        .min_by_key(|&i| symbols[i].end_line - symbols[i].start_line)
+        .map(|i| symbols[i].clone())
 }
 
 pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {

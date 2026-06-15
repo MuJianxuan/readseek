@@ -1,8 +1,8 @@
 use crate::cli::ReadCommand;
 use crate::lang::{BinaryMode, EngineField, Language};
 use crate::source::{
-    HashLine, SourceFile, Symbol, load_source, range_hashlines, source_from_text, source_map,
-    symbol_at_line_in_map, symbol_at_line_uncached,
+    HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
+    source_map, symbol_at_line_uncached,
 };
 use crate::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
@@ -348,7 +348,7 @@ pub(crate) fn symbol_command_output(
 
     let line = target_line.context("symbol requires qualified name or target line/hash")?;
     let source_map = source_map(source)?;
-    let symbol = symbol_at_line_in_map(&source_map, line)
+    let symbol = find_symbol(&source_map, line)
         .with_context(|| format!("symbol not found at line {line}"))?;
     Ok(SymbolOutput {
         file: source.path.clone(),

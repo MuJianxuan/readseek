@@ -7,9 +7,7 @@ use crate::output::{
     ReferencesOutput,
 };
 use crate::paths::{command_paths, definition_candidate_paths};
-use crate::source::{
-    SourceFile, Symbol, source_from_text, source_map_with_dir, symbol_at_line_in_map,
-};
+use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
@@ -253,35 +251,42 @@ fn references_in_source(
 ) -> Vec<ReferenceLocation> {
     let source_map = source_map_with_dir(source, readseek_dir).ok();
     let ignored_ranges = reference_ignored_ranges(source, parser);
-    let line_starts = line_start_offsets(&source.text);
+    let line_starts = &source.line_starts;
     let mut references = Vec::new();
-    for line in &source.lines {
-        let columns = reference_columns(&line.text, name);
-        if columns.is_empty() {
+
+    let text_bytes = source.text.as_bytes();
+    let name_bytes = name.as_bytes();
+    for byte_index in memchr::memmem::find_iter(text_bytes, name_bytes) {
+        let before = byte_index.checked_sub(1).map(|i| text_bytes[i]);
+        let after = text_bytes.get(byte_index + name.len()).copied();
+        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
             continue;
         }
+        let line_idx = line_starts
+            .partition_point(|&start| start <= byte_index)
+            .saturating_sub(1);
+        let Some(line) = source.lines.get(line_idx) else {
+            continue;
+        };
+        if is_ignored_reference(byte_index, &ignored_ranges) {
+            continue;
+        }
+        let column = byte_index - line_starts[line_idx] + 1;
         let symbol = source_map
             .as_ref()
-            .and_then(|source_map| symbol_at_line_in_map(source_map, line.number));
-        for column in columns {
-            let byte_offset = line_starts
-                .get(line.number.saturating_sub(1))
-                .map_or(column - 1, |line_start| line_start + column - 1);
-            if is_ignored_reference(byte_offset, &ignored_ranges) {
-                continue;
-            }
-            references.push(ReferenceLocation {
-                file: source.path.clone(),
-                language: source.detection.language,
-                engine: source.detection.engine,
-                file_hash: source.file_hash.clone(),
-                line: line.number,
-                column,
-                line_hash: line.hash.clone(),
-                text: line.text.clone(),
-                symbol: symbol.clone(),
-            });
-        }
+            .and_then(|source_map| find_symbol(source_map, line.number));
+
+        references.push(ReferenceLocation {
+            file: source.path.clone(),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            file_hash: source.file_hash.clone(),
+            line: line.number,
+            column,
+            line_hash: line.hash.clone(),
+            text: line.text.clone(),
+            symbol: symbol.clone(),
+        });
     }
     references
 }
@@ -325,31 +330,8 @@ fn is_reference_noise_node(kind: &str) -> bool {
     kind == "comment" || kind.ends_with("string_literal") || kind == "char_literal"
 }
 
-fn line_start_offsets(text: &str) -> Vec<usize> {
-    let mut offsets = vec![0];
-    for (index, byte) in text.bytes().enumerate() {
-        if byte == b'\n' && index + 1 < text.len() {
-            offsets.push(index + 1);
-        }
-    }
-
-    offsets
-}
-
 fn is_ignored_reference(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
     ranges
         .iter()
         .any(|&(start, end)| start <= byte_offset && byte_offset < end)
-}
-
-fn reference_columns(text: &str, name: &str) -> Vec<usize> {
-    memchr::memmem::find_iter(text.as_bytes(), name.as_bytes())
-        .filter(|&index| {
-            let bytes = text.as_bytes();
-            let before = index.checked_sub(1).map(|before_index| bytes[before_index]);
-            let after = bytes.get(index + name.len()).copied();
-            !before.is_some_and(is_identifier_byte) && !after.is_some_and(is_identifier_byte)
-        })
-        .map(|index| index + 1)
-        .collect()
 }
