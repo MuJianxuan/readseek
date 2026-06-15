@@ -312,7 +312,7 @@ fn scan_source(
 ) -> Vec<RefLocation> {
     let source_map = source_map_with_dir(source, readseek_dir).ok();
     let ignored_ranges = parser
-        .map(|p| ref_ignored_ranges(source, p))
+        .map(|p| scan_ignored_ranges(source, p))
         .unwrap_or_default();
     let line_starts = &source.line_starts;
 
@@ -381,7 +381,7 @@ fn scan_source(
     references
 }
 
-fn ref_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, usize)> {
+fn scan_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, usize)> {
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
@@ -400,12 +400,11 @@ fn ref_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, u
     };
 
     let mut ranges = Vec::new();
-    collect_ref_ignored_ranges(tree.root_node(), &mut ranges);
-    ranges.sort_unstable_by_key(|&(start, _)| start);
+    collect_ignored_ranges(tree.root_node(), &mut ranges);
     ranges
 }
 
-fn collect_ref_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
+fn collect_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) {
     if node.kind() == "comment"
         || node.kind().ends_with("string_literal")
         || node.kind() == "char_literal"
@@ -416,6 +415,6 @@ fn collect_ref_ignored_ranges(node: Node<'_>, ranges: &mut Vec<(usize, usize)>) 
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_ref_ignored_ranges(child, ranges);
+        collect_ignored_ranges(child, ranges);
     }
 }
