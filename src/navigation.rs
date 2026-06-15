@@ -5,7 +5,7 @@ use crate::output::is_identifier_byte;
 use crate::output::{
     CompactLocation, CompactOutput, DefLocation, DefOutput, RefLocation, RefsOutput,
 };
-use crate::paths::{command_paths, def_candidate_paths};
+use crate::paths::{command_paths, contains_identifier, def_candidate_paths};
 use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -35,51 +35,105 @@ struct SymbolInput {
 pub(crate) fn def_output(command: &DefCommand) -> Result<DefOutput> {
     let name = def_name(command)?;
     let search_name = def_search_name(&name);
-    let readseek_dir = crate::repo::find_readseek_dir(std::path::Path::new("."));
-    let mut macro_definitions = Vec::new();
+    let readseek_dir = crate::repo::find_readseek_dir(&command.target);
+    let results = if let Some(readseek_dir) = readseek_dir.as_deref() {
+        if let Some(index_entries) = crate::repo::load_def_index(readseek_dir, &name)? {
+            if index_entries.is_empty() {
+                def_candidate_paths(command, search_name)?
+                    .par_iter()
+                    .map(|path| {
+                        def_locations_in_path(
+                            path,
+                            &name,
+                            search_name,
+                            command.language,
+                            Some(readseek_dir),
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            } else {
+                index_entries
+                    .par_iter()
+                    .map(|entry| {
+                        def_locations_in_path(
+                            &entry.path,
+                            &name,
+                            search_name,
+                            command.language,
+                            Some(readseek_dir),
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            }
+        } else {
+            def_candidate_paths(command, search_name)?
+                .par_iter()
+                .map(|path| {
+                    def_locations_in_path(
+                        path,
+                        &name,
+                        search_name,
+                        command.language,
+                        Some(readseek_dir),
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?
+        }
+    } else {
+        def_candidate_paths(command, search_name)?
+            .par_iter()
+            .map(|path| def_locations_in_path(path, &name, search_name, command.language, None))
+            .collect::<Result<Vec<_>>>()?
+    };
     let mut definitions = Vec::new();
 
-    for path in def_candidate_paths(command, search_name)? {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if !text.contains(search_name) {
-            continue;
-        }
-        let Ok(source) = source_from_text(&path, &text, command.language, false, None) else {
-            continue;
-        };
-
-        macro_definitions.extend(macro_def_locations(&source, search_name));
-
-        let Ok(source_map) = source_map_with_dir(&source, readseek_dir.as_deref()) else {
-            continue;
-        };
-        for symbol in source_map.symbols {
-            if symbol.qualified_name != name && symbol.name != search_name {
-                continue;
-            }
-            let line = source
-                .line(symbol.start_line)
-                .context("definition symbol line is out of range")?;
-            definitions.push(DefLocation {
-                file: source.path.clone(),
-                language: source.detection.language,
-                engine: source.detection.engine,
-                file_hash: source.file_hash.clone(),
-                line_hash: line.hash.clone(),
-                text: line.text.clone(),
-                symbol,
-            });
-        }
+    for definition in results.into_iter().flatten() {
+        push_unique_definition(&mut definitions, definition);
     }
 
-    if !macro_definitions.is_empty() {
-        return Ok(DefOutput {
-            definitions: macro_definitions,
+    Ok(DefOutput { definitions })
+}
+
+fn def_locations_in_path(
+    path: &Path,
+    name: &str,
+    search_name: &str,
+    language: Option<Language>,
+    readseek_dir: Option<&Path>,
+) -> Result<Vec<DefLocation>> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Ok(Vec::new());
+    };
+    if !contains_identifier(&text, search_name) {
+        return Ok(Vec::new());
+    }
+    let Ok(source) = source_from_text(path, &text, language, false, None) else {
+        return Ok(Vec::new());
+    };
+    let mut definitions = macro_def_locations(&source, search_name);
+
+    let Ok(source_map) = source_map_with_dir(&source, readseek_dir) else {
+        return Ok(definitions);
+    };
+    for symbol in source_map.symbols {
+        if symbol.qualified_name != name && symbol.name != search_name && symbol.name != name {
+            continue;
+        }
+        let line = source
+            .line(symbol.start_line)
+            .context("definition symbol line is out of range")?;
+        definitions.push(DefLocation {
+            file: source.path.clone(),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            file_hash: source.file_hash.clone(),
+            line_hash: line.hash.clone(),
+            text: line.text.clone(),
+            symbol,
         });
     }
-    Ok(DefOutput { definitions })
+
+    Ok(definitions)
 }
 
 pub(crate) fn compact_defs(output: &DefOutput) -> CompactOutput {
@@ -114,6 +168,23 @@ fn def_search_name(name: &str) -> &str {
         .next()
         .filter(|part| !part.is_empty())
         .unwrap_or(name)
+}
+
+fn push_unique_definition(definitions: &mut Vec<DefLocation>, definition: DefLocation) {
+    if !definitions
+        .iter()
+        .any(|existing| same_definition(existing, &definition))
+    {
+        definitions.push(definition);
+    }
+}
+
+fn same_definition(left: &DefLocation, right: &DefLocation) -> bool {
+    left.file == right.file
+        && left.symbol.kind == right.symbol.kind
+        && left.symbol.name == right.symbol.name
+        && left.symbol.start_line == right.symbol.start_line
+        && left.symbol.end_line == right.symbol.end_line
 }
 
 fn macro_def_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
@@ -196,7 +267,7 @@ pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
             let Ok(text) = fs::read_to_string(path) else {
                 return vec![];
             };
-            if !text.contains(name) {
+            if !contains_identifier(&text, name) {
                 return vec![];
             }
             let Ok(source) = source_from_text(path, &text, command.language, false, None) else {
@@ -320,6 +391,7 @@ fn ref_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, u
 
     let mut ranges = Vec::new();
     collect_ref_ignored_ranges(tree.root_node(), &mut ranges);
+    ranges.sort_unstable_by_key(|&(start, _)| start);
     ranges
 }
 
@@ -340,7 +412,6 @@ fn is_ref_noise_node(kind: &str) -> bool {
 }
 
 fn is_ignored_ref(byte_offset: usize, ranges: &[(usize, usize)]) -> bool {
-    ranges
-        .iter()
-        .any(|&(start, end)| start <= byte_offset && byte_offset < end)
+    let index = ranges.partition_point(|&(start, _)| start <= byte_offset);
+    index > 0 && byte_offset < ranges[index - 1].1
 }

@@ -17,6 +17,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 const READSEEK_DIR: &str = ".readseek";
 const MAPS_DIR: &str = "maps";
+const DEF_INDEX_FILE: &str = "def-index.json";
 const MAGIC: [u8; 4] = *b"RSMP";
 const SCHEMA_VERSION: u32 = 4;
 
@@ -73,6 +74,14 @@ pub(crate) struct UpdateStats {
     pub(crate) unchanged: usize,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct DefIndexEntry {
+    pub(crate) name: String,
+    pub(crate) qualified_name: String,
+    pub(crate) file_hash: String,
+    pub(crate) path: PathBuf,
+}
+
 pub(crate) fn find_readseek_dir(base: &Path) -> Option<PathBuf> {
     let base = base.canonicalize().ok()?;
     base.ancestors()
@@ -122,6 +131,10 @@ fn map_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
         .join(MAPS_DIR)
         .join(hash_subdir(hash_hex))
         .join(hash_filename(hash_hex))
+}
+
+fn def_index_path(readseek_dir: &Path) -> PathBuf {
+    readseek_dir.join(DEF_INDEX_FILE)
 }
 
 fn engine_from_tag(tag: u8) -> Result<Option<AnalysisEngine>> {
@@ -378,6 +391,21 @@ pub(crate) fn store_map(
     Ok(())
 }
 
+pub(crate) fn load_def_index(
+    readseek_dir: &Path,
+    name: &str,
+) -> Result<Option<Vec<DefIndexEntry>>> {
+    let path = def_index_path(readseek_dir);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let data = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+    let index: std::collections::BTreeMap<String, Vec<DefIndexEntry>> =
+        serde_json::from_slice(&data).with_context(|| format!("parse {}", path.display()))?;
+    Ok(Some(index.get(name).cloned().unwrap_or_default()))
+}
+
 fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     let dir = path.parent().context("map path has no parent")?;
     let tmp = tempfile_in(dir);
@@ -398,6 +426,7 @@ fn tempfile_in(dir: &Path) -> PathBuf {
     dir.join(name)
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let readseek_dir = readseek_dir_or_err(dir)?;
     let project_root = readseek_dir.parent().context(".readseek has no parent")?;
@@ -410,7 +439,7 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
         unchanged: 0,
     };
 
-    let results: Vec<(String, bool)> = paths
+    let results: Vec<(String, bool, Vec<DefIndexEntry>)> = paths
         .par_iter()
         .filter_map(|path| {
             let source =
@@ -419,27 +448,69 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
                 return None;
             }
             let map_path = map_path(&readseek_dir, &source.file_hash);
+            let source_map = if map_path.exists() {
+                load_map(&readseek_dir, &source.file_hash)
+                    .ok()
+                    .flatten()
+                    .map(|(source_map, _, _)| source_map)?
+            } else {
+                symbols::parse_source_map(&source).ok()?
+            };
             let created = if map_path.exists() {
                 false
             } else {
-                let source_map = symbols::parse_source_map(&source).ok()?;
                 store_map(&readseek_dir, &source.file_hash, &source, &source_map).ok()?;
                 true
             };
-            Some((source.file_hash, created))
+            let entries = source_map
+                .symbols
+                .into_iter()
+                .map(|symbol| DefIndexEntry {
+                    name: symbol.name,
+                    qualified_name: symbol.qualified_name,
+                    file_hash: source.file_hash.clone(),
+                    path: source.path.clone(),
+                })
+                .collect();
+            Some((source.file_hash, created, entries))
         })
         .collect();
 
     let mut active_hashes = std::collections::HashSet::new();
+    let mut index_entries = Vec::new();
 
-    for (hash, created) in results {
+    for (hash, created, entries) in results {
         active_hashes.insert(hash);
+        index_entries.extend(entries);
         if created {
             stats.created += 1;
         } else {
             stats.unchanged += 1;
         }
     }
+
+    let mut index = std::collections::BTreeMap::<String, Vec<DefIndexEntry>>::new();
+    for entry in index_entries {
+        index
+            .entry(entry.name.clone())
+            .or_default()
+            .push(entry.clone());
+        if entry.qualified_name != entry.name {
+            index
+                .entry(entry.qualified_name.clone())
+                .or_default()
+                .push(entry);
+        }
+    }
+    for entries in index.values_mut() {
+        entries.sort_by(|left, right| {
+            left.qualified_name
+                .cmp(&right.qualified_name)
+                .then_with(|| left.path.cmp(&right.path))
+        });
+    }
+    let index_data = serde_json::to_vec(&index).context("serialize definition index")?;
+    write_atomic(&def_index_path(&readseek_dir), &index_data)?;
 
     let maps_root = readseek_dir.join(MAPS_DIR);
     if maps_root.is_dir() {

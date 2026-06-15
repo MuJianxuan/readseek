@@ -100,6 +100,10 @@ def main():
     def result_files(data):
         return sorted(result.get("file") for result in data.get("results", []))
 
+    def map_file_count(directory):
+        maps_dir = os.path.join(directory, ".readseek", "maps")
+        return sum(len(files) for _, _, files in os.walk(maps_dir))
+
     def assert_symbol(name, symbols, kind, symbol_name):
         if any(symbol.get("kind") == kind and symbol.get("name") == symbol_name for symbol in symbols):
             return True
@@ -167,6 +171,10 @@ def main():
                 assert_equal(name, data.get("binary"), False),
             ]
         ):
+            passed(name)
+
+        name = "detect: does not update project cache"
+        if assert_equal(name, map_file_count(tmpdir), 0):
             passed(name)
 
         name = "read: requested range"
@@ -811,6 +819,45 @@ def main():
             if assert_equal(name, definitions, []):
                 passed(name)
 
+        name = "definition: substring candidate ignored"
+        write_file(definitions_dir, "substring-only.c", "int target_suffix(void);\n")
+        data = readseek_json(name, ["def", definitions_dir, "target"])
+        if data:
+            definitions = data.get("definitions", [])
+            if all(
+                [
+                    assert_equal(name, len(definitions), 1),
+                    assert_equal(name, definitions[0].get("file"), definition_path),
+                ]
+            ):
+                passed(name)
+
+        name = "definition: C macro does not hide function"
+        macro_and_function_path = write_file(
+            definitions_dir,
+            "macro-and-function.c",
+            "#define dual_name 1\n#undef dual_name\nint dual_name(void) { return 0; }\n",
+        )
+        data = readseek_json(name, ["def", definitions_dir, "dual_name"])
+        if data:
+            definitions = data.get("definitions", [])
+            kinds_by_line = sorted(
+                (definition["symbol"].get("kind"), definition["symbol"].get("start_line"))
+                for definition in definitions
+            )
+            if all(
+                [
+                    assert_equal(name, len(definitions), 2),
+                    assert_true(
+                        name,
+                        all(definition.get("file") == macro_and_function_path for definition in definitions),
+                        f"expected definitions from {macro_and_function_path!r}: {definitions!r}",
+                    ),
+                    assert_equal(name, kinds_by_line, [("function", 3), ("macro", 1)]),
+                ]
+            ):
+                passed(name)
+
         name = "definition: compact locations"
         data = readseek_json(name, ["def", "--format", "plain", definitions_dir, "target"])
         if data:
@@ -882,6 +929,7 @@ def main():
             "refs.rs",
             "fn target() {}\nfn caller() {\n  target();\n  let target_value = 1;\n}\n",
         )
+        write_file(references_dir, "substring.rs", "fn target_suffix() {}\nlet target_value = 1;\n")
         data = readseek_json(name, ["refs", references_dir, "target"])
         if data:
             references = data.get("references", [])

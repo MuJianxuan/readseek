@@ -1,6 +1,7 @@
 use crate::cli::DefCommand;
 use crate::flags::GitFlags;
 use crate::ignore::Ignorer;
+use crate::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::fs;
@@ -147,7 +148,7 @@ fn collect_cached_def_paths(
         let Ok(content) = fs::read(workdir.join(&relative)) else {
             continue;
         };
-        if memchr::memmem::find(&content, search_name.as_bytes()).is_some() {
+        if bytes_contain_identifier(&content, search_name.as_bytes()) {
             paths.insert(output_root.join(relative));
         }
     }
@@ -178,12 +179,28 @@ fn collect_other_def_paths(
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
-        if text.contains(search_name) {
+        if contains_identifier(&text, search_name) {
             paths.insert(path);
         }
     }
 
     Ok(())
+}
+
+pub(crate) fn contains_identifier(text: &str, identifier: &str) -> bool {
+    bytes_contain_identifier(text.as_bytes(), identifier.as_bytes())
+}
+
+fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
+    if identifier.is_empty() {
+        return true;
+    }
+
+    memchr::memmem::find_iter(text, identifier).any(|byte_index| {
+        let before = byte_index.checked_sub(1).map(|i| text[i]);
+        let after = text.get(byte_index + identifier.len()).copied();
+        !before.is_some_and(is_identifier_byte) && !after.is_some_and(is_identifier_byte)
+    })
 }
 
 fn git_search_paths(target: &Path, flags: GitFlags) -> Result<Option<Vec<PathBuf>>> {

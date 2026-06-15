@@ -62,9 +62,6 @@ fn run() -> Result<()> {
         OUTPUT_FILE.set(path).ok();
     }
     let command = cli.command.context("command required")?;
-    if !matches!(command, crate::cli::Command::Init(_)) {
-        ensure_updated()?;
-    }
 
     match command {
         crate::cli::Command::Detect(command) => run_detect(&command)?,
@@ -210,14 +207,6 @@ fn run_init(command: &InitCommand) -> Result<()> {
     let path = command.path.as_deref().unwrap_or(Path::new("."));
     repo::init(path)?;
     update_at(path)?;
-    Ok(())
-}
-
-fn ensure_updated() -> Result<()> {
-    let cwd = env::current_dir()?;
-    if repo::find_readseek_dir(&cwd).is_some() {
-        update_at(&cwd)?;
-    }
     Ok(())
 }
 
