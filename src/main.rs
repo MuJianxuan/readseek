@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 use argh::FromArgs;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::{env, process};
 
 use crate::cli::{Cli, DefCommand, InitCommand, RefsCommand, SearchCommand, UpdateCommand};
@@ -32,6 +33,8 @@ mod source;
 mod symbols;
 mod target;
 
+static OUTPUT_FILE: OnceLock<PathBuf> = OnceLock::new();
+
 fn main() {
     env_logger::init();
     if env::args_os().len() == 1 {
@@ -54,6 +57,9 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(path) = cli.output {
+        OUTPUT_FILE.set(path).ok();
+    }
     match cli.command.context("command required")? {
         crate::cli::Command::Detect(command) => run_detect(&command)?,
         crate::cli::Command::Read(command) => run_read(&command)?,
@@ -216,6 +222,11 @@ fn run_update(command: &UpdateCommand) -> Result<()> {
 }
 
 fn print_json(value: &impl Serialize) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
+    let json = serde_json::to_string_pretty(value)?;
+    if let Some(path) = OUTPUT_FILE.get() {
+        std::fs::write(path, json).with_context(|| format!("write {}", path.display()))?;
+    } else {
+        println!("{json}");
+    }
     Ok(())
 }

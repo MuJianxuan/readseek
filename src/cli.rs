@@ -15,6 +15,10 @@ pub(crate) struct Cli {
     #[argh(switch, short = 'V')]
     pub(crate) version: bool,
 
+    /// write output to file instead of stdout
+    #[argh(option, long = "output")]
+    pub(crate) output: Option<PathBuf>,
+
     /// command to run
     #[argh(subcommand)]
     pub(crate) command: Option<Command>,
