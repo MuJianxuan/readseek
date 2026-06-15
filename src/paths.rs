@@ -102,93 +102,51 @@ fn git_def_candidate_paths(
 
     let mut paths = BTreeSet::new();
     if cached {
-        collect_cached_def_paths(
-            &scope.repository,
-            &scope.workdir,
-            &scope.output_root,
-            &scope.scope,
-            search_name,
-            &mut paths,
-        )?;
+        let index = scope.repository.index().context("read Git index")?;
+        for entry in index.iter() {
+            let relative = git_path(&entry.path)?;
+            if !path_is_in_scope(&relative, &scope.scope) {
+                continue;
+            }
+
+            if search_name.is_empty() {
+                paths.insert(scope.output_root.join(&relative));
+                continue;
+            }
+            let Ok(content) = fs::read(scope.workdir.join(&relative)) else {
+                continue;
+            };
+            if bytes_contain_identifier(&content, search_name.as_bytes()) {
+                paths.insert(scope.output_root.join(relative));
+            }
+        }
     }
     if others {
-        collect_other_def_paths(
+        let mut other_paths = BTreeSet::new();
+        collect_other_paths(
             &scope.repository,
             &scope.workdir,
             &scope.output_root,
             &scope.scope,
             flags.ignored,
-            search_name,
-            &mut paths,
+            &mut other_paths,
         )?;
+
+        if search_name.is_empty() {
+            paths.extend(other_paths);
+        } else {
+            for path in other_paths {
+                let Ok(content) = fs::read(&path) else {
+                    continue;
+                };
+                if bytes_contain_identifier(&content, search_name.as_bytes()) {
+                    paths.insert(path);
+                }
+            }
+        }
     }
 
     Ok(Some(paths.into_iter().collect()))
-}
-
-fn collect_cached_def_paths(
-    repository: &git2::Repository,
-    workdir: &Path,
-    output_root: &Path,
-    scope: &Path,
-    search_name: &str,
-    paths: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
-    let index = repository.index().context("read Git index")?;
-    for entry in index.iter() {
-        let relative = git_path(&entry.path)?;
-        if !path_is_in_scope(&relative, scope) {
-            continue;
-        }
-
-        if search_name.is_empty() {
-            paths.insert(output_root.join(relative));
-            continue;
-        }
-        let Ok(content) = fs::read(workdir.join(&relative)) else {
-            continue;
-        };
-        if bytes_contain_identifier(&content, search_name.as_bytes()) {
-            paths.insert(output_root.join(relative));
-        }
-    }
-
-    Ok(())
-}
-
-fn collect_other_def_paths(
-    repository: &git2::Repository,
-    workdir: &Path,
-    output_root: &Path,
-    scope: &Path,
-    ignored: bool,
-    search_name: &str,
-    paths: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
-    let mut other_paths = BTreeSet::new();
-    collect_other_paths(
-        repository,
-        workdir,
-        output_root,
-        scope,
-        ignored,
-        &mut other_paths,
-    )?;
-
-    for path in other_paths {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if contains_identifier(&text, search_name) {
-            paths.insert(path);
-        }
-    }
-
-    Ok(())
-}
-
-pub(crate) fn contains_identifier(text: &str, identifier: &str) -> bool {
-    bytes_contain_identifier(text.as_bytes(), identifier.as_bytes())
 }
 
 pub(crate) fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
