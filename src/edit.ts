@@ -45,7 +45,6 @@ export function isBinaryBuffer(buf: Buffer): boolean {
 	return buf.includes(0);
 }
 
-// ─── Schema ─────────────────────────────────────────────────────────────
 
 const hashlineEditItemSchema = Type.Union([
 	Type.Object({ set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: true }),
@@ -127,7 +126,6 @@ export interface EditToolOptions {
 	syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
 }
 
-// ─── Registration ───────────────────────────────────────────────────────
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
 	const toolConfig = {

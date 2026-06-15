@@ -8,8 +8,8 @@
 import xxhashWasm from "xxhash-wasm";
 import { throwIfAborted } from "./runtime.js";
 import type { ReadseekLine } from "./readseek-value.js";
+import { CONFUSABLE_HYPHENS_RE } from "./confusable-hyphens.js";
 
-// ─── Types ──────────────────────────────────────────────────────────────
 
 export type HashlineEditItem =
 	| { set_line: { anchor: string; new_text: string } }
@@ -52,7 +52,6 @@ interface NoopEdit {
 	currentContent: string;
 }
 
-// ─── Hash computation ───────────────────────────────────────────────────
 
 const HASH_LEN = 3;
 const RADIX = 16;
@@ -62,7 +61,6 @@ const DICT = Array.from({ length: HASH_MOD }, (_, i) => i.toString(RADIX).padSta
 const HASHLINE_PREFIX_RE = /^\d+:[0-9a-zA-Z]{1,16}\|/;
 const DIFF_PLUS_RE = /^\+(?!\+)/;
 const HASH_ONLY_PREFIX_RE = /^[0-9a-f]{3}\|/;
-const CONFUSABLE_HYPHENS_RE = /[\u2010\u2011\u2012\u2013\u2014\u2212\uFE63\uFF0D]/g;
 const HASH_RELOCATION_WINDOW_BASE = 20;
 const HASH_RELOCATION_WINDOW_CAP = 100;
 
@@ -128,7 +126,6 @@ export function hashLines(content: string): string {
 		.join("\n");
 }
 
-// ─── Parsing ────────────────────────────────────────────────────────────
 
 export function parseLineRef(ref: string): { line: number; hash: string; content?: string } {
 	const contentMatch = ref.match(/^[^|]*\|(.*)$/);
@@ -142,7 +139,6 @@ export function parseLineRef(ref: string): { line: number; hash: string; content
 	return { line, hash: match[2], content: contentAfterPipe };
 }
 
-// ─── Mismatch formatting ────────────────────────────────────────────────
 
 function tokenSimilarity(a: string, b: string): number {
 	const tokA = new Set(a.trim().split(/\s+/));
@@ -241,7 +237,6 @@ function formatMismatchError(
 	return { message: out.join("\n"), updatedAnchors };
 }
 
-// ─── DST preprocessing helpers ──────────────────────────────────────────
 
 function splitDst(dst: string): string[] {
 	if (dst === "") return [];
@@ -280,7 +275,6 @@ function stripNewLinePrefixes(lines: string[]): string[] {
 	);
 }
 
-// ─── Whitespace / format helpers ────────────────────────────────────────
 
 function stripAllWhitespace(s: string): string {
 	return s.replace(/\s+/g, "");
@@ -362,7 +356,6 @@ function restoreOldWrappedLines(oldLines: string[], newLines: string[]): string[
 	return out;
 }
 
-// ─── Echo stripping ─────────────────────────────────────────────────────
 
 function stripInsertAnchorEcho(anchorLine: string, dst: string[]): string[] {
 	if (dst.length > 1 && wsEq(dst[0], anchorLine)) return dst.slice(1);
@@ -378,7 +371,6 @@ function stripRangeBoundaryEcho(fileLines: string[], start: number, end: number,
 	return out;
 }
 
-// ─── Edit parser ────────────────────────────────────────────────────────
 
 function parseHashlineEditItem(edit: HashlineEditItem): ParsedEdit {
 	if ("set_line" in edit) {
@@ -404,7 +396,6 @@ function parseHashlineEditItem(edit: HashlineEditItem): ParsedEdit {
 	throw new Error("replace edits are applied separately");
 }
 
-// ─── Main edit engine ───────────────────────────────────────────────────
 
 export function applyHashlineEdits(
 	content: string,
