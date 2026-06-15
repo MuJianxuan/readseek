@@ -1,7 +1,6 @@
 import { stat } from "node:fs/promises";
 
 import { readseekMap, readseekMapContent } from "../readseek-client.js";
-import { THRESHOLDS } from "./constants.js";
 import type { FileMap, MapOptions } from "./types.js";
 
 export const READSEEK_MAPPER_NAME = "readseek";
@@ -21,9 +20,6 @@ export const READSEEK_MAPPER_IDENTITY: MapperIdentity = {
   mapperVersion: READSEEK_MAPPER_VERSION,
 };
 
-export const ALL_MAPPER_IDENTITIES: Record<string, MapperIdentity> = {
-  readseek: READSEEK_MAPPER_IDENTITY,
-};
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
@@ -61,9 +57,3 @@ export async function generateMapFromContent(
   return map;
 }
 
-export function shouldGenerateMap(
-  totalLines: number,
-  totalBytes: number,
-): boolean {
-  return totalLines > THRESHOLDS.MAX_LINES || totalBytes > THRESHOLDS.MAX_BYTES;
-}
