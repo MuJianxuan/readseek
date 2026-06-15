@@ -33,7 +33,7 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
 
     let references: Vec<RefLocation> = paths
         .par_iter()
-        .flat_map(|path| {
+        .map_init(Parser::new, |parser, path| {
             let Ok(bytes) = fs::read(path) else {
                 return vec![];
             };
@@ -43,20 +43,17 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
             let Ok(text) = String::from_utf8(bytes) else {
                 return vec![];
             };
-            let Ok(source) = source_from_text(path, &text, command.language, false, None) else {
+            let Ok(source) = source_from_text(path, text, command.language, false, None) else {
                 return vec![];
             };
             let needs_parser = matches!(
                 source.detection.language,
                 crate::lang::Language::C | crate::lang::Language::Cpp
             );
-            let mut parser = if needs_parser {
-                Some(tree_sitter::Parser::new())
-            } else {
-                None
-            };
-            scan_source(&source, name, parser.as_mut(), readseek_dir.as_deref())
+            let parser = needs_parser.then_some(&mut *parser);
+            scan_source(&source, name, parser, readseek_dir.as_deref())
         })
+        .flatten_iter()
         .collect();
 
     Ok(RefsOutput { references })
@@ -138,7 +135,7 @@ fn scan_source(
         if line_number != last_line {
             let line = &source.lines[line_number - 1];
             last_line = line_number;
-            cached_line_hash.clone_from(&line.hash);
+            cached_line_hash = line.hash();
             cached_text.clone_from(&line.text);
             cached_symbol = source_map
                 .as_ref()

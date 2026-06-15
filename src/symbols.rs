@@ -572,7 +572,5 @@ fn descendant_identifier(node: Node<'_>, source: &str) -> Option<String> {
 }
 
 fn line_hash(lines: &[SourceLine], line: usize) -> Option<String> {
-    lines
-        .get(line.checked_sub(1)?)
-        .map(|line| line.hash.clone())
+    lines.get(line.checked_sub(1)?).map(SourceLine::hash)
 }

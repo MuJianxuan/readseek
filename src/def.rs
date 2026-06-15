@@ -138,7 +138,7 @@ fn locations_in_path(
     let Ok(text) = String::from_utf8(bytes) else {
         return Ok(Vec::new());
     };
-    let Ok(source) = source_from_text(path, &text, language, false, None) else {
+    let Ok(source) = source_from_text(path, text, language, false, None) else {
         return Ok(Vec::new());
     };
     let mut definitions = macro_locations(&source, search_name);
@@ -158,7 +158,7 @@ fn locations_in_path(
             language: source.detection.language,
             engine: source.detection.engine,
             file_hash: source.file_hash.clone(),
-            line_hash: line.hash.clone(),
+            line_hash: line.hash(),
             text: line.text.clone(),
             symbol,
         });
@@ -218,10 +218,10 @@ fn macro_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
                 qualified_name: name.to_owned(),
                 start_line: line.number,
                 end_line: line.number,
-                start_hash: line.hash.clone(),
-                end_hash: line.hash.clone(),
+                start_hash: line.hash(),
+                end_hash: line.hash(),
             },
-            line_hash: line.hash.clone(),
+            line_hash: line.hash(),
             text: line.text.clone(),
         })
         .collect()

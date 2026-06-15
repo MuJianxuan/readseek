@@ -670,10 +670,12 @@ pub(crate) fn extract_plain_text(
     Ok(text)
 }
 
-pub(crate) fn normalize_source_text(text: &str) -> String {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+pub(crate) fn normalize_source_text(mut text: String) -> String {
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
     if !text.contains('\r') {
-        return text.to_owned();
+        return text;
     }
     text.replace("\r\n", "\n").replace('\r', "\n")
 }

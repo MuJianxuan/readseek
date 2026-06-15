@@ -66,7 +66,12 @@ struct LoadedDocument {
 pub(crate) struct SourceLine {
     pub(crate) number: usize,
     pub(crate) text: String,
-    pub(crate) hash: String,
+}
+
+impl SourceLine {
+    pub(crate) fn hash(&self) -> String {
+        hash_line(self.number, &self.text)
+    }
 }
 
 #[derive(Debug)]
@@ -82,7 +87,7 @@ pub(crate) fn load_source(
     let document = load_document(path, binary_mode)?;
     source_from_text(
         path,
-        &document.text,
+        document.text,
         language,
         document.binary,
         document.mime,
@@ -91,7 +96,7 @@ pub(crate) fn load_source(
 
 pub(crate) fn source_from_text(
     path: &Path,
-    text: &str,
+    text: String,
     language: Option<Language>,
     binary: bool,
     mime: Option<String>,
@@ -122,7 +127,6 @@ pub(crate) fn source_from_text(
             SourceLine {
                 number: index + 1,
                 text: part.to_owned(),
-                hash: hash_line(index + 1, part),
             }
         })
         .collect();
@@ -222,7 +226,7 @@ pub(crate) fn find_symbol(source_map: &SourceMap, line: usize) -> Option<Symbol>
 pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
     source
         .line(line)
-        .map(|line| line.hash.clone())
+        .map(SourceLine::hash)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))
 }
 
@@ -237,7 +241,7 @@ pub(crate) fn range_hashlines(
         .iter()
         .map(|line| HashLine {
             line: line.number,
-            hash: line.hash.clone(),
+            hash: line.hash(),
             text: line.text.clone(),
         })
         .collect()

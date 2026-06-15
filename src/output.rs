@@ -174,7 +174,7 @@ pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Opt
         Some(TargetAddress::Hash(hash)) => source
             .lines
             .iter()
-            .find_map(|line| (line.hash == *hash).then_some(line.number))
+            .find_map(|line| (line.hash() == *hash).then_some(line.number))
             .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
             .map(Some),
         None => Ok(None),
@@ -207,7 +207,7 @@ pub(crate) fn load_source_for_input(
         io::stdin()
             .read_to_string(&mut text)
             .context("read stdin")?;
-        return source_from_text(stdin_path, &text, override_language, false, None);
+        return source_from_text(stdin_path, text, override_language, false, None);
     }
     load_source(path, override_language, binary_mode)
 }
@@ -249,7 +249,7 @@ pub(crate) fn read_output(
         .iter()
         .map(|line| HashLine {
             line: line.number,
-            hash: line.hash.clone(),
+            hash: line.hash(),
             text: line.text.clone(),
         })
         .collect();
@@ -386,10 +386,10 @@ pub(crate) fn identify_output(
         file_hash: source.file_hash.clone(),
         line,
         column,
-        line_hash: source_line.hash.clone(),
+        line_hash: source_line.hash(),
         hashlines: vec![HashLine {
             line: source_line.number,
-            hash: source_line.hash.clone(),
+            hash: source_line.hash(),
             text: source_line.text.clone(),
         }],
         identifier,
