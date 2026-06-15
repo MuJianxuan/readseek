@@ -275,7 +275,7 @@ pub(crate) fn refs_output(command: &RefsCommand) -> Result<RefsOutput> {
             } else {
                 None
             };
-            refs_in_source(&source, name, parser.as_mut(), readseek_dir.as_deref())
+            scan_source(&source, name, parser.as_mut(), readseek_dir.as_deref())
         })
         .collect();
 
@@ -304,7 +304,7 @@ pub(crate) fn compact_refs(output: &RefsOutput) -> CompactOutput {
     }
 }
 
-fn refs_in_source(
+fn scan_source(
     source: &SourceFile,
     name: &str,
     parser: Option<&mut Parser>,
@@ -342,8 +342,6 @@ fn refs_in_source(
     if compact.is_empty() {
         return Vec::new();
     }
-
-    compact.sort_unstable_by_key(|(l, _)| *l);
 
     let file = Arc::new(source.path.clone());
     let file_hash: Arc<str> = Arc::from(source.file_hash.as_str());
