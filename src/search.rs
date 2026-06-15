@@ -160,7 +160,7 @@ pub(crate) fn compile_search(pattern: &str) -> SearchPattern {
 ///
 /// This allows the pattern tree to be reused across multiple files of the same
 /// language, avoiding redundant parsing.
-pub(crate) fn prepare_pattern_tree(pattern: &mut SearchPattern, language: &tree_sitter::Language) {
+pub(crate) fn prepare_tree(pattern: &mut SearchPattern, language: &tree_sitter::Language) {
     let mut parser = Parser::new();
     if parser.set_language(language).is_err() {
         return;

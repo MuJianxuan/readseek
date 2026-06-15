@@ -168,7 +168,7 @@ pub(crate) struct SearchCapture {
     pub(crate) hashlines: Vec<HashLine>,
 }
 
-pub(crate) fn resolve_target_line(source: &SourceFile, target: &Target) -> Result<Option<usize>> {
+pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Option<usize>> {
     match target.address.as_ref() {
         Some(TargetAddress::Line(line)) => Ok(Some(*line)),
         Some(TargetAddress::Hash(hash)) => source
@@ -181,12 +181,12 @@ pub(crate) fn resolve_target_line(source: &SourceFile, target: &Target) -> Resul
     }
 }
 
-pub(crate) fn resolve_explicit_target_line(
+pub(crate) fn resolve_explicit_target(
     source: &SourceFile,
     target: &Target,
     line: Option<usize>,
 ) -> Result<Option<usize>> {
-    let target_line = resolve_target_line(source, target)?;
+    let target_line = resolve_target(source, target)?;
     match (target_line, line) {
         (Some(target_line), Some(line)) if target_line != line => {
             bail!("target line conflicts with --line")
@@ -279,7 +279,7 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
     })
 }
 
-pub(crate) fn symbol_command_output(
+pub(crate) fn symbol_output(
     source: &SourceFile,
     address: Option<&str>,
     target_line: Option<usize>,

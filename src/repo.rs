@@ -9,6 +9,7 @@ use crate::symbols;
 use anyhow::{Context, Result, bail};
 use crc::CRC_32_ISO_HDLC;
 use rayon::prelude::*;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::mem::offset_of;
 use std::path::{Path, PathBuf};
@@ -80,6 +81,12 @@ pub(crate) struct DefIndexEntry {
     pub(crate) qualified_name: String,
     pub(crate) file_hash: String,
     pub(crate) path: PathBuf,
+}
+
+struct UpdatePathResult {
+    file_hash: String,
+    created: bool,
+    entries: Vec<DefIndexEntry>,
 }
 
 pub(crate) fn find_readseek_dir(base: &Path) -> Option<PathBuf> {
@@ -393,10 +400,7 @@ pub(crate) fn store_map(
     Ok(())
 }
 
-pub(crate) fn load_def_index(
-    readseek_dir: &Path,
-    name: &str,
-) -> Result<Option<Vec<DefIndexEntry>>> {
+pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<DefIndexEntry>>> {
     let path = def_index_shard_path(readseek_dir, name);
     if !path.exists() {
         return Ok(None);
@@ -423,73 +427,86 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let readseek_dir = readseek_dir_or_err(dir)?;
     let project_root = readseek_dir.parent().context(".readseek has no parent")?;
-
     let paths = crate::paths::command_paths(project_root, flags)?;
 
+    let results: Vec<_> = paths
+        .par_iter()
+        .filter_map(|path| process_update_path(&readseek_dir, path))
+        .collect();
+
+    let mut active_hashes = HashSet::new();
+    let mut index_entries = Vec::new();
     let mut stats = UpdateStats {
         created: 0,
         removed: 0,
         unchanged: 0,
     };
 
-    let results: Vec<(String, bool, Vec<DefIndexEntry>)> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let source =
-                crate::source::load_source(path, None, crate::lang::BinaryMode::Reject).ok()?;
-            if !source.detection.supported {
-                return None;
-            }
-            let map_path = map_path(&readseek_dir, &source.file_hash);
-            let source_map = if map_path.exists() {
-                load_map(&readseek_dir, &source.file_hash)
-                    .ok()
-                    .flatten()
-                    .map(|(source_map, _, _)| source_map)?
-            } else {
-                symbols::parse_source_map(&source).ok()?
-            };
-            let created = if map_path.exists() {
-                false
-            } else {
-                store_map(&readseek_dir, &source.file_hash, &source, &source_map).ok()?;
-                true
-            };
-            let entries = source_map
-                .symbols
-                .into_iter()
-                .map(|symbol| DefIndexEntry {
-                    name: symbol.name,
-                    qualified_name: symbol.qualified_name,
-                    file_hash: source.file_hash.clone(),
-                    path: source.path.clone(),
-                })
-                .collect();
-            Some((source.file_hash, created, entries))
-        })
-        .collect();
-
-    let mut active_hashes = std::collections::HashSet::new();
-    let mut index_entries = Vec::new();
-
-    for (hash, created, entries) in results {
-        active_hashes.insert(hash);
-        index_entries.extend(entries);
-        if created {
+    for result in results {
+        active_hashes.insert(result.file_hash);
+        index_entries.extend(result.entries);
+        if result.created {
             stats.created += 1;
         } else {
             stats.unchanged += 1;
         }
     }
 
-    let mut shards: std::collections::BTreeMap<
-        char,
-        std::collections::BTreeMap<String, Vec<DefIndexEntry>>,
-    > = std::collections::BTreeMap::new();
+    let shards = build_index_shards(index_entries);
+    let written_prefixes = write_index_shards(&readseek_dir, &shards)?;
+    remove_stale_index_shards(&readseek_dir, &written_prefixes)?;
+    remove_legacy_index(&readseek_dir);
+    stats.removed += remove_stale_maps(&readseek_dir, &active_hashes)?;
+
+    Ok(stats)
+}
+
+fn process_update_path(readseek_dir: &Path, path: &Path) -> Option<UpdatePathResult> {
+    let source = crate::source::load_source(path, None, crate::lang::BinaryMode::Reject).ok()?;
+    if !source.detection.supported {
+        return None;
+    }
+
+    let path = map_path(readseek_dir, &source.file_hash);
+    let source_map = if path.exists() {
+        load_map(readseek_dir, &source.file_hash)
+            .ok()
+            .flatten()
+            .map(|(source_map, _, _)| source_map)?
+    } else {
+        symbols::parse_source_map(&source).ok()?
+    };
+    let created = if path.exists() {
+        false
+    } else {
+        store_map(readseek_dir, &source.file_hash, &source, &source_map).ok()?;
+        true
+    };
+    let entries = source_map
+        .symbols
+        .into_iter()
+        .map(|symbol| DefIndexEntry {
+            name: symbol.name,
+            qualified_name: symbol.qualified_name,
+            file_hash: source.file_hash.clone(),
+            path: source.path.clone(),
+        })
+        .collect();
+
+    Some(UpdatePathResult {
+        file_hash: source.file_hash,
+        created,
+        entries,
+    })
+}
+
+fn build_index_shards(
+    index_entries: Vec<DefIndexEntry>,
+) -> BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>> {
+    let mut shards: BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>> = BTreeMap::new();
     for entry in index_entries {
         let prefix = shard_prefix(&entry.name);
         shards
@@ -517,16 +534,29 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
             });
         }
     }
+
+    shards
+}
+
+fn write_index_shards(
+    readseek_dir: &Path,
+    shards: &BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>>,
+) -> Result<BTreeSet<char>> {
     let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
     fs::create_dir_all(&shard_dir).with_context(|| format!("create {}", shard_dir.display()))?;
-    let mut written_prefixes = std::collections::BTreeSet::new();
-    for (prefix, shard) in &shards {
+    let mut written_prefixes = BTreeSet::new();
+    for (prefix, shard) in shards {
         let data = serde_json::to_vec(shard).context("serialize definition index shard")?;
         let path = shard_dir.join(format!("{prefix}.json"));
         write_atomic(&path, &data)?;
         written_prefixes.insert(*prefix);
     }
 
+    Ok(written_prefixes)
+}
+
+fn remove_stale_index_shards(readseek_dir: &Path, written_prefixes: &BTreeSet<char>) -> Result<()> {
+    let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
     for entry in
         fs::read_dir(&shard_dir).with_context(|| format!("read {}", shard_dir.display()))?
     {
@@ -542,12 +572,19 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
             }
         }
     }
-    // Remove legacy single-file index if present
+
+    Ok(())
+}
+
+fn remove_legacy_index(readseek_dir: &Path) {
     let legacy_path = readseek_dir.join("def-index.json");
     if legacy_path.exists() {
         fs::remove_file(&legacy_path).ok();
     }
+}
 
+fn remove_stale_maps(readseek_dir: &Path, active_hashes: &HashSet<String>) -> Result<usize> {
+    let mut removed = 0;
     let maps_root = readseek_dir.join(MAPS_DIR);
     if maps_root.is_dir() {
         for entry in
@@ -570,7 +607,7 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
                             && !active_hashes.contains(&hash_hex)
                         {
                             fs::remove_file(file_entry.path())?;
-                            stats.removed += 1;
+                            removed += 1;
                         }
                     }
                 }
@@ -578,5 +615,5 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
         }
     }
 
-    Ok(stats)
+    Ok(removed)
 }

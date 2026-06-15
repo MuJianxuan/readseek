@@ -44,7 +44,7 @@ pub(crate) fn def_candidate_paths(command: &DefCommand, search_name: &str) -> Re
         others: command.others,
         ignored: command.ignored,
     };
-    if let Some(paths) = git_def_candidate_paths(&command.target, flags, search_name)? {
+    if let Some(paths) = git_candidate_paths(&command.target, flags, search_name)? {
         return Ok(paths);
     }
 
@@ -88,7 +88,7 @@ fn resolve_git_scope(target: &Path, flags: GitFlags) -> Result<Option<GitScope>>
     }))
 }
 
-fn git_def_candidate_paths(
+fn git_candidate_paths(
     target: &Path,
     flags: GitFlags,
     search_name: &str,
