@@ -339,7 +339,7 @@ function parseSearchOutput(value: unknown): ReadseekSearchOutput {
 
 export async function readseekRead(filePath: string, startLine?: number, endLine?: number): Promise<ReadseekReadOutput> {
 	const args = ["read", filePath];
-	if (startLine !== undefined) args.push("--start", String(startLine));
+	if (startLine !== undefined) args.push("--offset", String(startLine));
 	if (endLine !== undefined) args.push("--end", String(endLine));
 	return parseReadOutput(await runReadseek(args));
 }
