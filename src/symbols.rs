@@ -144,7 +144,7 @@ fn symbol_for_node(
         }
         Language::Python => python_symbol(node, source),
         Language::Bash => bash_symbol(node, source),
-        Language::C | Language::Cpp => c_like_symbol(node, source),
+        Language::C | Language::Cpp => c_symbol(node, source),
         Language::CSharp => csharp_symbol(node, source),
         Language::Go => go_symbol(node, source),
         Language::Java => java_symbol(node, source),
@@ -307,11 +307,13 @@ fn vimscript_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     }
 }
 
-fn c_like_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
+fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
-        "function_definition" => {
-            descendant_identifier(node, source).map(|name| ("function".to_owned(), name))
-        }
+        "function_definition" => node
+            .child_by_field_name("declarator")
+            .and_then(|declarator| function_declarator_name(declarator, source))
+            .or_else(|| descendant_identifier(node, source))
+            .map(|name| ("function".to_owned(), name)),
         "struct_specifier" => named_symbol(node, source, "name", "struct"),
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
@@ -378,6 +380,20 @@ fn descendant_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree
     }
 
     None
+}
+
+fn function_declarator_name(node: Node<'_>, source: &str) -> Option<String> {
+    match node.kind() {
+        "identifier"
+        | "field_identifier"
+        | "destructor_name"
+        | "operator_name"
+        | "qualified_identifier" => node
+            .utf8_text(source.as_bytes())
+            .ok()
+            .map(ToOwned::to_owned),
+        _ => function_declarator_name(node.child_by_field_name("declarator")?, source),
+    }
 }
 
 fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
