@@ -314,6 +314,10 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
             .and_then(|declarator| function_declarator_name(declarator, source))
             .or_else(|| descendant_identifier(node, source))
             .map(|name| ("function".to_owned(), name)),
+        "field_declaration" => node
+            .child_by_field_name("declarator")
+            .and_then(|declarator| function_declarator_name(declarator, source))
+            .map(|name| ("member".to_owned(), name)),
         "struct_specifier" => named_symbol(node, source, "name", "struct"),
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
