@@ -4,16 +4,7 @@ type CoercedIntResult =
   | { ok: true; value: number | undefined }
   | { ok: false; message: string };
 
-export function coerceObviousBase10Int(value: unknown): unknown;
-export function coerceObviousBase10Int(value: unknown, name: string): CoercedIntResult;
-export function coerceObviousBase10Int(value: unknown, name?: string): unknown | CoercedIntResult {
-  if (name === undefined) {
-    if (typeof value === "string" && BASE10_INT_RE.test(value)) {
-      return Number.parseInt(value, 10);
-    }
-    return value;
-  }
-
+export function coerceObviousBase10Int(value: unknown, name: string): CoercedIntResult {
   if (value === undefined) {
     return { ok: true, value: undefined };
   }

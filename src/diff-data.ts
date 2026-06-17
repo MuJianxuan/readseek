@@ -99,7 +99,6 @@ function parseFullDiffEntries(diff: string): DiffEntry[] {
     entries.push({ kind: "meta", text: line });
   }
 
-  void nextOldLine;
   return entries;
 }
 

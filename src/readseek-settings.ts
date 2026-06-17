@@ -49,18 +49,6 @@ function readPositive(
   return undefined;
 }
 
-function readBoolean(
-  raw: Record<string, unknown>,
-  key: string,
-  path: string,
-  source: string,
-  warnings: ReadseekSettingsWarning[],
-): boolean | undefined {
-  if (!(key in raw)) return undefined;
-  if (typeof raw[key] === "boolean") return raw[key];
-  warnings.push(invalid(source, path));
-  return undefined;
-}
 
 function validateSettings(raw: unknown, source: string): ReadseekSettingsResult {
   const settings: ReadseekJsonSettings = {};

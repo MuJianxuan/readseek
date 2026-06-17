@@ -51,7 +51,7 @@ export async function validateSyntaxRegression(
     return null;
   }
 
-  const newErrorCount = Math.max(0, after.errorCount - before.errorCount - 1);
+  const newErrorCount = Math.max(0, after.errorCount - before.errorCount);
   const newMissingCount = Math.max(0, after.missingCount - before.missingCount);
 
   if (newErrorCount === 0 && newMissingCount === 0) return null;

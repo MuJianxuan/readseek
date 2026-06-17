@@ -4,10 +4,19 @@ import { CONFUSABLE_HYPHENS_RE } from "./confusable-hyphens.js";
 
 
 export function detectLineEnding(content: string): "\r\n" | "\n" {
-	const crlfIdx = content.indexOf("\r\n");
-	const lfIdx = content.indexOf("\n");
-	if (lfIdx === -1 || crlfIdx === -1) return "\n";
-	return crlfIdx < lfIdx ? "\r\n" : "\n";
+	let crlf = 0;
+	let lf = 0;
+	for (let i = 0; i < content.length; i++) {
+		if (content[i] === "\r" && i + 1 < content.length && content[i + 1] === "\n") {
+			crlf++;
+			i++;
+		} else if (content[i] === "\n") {
+			lf++;
+		}
+	}
+	if (lf === 0) return "\r\n";
+	if (crlf === 0) return "\n";
+	return crlf > lf ? "\r\n" : "\n";
 }
 
 export function normalizeToLF(text: string): string {

@@ -294,7 +294,7 @@ export async function executeWrite(opts: {
       warnings: readseekWarnings,
       diff: diffResult.diff,
       diffData,
-      ...(requestMap !== undefined ? { map: { appended: mapAppended } } : {}),
+      ...(requestMap ? { map: { appended: mapAppended } } : {}),
     },
   };
 }

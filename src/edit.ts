@@ -258,6 +258,27 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			const { bom, text: content } = stripBom(raw);
 			const originalEnding = detectLineEnding(content);
 			const originalNormalized = normalizeToLF(content);
+			const origLines = originalNormalized.split("\n");
+			const anchorSnapshots = new Map<string, string>();
+			for (const edit of anchorEdits) {
+				const refs: string[] = [];
+				if ("set_line" in edit) refs.push((edit as any).set_line.anchor);
+				else if ("replace_lines" in edit) {
+					refs.push((edit as any).replace_lines.start_anchor, (edit as any).replace_lines.end_anchor);
+				} else if ("insert_after" in edit) refs.push((edit as any).insert_after.anchor);
+				for (const ref of refs) {
+					try {
+						const parsed = parseLineRef(ref);
+						if (parsed.line >= 1 && parsed.line <= origLines.length) {
+							const lineContent = origLines[parsed.line - 1];
+							const hash = computeLineHash(parsed.line, lineContent);
+							anchorSnapshots.set(ref, `${parsed.line}:${hash}|${escapeControlCharsForDisplay(lineContent)}`);
+						}
+					} catch {
+						/* skip malformed refs */
+					}
+				}
+			}
 			let preAnchorContent = originalNormalized;
 			// AC 26: reject anchored edits that target a line inside any replace_symbol
 			// pre-replace range. Resolve each target against the ORIGINAL content so the
@@ -412,30 +433,9 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 							.join("\n");
 					diagnostic += "\nRe-read the file to see the current state.";
 				} else {
-					// Edits were not literally identical but heuristics normalized them back
-					const lines = result.split("\n");
-					const targetLines: string[] = [];
-					for (const edit of edits) {
-						const refs: string[] = [];
-						if ("set_line" in edit) refs.push((edit as any).set_line.anchor);
-						else if ("replace_lines" in edit) {
-							refs.push((edit as any).replace_lines.start_anchor, (edit as any).replace_lines.end_anchor);
-						} else if ("insert_after" in edit) refs.push((edit as any).insert_after.anchor);
-						for (const ref of refs) {
-							try {
-								const parsed = parseLineRef(ref);
-								if (parsed.line >= 1 && parsed.line <= lines.length) {
-									const lineContent = lines[parsed.line - 1];
-									const hash = computeLineHash(parsed.line, lineContent);
-									targetLines.push(`${parsed.line}:${hash}|${escapeControlCharsForDisplay(lineContent)}`);
-								}
-							} catch {
-								/* skip malformed refs */
-							}
-						}
-					}
+					const targetLines = [...new Set(anchorSnapshots.values())];
 					if (targetLines.length > 0) {
-						const preview = [...new Set(targetLines)].slice(0, 5).join("\n");
+						const preview = targetLines.slice(0, 5).join("\n");
 						diagnostic += `\nThe file currently contains:\n${preview}\nYour edits were normalized back to the original content. Ensure your replacement changes actual code, not just formatting.`;
 					}
 				}
@@ -555,7 +555,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				semanticSummary,
 			});
 
-			const warn = warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : "";
 			return {
 				content: [{ type: "text", text: builtOutput.text }],
 				details: {
