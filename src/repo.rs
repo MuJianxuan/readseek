@@ -446,7 +446,10 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
 
     let results: Vec<_> = paths
         .par_iter()
-        .filter_map(|path| process_update_path(&readseek_dir, path))
+        .map(|path| process_update_path(&readseek_dir, path))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
         .collect();
 
     let mut active_hashes = HashSet::new();
@@ -476,27 +479,23 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     Ok(stats)
 }
 
-fn process_update_path(readseek_dir: &Path, path: &Path) -> Option<UpdatePathResult> {
-    let source = crate::source::load_source(path, None, crate::lang::BinaryMode::Reject).ok()?;
+fn process_update_path(readseek_dir: &Path, path: &Path) -> Result<Option<UpdatePathResult>> {
+    let Some(source) = crate::source::load_indexable_source(path, None)? else {
+        return Ok(None);
+    };
     if !source.detection.supported {
-        return None;
+        return Ok(None);
     }
 
-    let path = map_path(readseek_dir, &source.file_hash);
-    let source_map = if path.exists() {
-        load_map(readseek_dir, &source.file_hash)
-            .ok()
-            .flatten()
-            .map(|(source_map, _, _)| source_map)?
-    } else {
-        symbols::parse_source_map(&source).ok()?
-    };
-    let created = if path.exists() {
-        false
-    } else {
-        store_map(readseek_dir, &source.file_hash, &source, &source_map).ok()?;
-        true
-    };
+    let (source_map, created) =
+        if let Some((source_map, _, _)) = load_map(readseek_dir, &source.file_hash)? {
+            (source_map, false)
+        } else {
+            let source_map = symbols::parse_source_map(&source)?;
+            store_map(readseek_dir, &source.file_hash, &source, &source_map)?;
+            (source_map, true)
+        };
+
     let entries = source_map
         .symbols
         .into_iter()
@@ -508,11 +507,11 @@ fn process_update_path(readseek_dir: &Path, path: &Path) -> Option<UpdatePathRes
         })
         .collect();
 
-    Some(UpdatePathResult {
+    Ok(Some(UpdatePathResult {
         file_hash: source.file_hash,
         created,
         entries,
-    })
+    }))
 }
 
 fn build_index_shards(

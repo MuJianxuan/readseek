@@ -163,6 +163,8 @@ def main():
         elif assert_equal(name, result_init.stdout, expected_init):
             passed(name)
 
+        write_file(tmpdir, "blob.bin", b"\0\1")
+
         name = "init: reinitialize .readseek directory"
         result_init = run(["init", tmpdir])
         expected_init = f"Reinitialized existing readseek repository in {os.path.join(tmpdir, '.readseek')}/\n"

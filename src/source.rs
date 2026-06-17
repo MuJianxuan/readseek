@@ -97,6 +97,21 @@ pub(crate) fn load_source(
     )
 }
 
+pub(crate) fn load_indexable_source(
+    path: &Path,
+    language: Option<Language>,
+) -> Result<Option<SourceFile>> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
+    if is_binary_document(&bytes, mime.as_deref()) {
+        return Ok(None);
+    }
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Ok(None);
+    };
+    source_from_text(path, text, language, false, mime).map(Some)
+}
+
 pub(crate) fn source_from_text(
     path: &Path,
     text: String,
@@ -156,13 +171,7 @@ pub(crate) fn source_from_text(
 fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
-    let binary = mime.as_deref().is_some_and(|mime| {
-        mime.starts_with("application/")
-            || mime.starts_with("audio/")
-            || mime.starts_with("font/")
-            || mime.starts_with("image/")
-            || mime.starts_with("video/")
-    }) || bytes.contains(&0);
+    let binary = is_binary_document(&bytes, mime.as_deref());
 
     if binary && binary_mode == BinaryMode::Reject {
         bail!(
@@ -176,6 +185,16 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         .with_context(|| format!("extract from {}", path.display()))?;
 
     Ok(LoadedDocument { text, binary, mime })
+}
+
+fn is_binary_document(bytes: &[u8], mime: Option<&str>) -> bool {
+    mime.is_some_and(|mime| {
+        mime.starts_with("application/")
+            || mime.starts_with("audio/")
+            || mime.starts_with("font/")
+            || mime.starts_with("image/")
+            || mime.starts_with("video/")
+    }) || bytes.contains(&0)
 }
 
 pub(crate) fn source_map(source: &SourceFile) -> Result<SourceMap> {
