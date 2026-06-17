@@ -36,6 +36,9 @@ pub(crate) struct Symbol {
     pub(crate) end_line: usize,
     pub(crate) start_hash: String,
     pub(crate) end_hash: String,
+    pub(crate) start_byte: usize,
+    pub(crate) end_byte: usize,
+    pub(crate) name_byte: usize,
 }
 
 #[derive(Debug)]

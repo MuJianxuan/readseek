@@ -309,12 +309,15 @@ def main():
         data = readseek_json(name, ["map", path])
         if data:
             symbols = data.get("symbols", [])
+            greeter = find_symbol(symbols, "class", "Greeter")
             if all(
                 [
                     assert_equal(name, data.get("language"), "javascript"),
                     assert_symbol(name, symbols, "class", "Greeter"),
                     assert_symbol(name, symbols, "method", "greet"),
                     assert_symbol(name, symbols, "function", "make"),
+                    assert_equal(name, greeter.get("start_byte"), 0),
+                    assert_equal(name, greeter.get("name_byte"), 6),
                 ]
             ):
                 passed(name)
@@ -718,7 +721,24 @@ def main():
                 assert_equal(name, data["identifier"].get("text"), "greet"),
                 assert_equal(name, data["identifier"].get("start_column"), 3),
                 assert_equal(name, data["identifier"].get("end_column"), 8),
+                assert_equal(name, data["identifier"].get("start_byte"), 24),
+                assert_equal(name, data["identifier"].get("end_byte"), 29),
                 assert_equal(name, data["symbol"].get("qualified_name"), "BufferGreeter.greet"),
+            ]
+        ):
+            passed(name)
+
+        name = "identify: unicode identifier span"
+        data = readseek_json(
+            name,
+            ["identify", "--stdin", "unicode.rs", "--line", "1", "--column", "8"],
+            stdin="fn café() {}\n",
+        )
+        if data and all(
+            [
+                assert_equal(name, data["identifier"].get("text"), "café"),
+                assert_equal(name, data["identifier"].get("start_column"), 4),
+                assert_equal(name, data["identifier"].get("end_column"), 9),
             ]
         ):
             passed(name)
@@ -960,6 +980,184 @@ def main():
                 ]
             ):
                 passed(name)
+
+        name = "references: scope resolves shadowed binding"
+        scope_dir = os.path.join(tmpdir, "scope")
+        os.mkdir(scope_dir)
+        scope_path = write_file(
+            scope_dir,
+            "scope.rs",
+            "fn outer() {\n    let x = 1;\n    {\n        let x = 2;\n        use_it(x);\n    }\n    use_it(x);\n}\n",
+        )
+
+        def occurrences(data):
+            return sorted(
+                (reference.get("line"), reference.get("column"), reference.get("occurrence"))
+                for reference in data.get("references", [])
+            )
+
+        data = readseek_json(
+            name, ["refs", scope_path, "x", "--scope", "--line", "2", "--column", "9"]
+        )
+        if data and assert_equal(
+            name, occurrences(data), [(2, 9, "definition"), (7, 12, "reference")]
+        ):
+            passed(name)
+
+        name = "references: scope resolves inner binding"
+        data = readseek_json(
+            name, ["refs", scope_path, "x", "--scope", "--line", "4", "--column", "13"]
+        )
+        if data and assert_equal(
+            name, occurrences(data), [(4, 13, "definition"), (5, 16, "reference")]
+        ):
+            passed(name)
+
+        name = "references: scope resolves function parameter"
+        param_path = write_file(
+            scope_dir,
+            "param.rs",
+            "fn add(value: i32) -> i32 {\n    value + 1\n}\nfn other(value: i32) -> i32 { value }\n",
+        )
+        data = readseek_json(
+            name, ["refs", param_path, "value", "--scope", "--line", "1", "--column", "8"]
+        )
+        if data and assert_equal(
+            name, occurrences(data), [(1, 8, "definition"), (2, 5, "reference")]
+        ):
+            passed(name)
+
+        name = "references: scope rejects name mismatch"
+        expect_failure(
+            name, ["refs", param_path, "missing", "--scope", "--line", "1", "--column", "8"]
+        )
+
+        name = "references: line without scope fails"
+        expect_failure(name, ["refs", param_path, "value", "--line", "1"])
+
+        name = "rename: plan for inner binding"
+        data = readseek_json(
+            name, ["rename", scope_path, "--line", "4", "--column", "13", "--to", "renamed"]
+        )
+        if data:
+            edits = sorted(
+                (edit.get("line"), edit.get("start_column"), edit.get("occurrence"))
+                for edit in data.get("edits", [])
+            )
+            if all(
+                [
+                    assert_equal(name, data.get("old_name"), "x"),
+                    assert_equal(name, data.get("new_name"), "renamed"),
+                    assert_equal(name, data.get("applied"), False),
+                    assert_equal(name, data.get("conflicts"), []),
+                    assert_equal(name, edits, [(4, 13, "definition"), (5, 16, "reference")]),
+                    assert_true(
+                        name,
+                        all(len(edit.get("line_hash", "")) == 3 for edit in data["edits"]),
+                        "edit missing line hash",
+                    ),
+                ]
+            ):
+                passed(name)
+
+        name = "rename: reports binding conflict"
+        conflict_path = write_file(
+            scope_dir,
+            "conflict.rs",
+            "fn f() {\n    let a = 1;\n    let b = 2;\n    use_it(a + b);\n}\n",
+        )
+        data = readseek_json(
+            name, ["rename", conflict_path, "--line", "2", "--column", "9", "--to", "b"]
+        )
+        if data:
+            conflicts = data.get("conflicts", [])
+            if all(
+                [
+                    assert_equal(name, len(conflicts), 1),
+                    assert_equal(name, conflicts[0].get("line"), 4),
+                ]
+            ):
+                passed(name)
+
+        name = "rename: rejects identical name"
+        expect_failure(
+            name, ["rename", conflict_path, "--line", "2", "--column", "9", "--to", "a"]
+        )
+
+        name = "rename: rejects invalid identifier"
+        expect_failure(
+            name, ["rename", conflict_path, "--line", "2", "--column", "9", "--to", "2bad"]
+        )
+
+        name = "rename: applies edits to file"
+        apply_path = write_file(
+            scope_dir,
+            "apply.rs",
+            "fn outer() {\n    let x = 1;\n    {\n        let x = 2;\n        use_it(x);\n    }\n    use_it(x);\n}\n",
+        )
+        data = readseek_json(
+            name, ["rename", apply_path, "--line", "4", "--column", "13", "--to", "renamed", "--apply"]
+        )
+        if data and assert_equal(name, data.get("applied"), True):
+            with open(apply_path, encoding="utf-8") as file:
+                contents = file.read()
+            expected = (
+                "fn outer() {\n    let x = 1;\n    {\n        let renamed = 2;\n"
+                "        use_it(renamed);\n    }\n    use_it(x);\n}\n"
+            )
+            if assert_equal(name, contents, expected):
+                passed(name)
+
+        name = "references: scope resolves C block shadowing"
+        c_scope_path = write_file(
+            scope_dir,
+            "scope.c",
+            "int add(int value, int other) {\n    int result = value + other;\n    {\n        int result = value * 2;\n        use_it(result);\n    }\n    return result;\n}\n",
+        )
+        data = readseek_json(
+            name,
+            ["refs", c_scope_path, "result", "--scope", "--line", "2", "--column", "9", "--language", "c"],
+        )
+        if data and assert_equal(
+            name, occurrences(data), [(2, 9, "definition"), (7, 12, "reference")]
+        ):
+            passed(name)
+
+        name = "rename: applies C parameter rename"
+        c_apply_path = write_file(
+            scope_dir,
+            "apply.c",
+            "int add(int value, int other) {\n    return value + other;\n}\n",
+        )
+        data = readseek_json(
+            name,
+            ["rename", c_apply_path, "--line", "1", "--column", "13", "--to", "v", "--apply", "--language", "c"],
+        )
+        if data and assert_equal(name, data.get("applied"), True):
+            with open(c_apply_path, encoding="utf-8") as file:
+                contents = file.read()
+            expected = "int add(int v, int other) {\n    return v + other;\n}\n"
+            if assert_equal(name, contents, expected):
+                passed(name)
+
+        name = "rename: apply refuses on conflict"
+        apply_conflict_path = write_file(
+            scope_dir,
+            "apply-conflict.rs",
+            "fn f() {\n    let a = 1;\n    let b = 2;\n    use_it(a + b);\n}\n",
+        )
+        before = open(apply_conflict_path, encoding="utf-8").read()
+        result = run(
+            ["rename", apply_conflict_path, "--line", "2", "--column", "9", "--to", "b", "--apply"]
+        )
+        after = open(apply_conflict_path, encoding="utf-8").read()
+        if all(
+            [
+                assert_true(name, result.returncode != 0, "expected failure"),
+                assert_equal(name, after, before),
+            ]
+        ):
+            passed(name)
 
         name = "references: C ignores comments and literals"
         c_references_dir = os.path.join(tmpdir, "c-references")

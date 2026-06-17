@@ -31,6 +31,7 @@ fn load_source(input: &cli::InputArgs, binary_mode: BinaryMode) -> Result<(Targe
     Ok((target, source))
 }
 
+mod binding;
 mod cli;
 mod def;
 mod flags;
@@ -39,6 +40,7 @@ mod lang;
 mod output;
 mod paths;
 mod refs;
+mod rename;
 mod repo;
 mod search;
 mod source;
@@ -94,6 +96,7 @@ fn run() -> Result<()> {
                 crate::output::Format::Json => print_json(&output)?,
             }
         }
+        crate::cli::Command::Rename(command) => print_json(&rename::output(&command)?)?,
         crate::cli::Command::Search(command) => run_search(&command)?,
         crate::cli::Command::Init(command) => run_init(&command)?,
     }

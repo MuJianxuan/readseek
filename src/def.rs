@@ -207,22 +207,32 @@ fn macro_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
                 .unwrap_or(rest.len());
             name_len > 0 && &rest[..name_len] == name
         })
-        .map(|line| DefLocation {
-            file: source.path.clone(),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            file_hash: source.file_hash.clone(),
-            symbol: Symbol {
-                kind: "macro".to_owned(),
-                name: name.to_owned(),
-                qualified_name: name.to_owned(),
-                start_line: line.number,
-                end_line: line.number,
-                start_hash: line.hash(),
-                end_hash: line.hash(),
-            },
-            line_hash: line.hash(),
-            text: line.text.clone(),
+        .map(|line| {
+            let line_start = source.line_starts[line.number - 1];
+            let name_byte = line
+                .text
+                .find(name)
+                .map_or(line_start, |offset| line_start + offset);
+            DefLocation {
+                file: source.path.clone(),
+                language: source.detection.language,
+                engine: source.detection.engine,
+                file_hash: source.file_hash.clone(),
+                symbol: Symbol {
+                    kind: "macro".to_owned(),
+                    name: name.to_owned(),
+                    qualified_name: name.to_owned(),
+                    start_line: line.number,
+                    end_line: line.number,
+                    start_hash: line.hash(),
+                    end_hash: line.hash(),
+                    start_byte: line_start,
+                    end_byte: line_start + line.text.len(),
+                    name_byte,
+                },
+                line_hash: line.hash(),
+                text: line.text.clone(),
+            }
         })
         .collect()
 }

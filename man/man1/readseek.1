@@ -28,9 +28,13 @@ readseek \- structural source-code reader with stable line hashing
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fIname\fR]
 
-\fBreadseek refs\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek refs\fR [\fB--format\fR \fIformat\fR] [\fB--scope\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR]]
+    [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
+
+\fBreadseek rename\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR] \fB--to\fR \fIname\fR
+    [\fB--apply\fR] [\fB--language\fR \fIlanguage\fR] \fItarget\fR
 
 \fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
@@ -141,8 +145,9 @@ the two cannot be combined.
 .TP
 .B map
 Print the structural source map: each top-level symbol's kind, name, qualified
-name, start and end line, and boundary hashes. For languages that do not support
-symbol extraction the output contains an empty symbol list.
+name, start and end line, boundary hashes, the symbol's \fIstart_byte\fR and
+\fIend_byte\fR span, and the \fIname_byte\fR offset of its name token. For languages
+that do not support symbol extraction the output contains an empty symbol list.
 .TP
 .B symbol
 Print the source range for one symbol. Pick it by \fB--name\fR (qualified or
@@ -152,8 +157,11 @@ that contains that line is resolved.
 .B identify
 Print the requested cursor line, its hash, the identifier at the cursor position,
 and the enclosing mapped symbol. If \fB--column\fR is omitted, column 1 is used.
-Columns are one-based byte offsets. Identifier ranges in the JSON use a one-based
-inclusive start column and a one-based exclusive end column.
+Columns are one-based byte offsets. The identifier token is resolved with the
+language parser when available, falling back to an ASCII identifier scan otherwise.
+Identifier ranges in the JSON use a one-based inclusive start column and a one-based
+exclusive end column, plus \fIstart_byte\fR and \fIend_byte\fR file offsets that
+mark the exact token span.
 .TP
 .B def
 Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
@@ -168,6 +176,26 @@ Find all occurrences of an identifier in a file or directory. Output is a flat
 list of locations with file, line, column, line hash, line text, and the enclosing
 symbol when available. Directory search rules are the same as for \fBsearch\fR.
 Use \fB--format plain\fR to flatten symbol metadata into each location entry.
+
+With \fB--scope\fR and \fB--line\fR/\fB--column\fR, resolution is restricted to the
+lexical binding under the cursor within a single file. Each reported location then
+carries an \fIoccurrence\fR field of \fBdefinition\fR or \fBreference\fR, and
+same-named occurrences that resolve to a different binding are excluded. Scope
+resolution is currently available for \fBrust\fR, \fBc\fR, and \fBcpp\fR; other
+languages report no resolvable binding.
+.TP
+.B rename
+Plan a binding-accurate rename of the lexical binding under \fB--line\fR/\fB--column\fR
+within a single file. The output is an edit plan: \fIold_name\fR, \fInew_name\fR,
+any \fIconflicts\fR the new name would introduce, and an \fIedits\fR array with the
+line, column range, byte range, occurrence kind, and the line hashline for each
+edit. Without \fB--apply\fR the command does not modify files; it emits the plan for
+a caller to apply. With \fB--apply\fR the edits are written to the file, but only
+after refusing on any conflict and re-verifying that every edited line's hash still
+matches the plan, so a file that changed since planning is rejected rather than
+corrupted. The reported \fIapplied\fR field indicates whether the file was written.
+Rename uses the same scope resolution as \fBrefs --scope\fR and is available for the
+same languages.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file under a directory.
@@ -206,11 +234,25 @@ the command-specific JSON shape, or \fIplain\fR for flat \fIlocations\fR arrays
 with editor-friendly fields.
 .TP
 \fB--line\fR \fIline\fR
-One-based target line for \fBsymbol\fR or \fBidentify\fR.
+One-based target line for \fBsymbol\fR or \fBidentify\fR, or the cursor line for
+\fBrefs --scope\fR.
 .TP
 \fB--column\fR \fIcolumn\fR
-One-based byte column for \fBidentify\fR. Identifier ranges in JSON use a one-based
-inclusive start column and a one-based exclusive end column.
+One-based byte column for \fBidentify\fR or the cursor column for \fBrefs --scope\fR.
+Identifier ranges in JSON use a one-based inclusive start column and a one-based
+exclusive end column.
+.TP
+\fB--scope\fR
+For \fBrefs\fR, resolve only the lexical binding under \fB--line\fR/\fB--column\fR
+in a single file instead of matching every occurrence of the name.
+.TP
+\fB--to\fR \fIname\fR
+For \fBrename\fR, the new name for the binding. Must be a plain identifier and
+differ from the current name.
+.TP
+\fB--apply\fR
+For \fBrename\fR, write the planned edits to the file. Refuses on any naming
+conflict and verifies each edited line's hash before writing.
 .TP
 \fB--offset\fR \fIline\fR
 First line to include when reading. Cannot be combined with \fB--end\fR or
@@ -323,6 +365,16 @@ readseek refs -c src main --language rust
 Search Rust functions with an AST pattern:
 .EX
 readseek search -c src 'fn $NAME() { $$$BODY }' --language rust
+.EE
+
+Plan a rename of the binding under the cursor:
+.EX
+readseek rename src/main.rs --line 42 --column 8 --to renamed
+.EE
+
+Apply the rename to the file:
+.EX
+readseek rename src/main.rs --line 42 --column 8 --to renamed --apply
 .EE
 
 .SH BUILDING

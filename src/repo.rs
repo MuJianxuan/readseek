@@ -21,7 +21,7 @@ const MAPS_DIR: &str = "maps";
 const DEF_INDEX_DIR: &str = "def-index";
 const SHARD_COUNT: u32 = 256;
 const MAGIC: [u8; 4] = *b"RSMP";
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 const HEADER_SIZE: usize = size_of::<Header>();
 const SYM_ENTRY_SIZE: usize = size_of::<SymEntry>();
@@ -56,6 +56,9 @@ struct SymEntry {
     qname_off: U32<LittleEndian>,
     start_line: U32<LittleEndian>,
     end_line: U32<LittleEndian>,
+    start_byte: U32<LittleEndian>,
+    end_byte: U32<LittleEndian>,
+    name_byte: U32<LittleEndian>,
     kind_len: U16<LittleEndian>,
     name_len: U16<LittleEndian>,
     start_hash: U16<LittleEndian>,
@@ -65,8 +68,8 @@ struct SymEntry {
 
 const _: () = assert!(size_of::<Header>() == 64, "Header must be exactly 64 bytes");
 const _: () = assert!(
-    size_of::<SymEntry>() == 30,
-    "SymEntry must be exactly 30 bytes",
+    size_of::<SymEntry>() == 42,
+    "SymEntry must be exactly 42 bytes",
 );
 
 #[derive(Debug, serde::Serialize)]
@@ -288,6 +291,9 @@ fn parse_sym_entry(
         end_line: entry.end_line.get() as usize,
         start_hash: format!("{:03x}", entry.start_hash.get()),
         end_hash: format!("{:03x}", entry.end_hash.get()),
+        start_byte: entry.start_byte.get() as usize,
+        end_byte: entry.end_byte.get() as usize,
+        name_byte: entry.name_byte.get() as usize,
     })
 }
 
@@ -359,6 +365,9 @@ pub(crate) fn store_map(
             qname_off: U32::new(qname_off),
             start_line: U32::new(u32::try_from(symbol.start_line)?),
             end_line: U32::new(u32::try_from(symbol.end_line)?),
+            start_byte: U32::new(u32::try_from(symbol.start_byte)?),
+            end_byte: U32::new(u32::try_from(symbol.end_byte)?),
+            name_byte: U32::new(u32::try_from(symbol.name_byte)?),
             kind_len: U16::new(kind_len),
             name_len: U16::new(name_len),
             start_hash: U16::new(start_hash),

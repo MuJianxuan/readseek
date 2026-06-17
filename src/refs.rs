@@ -6,7 +6,7 @@ use crate::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
 use crate::paths::{bytes_contain_identifier, command_paths};
 use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -20,6 +20,12 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
     }
     if !name.bytes().all(is_identifier_byte) {
         bail!("reference name must be an ASCII identifier");
+    }
+    if command.scope {
+        return scoped_output(command);
+    }
+    if command.line.is_some() || command.column.is_some() {
+        bail!("--line and --column require --scope");
     }
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
     let paths = command_paths(
@@ -55,6 +61,72 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
         })
         .flatten_iter()
         .collect();
+
+    Ok(RefsOutput { references })
+}
+
+/// Resolve a single binding within one file and classify its occurrences.
+fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
+    let line = command.line.context("--scope requires --line")?;
+    let column = command.column.unwrap_or(1);
+    if line == 0 || column == 0 {
+        bail!("line and column must be greater than zero");
+    }
+    if !command.target.is_file() {
+        bail!("--scope requires a single regular file target");
+    }
+    let bytes =
+        fs::read(&command.target).with_context(|| format!("read {}", command.target.display()))?;
+    let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
+    let source = source_from_text(&command.target, text, command.language, false, None)?;
+
+    let line_start = *source
+        .line_starts
+        .get(line - 1)
+        .with_context(|| format!("line {line} not found in {}", command.target.display()))?;
+    let cursor_byte = line_start + column - 1;
+    let binding = crate::binding::resolve(&source, cursor_byte).with_context(|| {
+        format!(
+            "no resolvable binding at {}:{line}:{column}",
+            command.target.display()
+        )
+    })?;
+    if binding.name != command.name {
+        bail!(
+            "binding at cursor is `{}`, not `{}`",
+            binding.name,
+            command.name
+        );
+    }
+
+    let source_map = source_map_with_dir(&source, None).ok();
+    let file = Arc::new(source.path.clone());
+    let file_hash: Arc<str> = Arc::from(source.file_hash.as_str());
+    let mut references = Vec::with_capacity(binding.occurrences.len());
+    for occurrence in &binding.occurrences {
+        if occurrence.kind == crate::binding::OccurrenceKind::Shadowed {
+            continue;
+        }
+        let line_idx = source
+            .line_starts
+            .partition_point(|&start| start <= occurrence.start_byte)
+            .saturating_sub(1);
+        let source_line = &source.lines[line_idx];
+        references.push(RefLocation {
+            file: Arc::clone(&file),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            file_hash: Arc::clone(&file_hash),
+            line: source_line.number,
+            column: occurrence.start_byte - source.line_starts[line_idx] + 1,
+            line_hash: source_line.hash(),
+            text: source_line.text.clone(),
+            symbol: source_map
+                .as_ref()
+                .and_then(|sm| find_symbol(sm, source_line.number)),
+            occurrence: Some(occurrence.kind),
+        });
+    }
 
     Ok(RefsOutput { references })
 }
@@ -152,6 +224,7 @@ fn scan_source(
             line_hash: cached_line_hash.clone(),
             text: cached_text.clone(),
             symbol: cached_symbol.clone(),
+            occurrence: None,
         });
     }
 

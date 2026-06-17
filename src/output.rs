@@ -79,6 +79,8 @@ pub(crate) struct IdentifierOutput {
     text: String,
     start_column: usize,
     end_column: usize,
+    start_byte: usize,
+    end_byte: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -115,6 +117,8 @@ pub(crate) struct RefLocation {
     pub(crate) line_hash: String,
     pub(crate) text: String,
     pub(crate) symbol: Option<Symbol>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) occurrence: Option<crate::binding::OccurrenceKind>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +136,38 @@ pub(crate) struct CompactLocation {
     pub(crate) kind: Option<String>,
     pub(crate) name: Option<String>,
     pub(crate) qualified_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RenameOutput {
+    pub(crate) file: PathBuf,
+    pub(crate) language: Language,
+    pub(crate) engine: EngineField,
+    pub(crate) file_hash: String,
+    pub(crate) old_name: String,
+    pub(crate) new_name: String,
+    pub(crate) applied: bool,
+    pub(crate) conflicts: Vec<RenameConflict>,
+    pub(crate) edits: Vec<RenameEdit>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RenameEdit {
+    pub(crate) line: usize,
+    pub(crate) start_column: usize,
+    pub(crate) end_column: usize,
+    pub(crate) start_byte: usize,
+    pub(crate) end_byte: usize,
+    pub(crate) occurrence: crate::binding::OccurrenceKind,
+    pub(crate) line_hash: String,
+    pub(crate) text: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RenameConflict {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) reason: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -344,37 +380,17 @@ pub(crate) fn identify_output(
     let source_line = source
         .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
-    let identifier = {
-        let bytes = source_line.text.as_bytes();
-        if bytes.is_empty() {
-            None
-        } else {
-            let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
-            if !is_identifier_byte(bytes[index])
-                && index > 0
-                && is_identifier_byte(bytes[index - 1])
-            {
-                index -= 1;
-            }
-            if is_identifier_byte(bytes[index]) {
-                let mut start = index;
-                while start > 0 && is_identifier_byte(bytes[start - 1]) {
-                    start -= 1;
-                }
-                let mut end = index + 1;
-                while end < bytes.len() && is_identifier_byte(bytes[end]) {
-                    end += 1;
-                }
-                Some(IdentifierOutput {
-                    text: source_line.text[start..end].to_owned(),
-                    start_column: start + 1,
-                    end_column: end + 1,
-                })
-            } else {
-                None
-            }
-        }
-    };
+    let line_start = source.line_starts[line - 1];
+    let cursor_byte = line_start + column.saturating_sub(1).min(source_line.text.len());
+    let identifier = crate::symbols::token_at(source, cursor_byte)
+        .map(|token| IdentifierOutput {
+            text: token.text,
+            start_column: token.start_byte - line_start + 1,
+            end_column: token.end_byte - line_start + 1,
+            start_byte: token.start_byte,
+            end_byte: token.end_byte,
+        })
+        .or_else(|| identify_byte_scan(source_line, line_start, column));
     let source_map = source_map(source)?;
     let symbol = find_symbol(&source_map, line);
 
@@ -399,4 +415,41 @@ pub(crate) fn identify_output(
 
 pub(crate) fn is_identifier_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+/// Fallback identifier extraction for languages without a tree-sitter parser.
+///
+/// Walks ASCII identifier bytes around the cursor on a single line. `line_start`
+/// is the byte offset of the line within the file, used to report absolute bytes.
+fn identify_byte_scan(
+    source_line: &crate::source::SourceLine,
+    line_start: usize,
+    column: usize,
+) -> Option<IdentifierOutput> {
+    let bytes = source_line.text.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
+    if !is_identifier_byte(bytes[index]) && index > 0 && is_identifier_byte(bytes[index - 1]) {
+        index -= 1;
+    }
+    if !is_identifier_byte(bytes[index]) {
+        return None;
+    }
+    let mut start = index;
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < bytes.len() && is_identifier_byte(bytes[end]) {
+        end += 1;
+    }
+    Some(IdentifierOutput {
+        text: source_line.text[start..end].to_owned(),
+        start_column: start + 1,
+        end_column: end + 1,
+        start_byte: line_start + start,
+        end_byte: line_start + end,
+    })
 }

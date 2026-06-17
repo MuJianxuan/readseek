@@ -168,6 +168,7 @@ fn symbol_for_node(
     let start_hash = line_hash(lines, start_line)?;
     let end_hash = line_hash(lines, end_line)?;
     let qualified_name = parent.map_or_else(|| name.clone(), |parent| format!("{parent}.{name}"));
+    let name_byte = name_byte_in(node, source, &name);
 
     Some(Symbol {
         kind,
@@ -177,7 +178,82 @@ fn symbol_for_node(
         end_line,
         start_hash,
         end_hash,
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
+        name_byte,
     })
+}
+
+/// Byte offset of the symbol's name token within its node span.
+///
+/// Locates `name` as an identifier-bounded token inside the node, falling back
+/// to the node start when the name is synthetic (e.g. a Swift signature or a
+/// Markdown heading) and so has no single matching token.
+fn name_byte_in(node: Node<'_>, source: &str, name: &str) -> usize {
+    let start = node.start_byte();
+    let span = source.get(start..node.end_byte()).unwrap_or("");
+    let bytes = span.as_bytes();
+    let needle = name.as_bytes();
+    if needle.is_empty() {
+        return start;
+    }
+    for offset in memchr::memmem::find_iter(bytes, needle) {
+        let before = offset.checked_sub(1).map(|i| bytes[i]);
+        let after = bytes.get(offset + needle.len()).copied();
+        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
+            continue;
+        }
+        return start + offset;
+    }
+    start
+}
+
+/// A token resolved at a byte position via tree-sitter.
+pub(crate) struct Token {
+    pub(crate) text: String,
+    pub(crate) start_byte: usize,
+    pub(crate) end_byte: usize,
+}
+
+/// Resolve the identifier-like leaf token covering `byte` using tree-sitter.
+///
+/// Returns `None` when the language has no parser, the parse fails, or the
+/// covering leaf is not an identifier. Callers fall back to a byte scan.
+pub(crate) fn token_at(source: &SourceFile, byte: usize) -> Option<Token> {
+    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+        return None;
+    }
+    let language = tree_sitter_language(source.detection.language)?;
+    let mut parser = Parser::new();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(&source.text, None)?;
+
+    let lookup = byte.min(source.text.len().saturating_sub(1));
+    let node = named_leaf_at(tree.root_node(), lookup)?;
+    if !is_identifier_node(node.kind()) {
+        return None;
+    }
+    let text = node.utf8_text(source.text.as_bytes()).ok()?;
+    Some(Token {
+        text: text.to_owned(),
+        start_byte: node.start_byte(),
+        end_byte: node.end_byte(),
+    })
+}
+
+fn named_leaf_at(node: Node<'_>, byte: usize) -> Option<Node<'_>> {
+    let mut current = node.descendant_for_byte_range(byte, byte)?;
+    while current.named_child_count() > 0 {
+        match current.named_descendant_for_byte_range(byte, byte) {
+            Some(child) if child.id() != current.id() => current = child,
+            _ => break,
+        }
+    }
+    Some(current)
+}
+
+fn is_identifier_node(kind: &str) -> bool {
+    kind == "identifier" || kind.ends_with("_identifier") || matches!(kind, "word" | "name")
 }
 
 pub(crate) fn node_line_range(node: Node<'_>) -> (usize, usize) {

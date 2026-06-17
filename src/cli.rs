@@ -34,6 +34,7 @@ pub(crate) enum Command {
     Identify(IdentifyCommand),
     Def(DefCommand),
     Refs(RefsCommand),
+    Rename(RenameCommand),
     Search(SearchCommand),
     Init(InitCommand),
 }
@@ -213,6 +214,18 @@ pub(crate) struct RefsCommand {
     #[argh(option, long = "format", default = "crate::output::Format::Json")]
     pub(crate) format: crate::output::Format,
 
+    /// restrict results to the binding under --line/--column (single file)
+    #[argh(switch)]
+    pub(crate) scope: bool,
+
+    /// one-based cursor line, used with --scope
+    #[argh(option)]
+    pub(crate) line: Option<usize>,
+
+    /// one-based cursor byte column, used with --scope
+    #[argh(option)]
+    pub(crate) column: Option<usize>,
+
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
@@ -228,6 +241,36 @@ pub(crate) struct RefsCommand {
     /// include ignored untracked files when searching a Git repository
     #[argh(switch, short = 'i')]
     pub(crate) ignored: bool,
+}
+
+/// plan a binding-accurate rename within a single file
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "rename")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct RenameCommand {
+    /// file to rename within (a single regular file)
+    #[argh(positional)]
+    pub(crate) target: PathBuf,
+
+    /// one-based cursor line of the binding to rename
+    #[argh(option)]
+    pub(crate) line: usize,
+
+    /// one-based cursor byte column of the binding to rename
+    #[argh(option)]
+    pub(crate) column: Option<usize>,
+
+    /// new name for the binding
+    #[argh(option, long = "to")]
+    pub(crate) to: String,
+
+    /// write the planned edits to the file after verifying line hashes
+    #[argh(switch)]
+    pub(crate) apply: bool,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    pub(crate) language: Option<Language>,
 }
 
 /// search files with an AST pattern
