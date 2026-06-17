@@ -222,7 +222,7 @@ fn run_search(command: &cli::SearchCommand) -> Result<()> {
 
 fn run_init(command: &cli::InitCommand) -> Result<()> {
     let path = command.path.as_deref().unwrap_or(Path::new("."));
-    repo::init(path)?;
+    let init = repo::init(path)?;
     repo::update(
         path,
         GitFlags {
@@ -231,6 +231,17 @@ fn run_init(command: &cli::InitCommand) -> Result<()> {
             ignored: false,
         },
     )?;
+    if init.reinitialized {
+        println!(
+            "Reinitialized existing readseek repository in {}/",
+            init.path.display()
+        );
+    } else {
+        println!(
+            "Initialized empty readseek repository in {}/",
+            init.path.display()
+        );
+    }
     Ok(())
 }
 

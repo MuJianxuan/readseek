@@ -157,10 +157,19 @@ def main():
         os.mkdir(sandbox_home)
         name = "init: .readseek directory"
         result_init = run(["init", tmpdir])
-        if result_init.returncode == 0:
-            passed(name)
-        else:
+        expected_init = f"Initialized empty readseek repository in {os.path.join(tmpdir, '.readseek')}/\n"
+        if result_init.returncode != 0:
             failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
+        elif assert_equal(name, result_init.stdout, expected_init):
+            passed(name)
+
+        name = "init: reinitialize .readseek directory"
+        result_init = run(["init", tmpdir])
+        expected_init = f"Reinitialized existing readseek repository in {os.path.join(tmpdir, '.readseek')}/\n"
+        if result_init.returncode != 0:
+            failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
+        elif assert_equal(name, result_init.stdout, expected_init):
+            passed(name)
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
         data = readseek_json(name, ["detect", path])

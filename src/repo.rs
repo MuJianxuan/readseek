@@ -104,21 +104,26 @@ fn readseek_dir_or_err(base: &Path) -> Result<PathBuf> {
         .with_context(|| format!("no {READSEEK_DIR} directory found; run 'readseek init' first"))
 }
 
-pub(crate) fn init(dir: &Path) -> Result<PathBuf> {
+#[derive(Clone, Debug)]
+pub(crate) struct InitResult {
+    pub(crate) path: PathBuf,
+    pub(crate) reinitialized: bool,
+}
+
+pub(crate) fn init(dir: &Path) -> Result<InitResult> {
     let dir = dir.canonicalize().context("resolve init path")?;
     let readseek_dir = dir.join(READSEEK_DIR);
+    let reinitialized = readseek_dir.exists();
     let maps_dir = readseek_dir.join(MAPS_DIR);
-
-    if readseek_dir.exists() {
-        bail!("{} already exists in {}", READSEEK_DIR, dir.display());
-    }
-
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
     let def_index_dir = readseek_dir.join(DEF_INDEX_DIR);
     fs::create_dir_all(&def_index_dir)
         .with_context(|| format!("create {}", def_index_dir.display()))?;
 
-    Ok(readseek_dir)
+    Ok(InitResult {
+        path: readseek_dir,
+        reinitialized,
+    })
 }
 
 fn hex_hash_to_raw(hex_str: &str) -> Result<[u8; BLAKE3_RAW_LEN]> {

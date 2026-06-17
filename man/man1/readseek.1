@@ -180,8 +180,8 @@ boundary hashes, and hashlines for each match.
 .B init
 Initialize a \fI.readseek/\fR directory under \fIpath\fR (defaults to the current
 directory). This directory holds the source-map cache used by other commands.
-When a \fI.readseek/\fR directory exists, readseek refreshes the cache internally
-on each invocation.
+If the \fI.readseek/\fR directory already exists, \fBinit\fR reinitializes it.
+readseek also refreshes the cache internally on each invocation.
 
 .SH OPTIONS
 .TP
