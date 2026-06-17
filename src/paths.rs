@@ -1,6 +1,5 @@
 use crate::cli::DefCommand;
 use crate::flags::GitFlags;
-use crate::ignore::Ignorer;
 use crate::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
@@ -31,10 +30,7 @@ pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBu
     }
 
     let mut paths = Vec::new();
-    let ignorer = crate::repo::find_readseek_dir(target)
-        .and_then(|dir| Ignorer::load(&dir))
-        .unwrap_or_default();
-    collect_search_paths(target, &mut paths, &ignorer)?;
+    collect_search_paths(target, &mut paths)?;
     Ok(paths)
 }
 
@@ -276,11 +272,7 @@ fn path_is_in_scope(path: &Path, scope: &Path) -> bool {
     scope.as_os_str().is_empty() || path.starts_with(scope)
 }
 
-fn collect_search_paths(
-    directory: &Path,
-    paths: &mut Vec<PathBuf>,
-    ignorer: &Ignorer,
-) -> Result<()> {
+fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
     let mut entries = fs::read_dir(directory)
         .with_context(|| format!("read directory {}", directory.display()))?
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -292,15 +284,12 @@ fn collect_search_paths(
         let file_type = entry
             .file_type()
             .with_context(|| format!("read file type for {}", path.display()))?;
-        let is_dir = file_type.is_dir();
-        let file_name = entry.file_name();
-        let is_readseek = is_dir && file_name == ".readseek";
-        let skip = is_readseek || ignorer.is_ignored(&file_name, is_dir);
-        if skip {
+        let is_readseek = file_type.is_dir() && entry.file_name() == ".readseek";
+        if is_readseek {
             continue;
         }
-        if is_dir {
-            collect_search_paths(&path, paths, ignorer)?;
+        if file_type.is_dir() {
+            collect_search_paths(&path, paths)?;
         } else if file_type.is_file() {
             paths.push(path);
         }

@@ -35,7 +35,6 @@ mod cli;
 mod def;
 mod flags;
 mod hash;
-mod ignore;
 mod lang;
 mod output;
 mod paths;
