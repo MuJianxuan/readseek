@@ -69,8 +69,8 @@ interface GrepParams {
 	scopeContext?: number | string;
 }
 
-const MATCH_LINE_RE = /^(.*):(\d+): (.*)$/;
-const CONTEXT_LINE_RE = /^(.*)-(\d+)- (.*)$/;
+const MATCH_LINE_RE = /^(.*?):(\d+): (.*)$/;
+const CONTEXT_LINE_RE = /^(.*?)-(\d+)- (.*)$/;
 
 function parseGrepOutputLine(line: string):
 	| { kind: "match"; displayPath: string; lineNumber: number; text: string }
