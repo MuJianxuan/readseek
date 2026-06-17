@@ -80,6 +80,7 @@ fn run() -> Result<()> {
         crate::cli::Command::Detect(command) => run_detect(&command)?,
         crate::cli::Command::Read(command) => run_read(&command)?,
         crate::cli::Command::Map(command) => run_map(&command)?,
+        crate::cli::Command::Check(command) => run_check(&command)?,
         crate::cli::Command::Symbol(command) => run_symbol(&command)?,
         crate::cli::Command::Identify(command) => run_identify(&command)?,
         crate::cli::Command::Def(command) => {
@@ -159,6 +160,16 @@ fn run_map(command: &cli::MapCommand) -> Result<()> {
     };
     let (_, source) = load_source(&input, BinaryMode::Reject)?;
     print_json(&output::map_output(&source)?)
+}
+
+fn run_check(command: &cli::CheckCommand) -> Result<()> {
+    let input = cli::InputArgs {
+        target: command.target.clone(),
+        stdin: command.stdin.clone(),
+        language: command.language,
+    };
+    let (_, source) = load_source(&input, BinaryMode::Reject)?;
+    print_json(&output::check_output(&source)?)
 }
 
 fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {

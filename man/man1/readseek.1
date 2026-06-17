@@ -17,6 +17,9 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
+\fBreadseek check\fR [\fB--language\fR \fIlanguage\fR]
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+
 \fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR) [\fB--name\fR \fIqualified-name\fR]
 
@@ -58,8 +61,8 @@ safe to pipe into other programs.
 .SH INPUTS AND TARGETS
 
 Most commands take a file or directory \fItarget\fR on the command line.
-The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBsymbol\fR, and \fBidentify\fR commands
-can alternatively read from standard input with \fB--stdin\fR \fIpath\fR, where
+The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBcheck\fR, \fBsymbol\fR, and \fBidentify\fR
+commands can alternatively read from standard input with \fB--stdin\fR \fIpath\fR, where
 \fIpath\fR supplies a filename used for language detection and output metadata.
 You cannot combine \fB--stdin\fR with a positional target.
 
@@ -148,6 +151,11 @@ Print the structural source map: each top-level symbol's kind, name, qualified
 name, start and end line, boundary hashes, the symbol's \fIstart_byte\fR and
 \fIend_byte\fR span, and the \fIname_byte\fR offset of its name token. For languages
 that do not support symbol extraction the output contains an empty symbol list.
+.TP
+.B check
+Print parse diagnostics: the counts of tree-sitter \fIERROR\fR and \fIMISSING\fR
+nodes and a list of each diagnostic's kind and start and end line. For languages
+without a tree-sitter parser the output contains zero counts and an empty list.
 .TP
 .B symbol
 Print the source range for one symbol. Pick it by \fB--name\fR (qualified or

@@ -30,6 +30,7 @@ pub(crate) enum Command {
     Detect(DetectCommand),
     Read(ReadCommand),
     Map(MapCommand),
+    Check(CheckCommand),
     Symbol(SymbolCommand),
     Identify(IdentifyCommand),
     Def(DefCommand),
@@ -92,6 +93,24 @@ pub(crate) struct ReadCommand {
 #[argh(subcommand, name = "map")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct MapCommand {
+    /// takes <file>, <file>:<line> or <file>:<hash>
+    #[argh(positional)]
+    pub(crate) target: Option<String>,
+
+    /// read document contents from stdin as the given path
+    #[argh(option)]
+    pub(crate) stdin: Option<PathBuf>,
+
+    /// language override
+    #[argh(option, from_str_fn(parse_language))]
+    pub(crate) language: Option<Language>,
+}
+
+/// report parse diagnostics for a file
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "check")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct CheckCommand {
     /// takes <file>, <file>:<line> or <file>:<hash>
     #[argh(positional)]
     pub(crate) target: Option<String>,

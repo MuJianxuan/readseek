@@ -49,6 +49,32 @@ pub(crate) struct MapOutput {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct CheckOutput {
+    file: PathBuf,
+    language: Language,
+    engine: EngineField,
+    line_count: usize,
+    file_hash: String,
+    error_count: usize,
+    missing_count: usize,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum DiagnosticKind {
+    Error,
+    Missing,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct Diagnostic {
+    pub(crate) kind: DiagnosticKind,
+    pub(crate) start_line: usize,
+    pub(crate) end_line: usize,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct SymbolOutput {
     file: PathBuf,
     language: Language,
@@ -313,6 +339,26 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
         line_count: source.lines.len(),
         file_hash: source.file_hash.clone(),
         symbols: source_map.symbols,
+    })
+}
+
+pub(crate) fn check_output(source: &SourceFile) -> Result<CheckOutput> {
+    let diagnostics = crate::symbols::parse_diagnostics(source)?;
+    let error_count = diagnostics
+        .iter()
+        .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::Error))
+        .count();
+    let missing_count = diagnostics.len() - error_count;
+
+    Ok(CheckOutput {
+        file: source.path.clone(),
+        language: source.detection.language,
+        engine: source.detection.engine,
+        line_count: source.lines.len(),
+        file_hash: source.file_hash.clone(),
+        error_count,
+        missing_count,
+        diagnostics,
     })
 }
 

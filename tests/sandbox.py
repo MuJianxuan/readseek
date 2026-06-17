@@ -692,6 +692,73 @@ def main():
             ):
                 passed(name)
 
+        name = "check: clean source has no diagnostics"
+        data = readseek_json(
+            name,
+            ["check", "--stdin", "clean.rs"],
+            stdin="fn main() {}\n",
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("error_count"), 0),
+                assert_equal(name, data.get("missing_count"), 0),
+                assert_equal(name, data.get("diagnostics"), []),
+            ]
+        ):
+            passed(name)
+
+        name = "check: parse error is reported"
+        data = readseek_json(
+            name,
+            ["check", "--stdin", "broken.rs"],
+            stdin="fn main() {\n    let x =\n}\n",
+        )
+        if data:
+            diagnostics = data.get("diagnostics", [])
+            if all(
+                [
+                    assert_equal(name, data.get("error_count"), 1),
+                    assert_equal(name, data.get("missing_count"), 0),
+                    assert_equal(name, len(diagnostics), 1),
+                    assert_equal(name, diagnostics[0].get("kind"), "error"),
+                    assert_equal(name, diagnostics[0].get("start_line"), 2),
+                ]
+            ):
+                passed(name)
+
+        name = "check: missing token is reported"
+        data = readseek_json(
+            name,
+            ["check", "--stdin", "missing.c"],
+            stdin="int main() {\n  int x = 1\n  return x;\n}\n",
+        )
+        if data:
+            diagnostics = data.get("diagnostics", [])
+            if all(
+                [
+                    assert_equal(name, data.get("error_count"), 0),
+                    assert_equal(name, data.get("missing_count"), 1),
+                    assert_equal(name, len(diagnostics), 1),
+                    assert_equal(name, diagnostics[0].get("kind"), "missing"),
+                    assert_equal(name, diagnostics[0].get("start_line"), 2),
+                ]
+            ):
+                passed(name)
+
+        name = "check: unsupported file has no diagnostics"
+        data = readseek_json(
+            name,
+            ["check", "--stdin", "notes.txt"],
+            stdin="just some text\n",
+        )
+        if data and all(
+            [
+                assert_equal(name, data.get("language"), "unknown"),
+                assert_equal(name, data.get("diagnostics"), []),
+            ]
+        ):
+            passed(name)
+
         name = "symbol: stdin target line"
         data = readseek_json(
             name,

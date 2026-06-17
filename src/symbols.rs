@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
-use crate::output::is_identifier_byte;
+use crate::output::{Diagnostic, DiagnosticKind, is_identifier_byte};
 use crate::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
@@ -49,6 +49,58 @@ fn parse_tree_sitter_source_map(source: &SourceFile) -> Result<SourceMap> {
     symbols.sort_by_key(|symbol| (symbol.start_line, symbol.end_line));
 
     Ok(SourceMap { symbols })
+}
+
+/// Report tree-sitter ERROR and MISSING nodes for a source file.
+///
+/// Returns an empty list for documents without a tree-sitter engine, so callers
+/// can treat "no parser" and "no diagnostics" alike.
+pub(crate) fn parse_diagnostics(source: &SourceFile) -> Result<Vec<Diagnostic>> {
+    if source.kind != DocumentKind::Source {
+        return Ok(Vec::new());
+    }
+    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+        return Ok(Vec::new());
+    }
+    let Some(language) = tree_sitter_language(source.detection.language) else {
+        return Ok(Vec::new());
+    };
+
+    let mut parser = Parser::new();
+    parser
+        .set_language(&language)
+        .map_err(|error| anyhow!("set tree-sitter language: {error}"))?;
+    let tree = parser
+        .parse(&source.text, None)
+        .ok_or_else(|| anyhow!("tree-sitter parse failed"))?;
+
+    let mut diagnostics = Vec::new();
+    collect_diagnostics(tree.root_node(), &mut diagnostics);
+    diagnostics.sort_by_key(|diagnostic| (diagnostic.start_line, diagnostic.end_line));
+    Ok(diagnostics)
+}
+
+fn collect_diagnostics(node: Node<'_>, diagnostics: &mut Vec<Diagnostic>) {
+    let kind = if node.is_missing() {
+        Some(DiagnosticKind::Missing)
+    } else if node.is_error() {
+        Some(DiagnosticKind::Error)
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        let (start_line, end_line) = node_line_range(node);
+        diagnostics.push(Diagnostic {
+            kind,
+            start_line,
+            end_line,
+        });
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_diagnostics(child, diagnostics);
+    }
 }
 
 pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::Language> {
