@@ -127,6 +127,9 @@ date="$(date '+%Y-%m-%d')"
 sed_in_place 's/^(\.TH [^[:space:]]* [0-9][0-9]*) "[^"]*"/\1 "'"$date"'"/' "$man_page"
 grep -q '^\.TH .* "'"$date"'"' "$man_page" \
 	|| die "failed to update $man_page"
+sed_in_place 's/"readseek [0-9][^"]*"/"readseek '"$next_ver"'"/' "$man_page"
+grep -q '^\.TH .* "readseek '"$next_ver"'"' "$man_page" \
+	|| die "failed to update version in $man_page"
 
 git rev-parse -q --verify "refs/tags/$cur_ver" >/dev/null \
 	|| die "current version tag $cur_ver does not exist"

@@ -1,4 +1,4 @@
-.TH READSEEK 1 "2026-06-17" "readseek 0.2.14" "User Commands"
+.TH READSEEK 1 "2026-06-17" "readseek 0.3.12" "User Commands"
 .SH NAME
 readseek \- structural source-code reader with stable line hashing
 .SH SYNOPSIS
@@ -7,28 +7,28 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek\fR [\fB\-V\fR|\fB--version\fR]
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
-    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--offset\fR \fIline\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR]
-    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
-    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
-    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR) [\fB--name\fR \fIqualified-name\fR]
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR) [\fB--name\fR \fIqualified-name\fR]
 
 \fBreadseek identify\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
-    (\fB--stdin --path\fR \fIpath\fR | \fItarget\fR)
+    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
-\fBreadseek definition\fR [\fB--stdin\fR] [\fB--compact\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek def\fR [\fB--stdin\fR] [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fIname\fR]
 
-\fBreadseek references\fR [\fB--compact\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek refs\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
 
@@ -55,8 +55,8 @@ safe to pipe into other programs.
 
 Most commands take a file or directory \fItarget\fR on the command line.
 The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBsymbol\fR, and \fBidentify\fR commands
-can alternatively read from standard input with \fB--stdin\fR, which requires
-\fB--path\fR to supply a filename used for language detection and output metadata.
+can alternatively read from standard input with \fB--stdin\fR \fIpath\fR, where
+\fIpath\fR supplies a filename used for language detection and output metadata.
 You cannot combine \fB--stdin\fR with a positional target.
 
 A target path may carry a suffix that selects a specific line:
@@ -72,7 +72,7 @@ previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
 For \fBsymbol\fR, you can also pass \fB--name\fR with a qualified or unqualified
 symbol name. If the name matches more than one symbol the command reports an error.
 
-For \fBdefinition\fR, the \fB--stdin\fR flag reads a JSON object previously produced
+For \fBdef\fR, the \fB--stdin\fR flag reads a JSON object previously produced
 by \fBidentify\fR. The lookup tries \fIsymbol.qualified_name\fR first and falls
 back to \fIidentifier.text\fR.
 
@@ -155,19 +155,19 @@ and the enclosing mapped symbol. If \fB--column\fR is omitted, column 1 is used.
 Columns are one-based byte offsets. Identifier ranges in the JSON use a one-based
 inclusive start column and a one-based exclusive end column.
 .TP
-.B definition
+.B def
 Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
 matches a fully qualified or unqualified symbol name. With \fB--stdin\fR and no
 \fIname\fR, the name is read from an \fBidentify\fR JSON object on standard input.
 Directory search follows the same file-selection rules as \fBsearch\fR.
-Use \fB--compact\fR to emit quickfix-friendly location entries instead of full
+Use \fB--format plain\fR to emit quickfix-friendly location entries instead of full
 definition objects.
 .TP
-.B references
+.B refs
 Find all occurrences of an identifier in a file or directory. Output is a flat
 list of locations with file, line, column, line hash, line text, and the enclosing
 symbol when available. Directory search rules are the same as for \fBsearch\fR.
-Use \fB--compact\fR to flatten symbol metadata into each location entry.
+Use \fB--format plain\fR to flatten symbol metadata into each location entry.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file under a directory.
@@ -194,17 +194,16 @@ Print the program version and exit.
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
-\fB--stdin\fR
-Read input from standard input instead of a file. Requires \fB--path\fR.
-For \fBdefinition\fR this reads an \fBidentify\fR JSON object instead.
+\fB--stdin\fR \fIpath\fR
+Read document contents from standard input instead of a file, using \fIpath\fR
+for language detection and reported in JSON output.
+For \fBdef\fR, \fB--stdin\fR is a switch that reads an \fBidentify\fR
+JSON object from standard input instead.
 .TP
-\fB--compact\fR
-For \fBdefinition\fR and \fBreferences\fR, emit flat \fIlocations\fR arrays
-with editor-friendly fields instead of the default command-specific JSON shape.
-.TP
-\fB--path\fR \fIpath\fR
-Document path to associate with \fB--stdin\fR input. Used for language detection
-and reported in JSON output.
+\fB--format\fR \fIformat\fR
+For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
+the command-specific JSON shape, or \fIplain\fR for flat \fIlocations\fR arrays
+with editor-friendly fields.
 .TP
 \fB--line\fR \fIline\fR
 One-based target line for \fBsymbol\fR or \fBidentify\fR.
@@ -237,7 +236,7 @@ With \fB--others\fR, also include ignored untracked files. Inside a Git reposito
 
 .SH DIRECTORY SEARCH
 
-The \fBdefinition\fR, \fBreferences\fR, and \fBsearch\fR commands accept either
+The \fBdef\fR, \fBrefs\fR, and \fBsearch\fR commands accept either
 a single file or a directory. A file is searched as-is; a directory is searched
 recursively.
 
@@ -292,7 +291,7 @@ readseek read src/main.rs:42 --limit 12
 
 Read unsaved buffer text from standard input:
 .EX
-printf '%s\\n' 'fn main() {}' | readseek read --stdin --path scratch.rs
+printf '%s\\n' 'fn main() {}' | readseek read --stdin scratch.rs
 .EE
 
 Build a structural map of a file:
@@ -313,12 +312,12 @@ readseek identify src/main.rs:42 --column 8
 
 Find definitions of a symbol in tracked files:
 .EX
-readseek definition -c src run --language rust
+readseek def -c src run --language rust
 .EE
 
 Find references to a symbol in tracked files:
 .EX
-readseek references -c src main --language rust
+readseek refs -c src main --language rust
 .EE
 
 Search Rust functions with an AST pattern:
