@@ -1159,6 +1159,28 @@ def main():
         ):
             passed(name)
 
+        name = "rename: unsupported language is a no-op"
+        unsupported_path = write_file(
+            scope_dir,
+            "unsupported.vim",
+            "vim9script\n\nexport def Foo()\n  var value = 1\n  echo value\nenddef\n",
+        )
+        before = open(unsupported_path, encoding="utf-8").read()
+        data = readseek_json(
+            name,
+            ["rename", unsupported_path, "--line", "4", "--column", "7", "--to", "renamed", "--apply"],
+        )
+        after = open(unsupported_path, encoding="utf-8").read()
+        if data and all(
+            [
+                assert_equal(name, data.get("unsupported"), True),
+                assert_equal(name, data.get("applied"), False),
+                assert_equal(name, data.get("edits"), []),
+                assert_equal(name, after, before),
+            ]
+        ):
+            passed(name)
+
         name = "references: C ignores comments and literals"
         c_references_dir = os.path.join(tmpdir, "c-references")
         os.mkdir(c_references_dir)

@@ -15,6 +15,7 @@ use crate::source::source_from_text;
 use anyhow::{Context, Result, bail};
 use std::fs;
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
     let line = command.line;
     let column = command.column.unwrap_or(1);
@@ -35,6 +36,23 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
         fs::read(&command.target).with_context(|| format!("read {}", command.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
     let source = source_from_text(&command.target, text, command.language, false, None)?;
+
+    if !binding::supported(source.detection.language) {
+        // No binding analysis for this language: report a no-op rather than a
+        // failure so callers can warn instead of surfacing an error.
+        return Ok(RenameOutput {
+            file: source.path.clone(),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            file_hash: source.file_hash.clone(),
+            old_name: String::new(),
+            new_name: command.to.clone(),
+            applied: false,
+            unsupported: true,
+            conflicts: Vec::new(),
+            edits: Vec::new(),
+        });
+    }
 
     let line_start = *source
         .line_starts
@@ -107,6 +125,7 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
         old_name: binding.name,
         new_name: command.to.clone(),
         applied,
+        unsupported: false,
         conflicts,
         edits,
     })

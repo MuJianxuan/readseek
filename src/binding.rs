@@ -51,6 +51,13 @@ pub(crate) struct Conflict {
     pub(crate) reason: String,
 }
 
+/// Whether binding resolution is implemented for `language`. Lets callers
+/// distinguish an unsupported language from a genuine resolution failure
+/// without exposing the private binding-table type.
+pub(crate) fn supported(language: Language) -> bool {
+    binding_table(language).is_some()
+}
+
 /// Resolve the lexical binding for the identifier covering `byte`.
 ///
 /// Returns `None` when the language is unsupported, the parse fails, the cursor
