@@ -19,6 +19,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 const READSEEK_DIR: &str = ".readseek";
 const MAPS_DIR: &str = "maps";
 const DEF_INDEX_DIR: &str = "def-index";
+const SHARD_COUNT: u32 = 256;
 const MAGIC: [u8; 4] = *b"RSMP";
 const SCHEMA_VERSION: u32 = 4;
 
@@ -140,18 +141,14 @@ fn map_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
         .join(&hash_hex[2..])
 }
 
-fn shard_prefix(name: &str) -> char {
-    name.chars()
-        .next()
-        .map(|c| c.to_ascii_lowercase())
-        .filter(char::is_ascii_lowercase)
-        .unwrap_or('_')
+fn shard_bucket(name: &str) -> u32 {
+    xxhash_rust::xxh32::xxh32(name.as_bytes(), 0) % SHARD_COUNT
 }
 
 fn def_index_shard_path(readseek_dir: &Path, name: &str) -> PathBuf {
     readseek_dir
         .join(DEF_INDEX_DIR)
-        .join(format!("{}.json", shard_prefix(name)))
+        .join(format!("{}.json", shard_bucket(name)))
 }
 
 pub(crate) fn load_map(
@@ -510,20 +507,20 @@ fn process_update_path(readseek_dir: &Path, path: &Path) -> Option<UpdatePathRes
 
 fn build_index_shards(
     index_entries: Vec<DefIndexEntry>,
-) -> BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>> {
-    let mut shards: BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>> = BTreeMap::new();
+) -> BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>> {
+    let mut shards: BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>> = BTreeMap::new();
     for entry in index_entries {
-        let prefix = shard_prefix(&entry.name);
+        let bucket = shard_bucket(&entry.name);
         shards
-            .entry(prefix)
+            .entry(bucket)
             .or_default()
             .entry(entry.name.clone())
             .or_default()
             .push(entry.clone());
         if entry.qualified_name != entry.name {
-            let prefix = shard_prefix(&entry.qualified_name);
+            let bucket = shard_bucket(&entry.qualified_name);
             shards
-                .entry(prefix)
+                .entry(bucket)
                 .or_default()
                 .entry(entry.qualified_name.clone())
                 .or_default()
@@ -545,22 +542,22 @@ fn build_index_shards(
 
 fn write_index_shards(
     readseek_dir: &Path,
-    shards: &BTreeMap<char, BTreeMap<String, Vec<DefIndexEntry>>>,
-) -> Result<BTreeSet<char>> {
+    shards: &BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>>,
+) -> Result<BTreeSet<u32>> {
     let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
     fs::create_dir_all(&shard_dir).with_context(|| format!("create {}", shard_dir.display()))?;
-    let mut written_prefixes = BTreeSet::new();
-    for (prefix, shard) in shards {
+    let mut written_buckets = BTreeSet::new();
+    for (bucket, shard) in shards {
         let data = serde_json::to_vec(shard).context("serialize definition index shard")?;
-        let path = shard_dir.join(format!("{prefix}.json"));
+        let path = shard_dir.join(format!("{bucket}.json"));
         write_atomic(&path, &data)?;
-        written_prefixes.insert(*prefix);
+        written_buckets.insert(*bucket);
     }
 
-    Ok(written_prefixes)
+    Ok(written_buckets)
 }
 
-fn remove_stale_index_shards(readseek_dir: &Path, written_prefixes: &BTreeSet<char>) -> Result<()> {
+fn remove_stale_index_shards(readseek_dir: &Path, written_buckets: &BTreeSet<u32>) -> Result<()> {
     let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
     for entry in
         fs::read_dir(&shard_dir).with_context(|| format!("read {}", shard_dir.display()))?
@@ -569,11 +566,11 @@ fn remove_stale_index_shards(readseek_dir: &Path, written_prefixes: &BTreeSet<ch
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "json") {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if stem.len() == 1 {
-                let prefix = stem.chars().next().unwrap();
-                if !written_prefixes.contains(&prefix) {
-                    fs::remove_file(&path)?;
-                }
+            let retained = stem
+                .parse::<u32>()
+                .is_ok_and(|bucket| written_buckets.contains(&bucket));
+            if !retained {
+                fs::remove_file(&path)?;
             }
         }
     }
