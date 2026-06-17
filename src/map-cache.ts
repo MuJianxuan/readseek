@@ -11,6 +11,7 @@ export const MAP_CACHE_MAX_SIZE = 500;
 
 interface MapCacheGlobalState {
 	cache: Map<string, CacheEntry>;
+	inflight: Map<string, Promise<FileMap | null>>;
 	maxSize: number;
 }
 
@@ -20,6 +21,7 @@ function getMapCacheState(): MapCacheGlobalState {
 	const globalObject = globalThis as any;
 	globalObject[MAP_CACHE_STATE_KEY] ??= {
 		cache: new Map<string, CacheEntry>(),
+		inflight: new Map<string, Promise<FileMap | null>>(),
 		maxSize: MAP_CACHE_MAX_SIZE,
 	} satisfies MapCacheGlobalState;
 	return globalObject[MAP_CACHE_STATE_KEY] as MapCacheGlobalState;
@@ -54,9 +56,20 @@ export async function getOrGenerateMap(absPath: string): Promise<FileMap | null>
 			state.cache.set(absPath, cached);
 			return cached.map;
 		}
-		const map = await generateMap(absPath);
-		rememberInMemory(absPath, { mtimeMs, map });
-		return map;
+		const inflight = state.inflight.get(absPath);
+		if (inflight) return inflight;
+
+		const generation = (async () => {
+			const map = await generateMap(absPath);
+			rememberInMemory(absPath, { mtimeMs, map });
+			return map;
+		})()
+			.catch(() => null)
+			.finally(() => {
+				state.inflight.delete(absPath);
+			});
+		state.inflight.set(absPath, generation);
+		return generation;
 	} catch {
 		return null;
 	}
