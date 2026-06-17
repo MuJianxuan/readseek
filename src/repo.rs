@@ -112,12 +112,13 @@ pub(crate) struct InitResult {
 }
 
 pub(crate) fn init(dir: &Path) -> Result<InitResult> {
-    let dir = dir.canonicalize().context("resolve init path")?;
     let readseek_dir = dir.join(READSEEK_DIR);
-    let reinitialized = readseek_dir.exists();
-    let maps_dir = readseek_dir.join(MAPS_DIR);
+    let canonical = dir.canonicalize().context("resolve init path")?;
+    let canonical_readseek = canonical.join(READSEEK_DIR);
+    let reinitialized = canonical_readseek.exists();
+    let maps_dir = canonical_readseek.join(MAPS_DIR);
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
-    let def_index_dir = readseek_dir.join(DEF_INDEX_DIR);
+    let def_index_dir = canonical_readseek.join(DEF_INDEX_DIR);
     fs::create_dir_all(&def_index_dir)
         .with_context(|| format!("create {}", def_index_dir.display()))?;
 
