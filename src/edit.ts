@@ -116,6 +116,26 @@ function buildEditError(
 	};
 }
 
+function mapEditFileError(err: any, filePath: string, displayPath: string, phase: "read" | "write"): ReturnType<typeof buildEditError> {
+	const code = err?.code;
+	if (code === "EISDIR") {
+		return buildEditError(filePath, "path-is-directory",
+			`Path is a directory: ${displayPath}`,
+			`Use ls(${JSON.stringify(displayPath)}) to inspect directories.`);
+	}
+	if (code === "ENOENT") {
+		return buildEditError(filePath, "file-not-found",
+			`${phase === "write" ? "Failed to write file" : "File not found"}: ${displayPath}`);
+	}
+	if (code === "EACCES" || code === "EPERM") {
+		return buildEditError(filePath, "permission-denied", `Permission denied: ${displayPath}`);
+	}
+	const prefix = phase === "write" ? "Failed to write file" : "File not readable";
+	const message = `${prefix}: ${displayPath}${err?.message ? ` — ${err.message}` : ""}`;
+	return buildEditError(filePath, "fs-error", message, undefined,
+		{ fsCode: code, fsMessage: err?.message });
+}
+
 export interface EditToolOptions {
 	wasReadInSession?: (absolutePath: string) => boolean;
 	syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
@@ -227,27 +247,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			try {
 				rawBuffer = await fsReadFile(absolutePath);
 			} catch (err: any) {
-				const code = err?.code;
-				let errCode: string;
-				let message: string;
-				let hint: string | undefined;
-				let errorDetails: { fsCode?: string; fsMessage?: string } | undefined;
-				if (code === "EISDIR") {
-					errCode = "path-is-directory";
-					message = `Path is a directory: ${path}`;
-					hint = `Use ls(${JSON.stringify(path)}) to inspect directories.`;
-				} else if (code === "ENOENT") {
-					errCode = "file-not-found";
-					message = `File not found: ${path}`;
-				} else if (code === "EACCES" || code === "EPERM") {
-					errCode = "permission-denied";
-					message = `Permission denied: ${path}`;
-				} else {
-					errCode = "fs-error";
-					message = `File not readable: ${path}${err?.message ? ` — ${err.message}` : ""}`;
-					errorDetails = { fsCode: code, fsMessage: err?.message };
-				}
-				return buildEditError(absolutePath, errCode, message, hint, errorDetails);
+				return mapEditFileError(err, absolutePath, path, "read");
 			}
 			if (isBinaryBuffer(rawBuffer)) {
 				const message = `Cannot edit binary file: ${path}`;
@@ -262,10 +262,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			const anchorSnapshots = new Map<string, string>();
 			for (const edit of anchorEdits) {
 				const refs: string[] = [];
-				if ("set_line" in edit) refs.push((edit as any).set_line.anchor);
+				if ("set_line" in edit) refs.push(edit.set_line.anchor);
 				else if ("replace_lines" in edit) {
-					refs.push((edit as any).replace_lines.start_anchor, (edit as any).replace_lines.end_anchor);
-				} else if ("insert_after" in edit) refs.push((edit as any).insert_after.anchor);
+					refs.push(edit.replace_lines.start_anchor, edit.replace_lines.end_anchor);
+				} else if ("insert_after" in edit) refs.push(edit.insert_after.anchor);
 				for (const ref of refs) {
 					try {
 						const parsed = parseLineRef(ref);
@@ -323,8 +323,8 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 						let startLine: number | undefined;
 						let endLine: number | undefined;
 						try {
-							startLine = parseLineRef((edit as any).replace_lines.start_anchor).line;
-							endLine = parseLineRef((edit as any).replace_lines.end_anchor).line;
+							startLine = parseLineRef(edit.replace_lines.start_anchor).line;
+							endLine = parseLineRef(edit.replace_lines.end_anchor).line;
 						} catch {
 							// Let the normal anchored edit validation report malformed anchors later.
 						}
@@ -340,10 +340,10 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 						}
 					}
 					const refs: string[] = [];
-					if ("set_line" in edit) refs.push((edit as any).set_line.anchor);
+					if ("set_line" in edit) refs.push(edit.set_line.anchor);
 					else if ("replace_lines" in edit) {
-						refs.push((edit as any).replace_lines.start_anchor, (edit as any).replace_lines.end_anchor);
-					} else if ("insert_after" in edit) refs.push((edit as any).insert_after.anchor);
+						refs.push(edit.replace_lines.start_anchor, edit.replace_lines.end_anchor);
+					} else if ("insert_after" in edit) refs.push(edit.insert_after.anchor);
 					for (const ref of refs) {
 						let parsedLine: number | undefined;
 						try {
@@ -467,18 +467,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			try {
 				await fsWriteFile(absolutePath, writeContent, "utf-8");
 			} catch (err: any) {
-				const wrapped = wrapWriteError(err, path);
-				const code =
-					err?.code === "EACCES" || err?.code === "EPERM"
-						? "permission-denied"
-						: err?.code === "ENOENT"
-							? "file-not-found"
-							: "fs-error";
-				const message =
-					code === "fs-error" && err?.message ? `${wrapped.message} — ${err.message}` : wrapped.message;
-				return buildEditError(absolutePath, code, message, undefined, code === "fs-error"
-					? { fsCode: err?.code, fsMessage: err?.message }
-					: undefined);
+				return mapEditFileError(err, absolutePath, path, "write");
 			}
 
 			if (input.postEditVerify === true) {
@@ -580,10 +569,8 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			};
 				});
 			} catch (err: any) {
-				const code = err?.code;
-				if (typeof code === "string") {
-					const message = `File not readable: ${path}${err?.message ? ` — ${err.message}` : ""}`;
-					return buildEditError(absolutePath, "fs-error", message, undefined, { fsCode: code, fsMessage: err?.message });
+				if (typeof err?.code === "string") {
+					return mapEditFileError(err, absolutePath, path, "read");
 				}
 				throw err;
 			}

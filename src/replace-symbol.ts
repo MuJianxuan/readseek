@@ -53,9 +53,11 @@ export async function replaceSymbol(input: ReplaceSymbolInput): Promise<ReplaceS
 	const reindented = reindent(dedent(input.newBody), indent);
 	const warnings: string[] = [];
 	const leaf = input.symbol.replace(/@\d+$/, "").split(".").pop() ?? "";
+	const declNameRe =
+		/\b(?:(?:export\s+(?:default\s+)?|async\s+|public\s+|private\s+|protected\s+|static\s+)*)(?:function\*?|class|const|let|var|fn|def|method|type|interface|enum)\s+([A-Za-z_$][\w$]*)/s;
 	const firstDeclName =
-		reindented.match(/\b(?:function|class|method|const|let|var)\s+([A-Za-z_$][\w$]*)/)?.[1]
-		?? reindented.match(/^\s*(?:[\w$<>,?\s]+\s+)?([A-Za-z_$][\w$]*)\s*\(/)?.[1];
+		reindented.match(declNameRe)?.[1]
+		?? reindented.match(/^\s*(?:(?:async\s+)?[\w$<>,?\s]+\s+)?([A-Za-z_$][\w$]*)\s*\(/)?.[1];
 	if (leaf && firstDeclName && firstDeclName !== leaf) {
 		warnings.push(`name-mismatch: expected ${leaf}, got ${firstDeclName}`);
 	}
