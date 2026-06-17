@@ -8,6 +8,7 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
 
   "write.md": "Create or overwrite a complete file and return anchors.",
   "sg.md": "Search code by AST pattern and return anchored matches.",
+  "refs.md": "Find references to an identifier and return anchored usages with enclosing symbols.",
 };
 
 const COMPACT_GUIDELINES: Record<string, string[]> = {
@@ -32,6 +33,10 @@ const COMPACT_GUIDELINES: Record<string, string[]> = {
   "sg.md": [
     "Use search for AST-shaped code patterns.",
     "Use grep instead of search for plain text.",
+  ],
+  "refs.md": [
+    "Use refs to find every usage of an identifier before renaming or deleting it.",
+    "Use refs with scope plus line/column to follow a specific binding instead of every same-named identifier.",
   ],
 };
 

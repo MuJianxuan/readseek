@@ -59,16 +59,6 @@ export interface FileMap {
 }
 
 /**
- * Map generation options.
- */
-export interface MapOptions {
-  /** Maximum map size in bytes (default: 20KB) */
-  maxBytes?: number;
-  /** Abort signal */
-  signal?: AbortSignal;
-}
-
-/**
  * Language information.
  */
 export interface LanguageInfo {

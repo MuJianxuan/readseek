@@ -3,6 +3,7 @@ import { registerReadTool } from "./src/read.js";
 import { registerEditTool } from "./src/edit.js";
 import { registerGrepTool } from "./src/grep.js";
 import { registerSgTool, isSgAvailable } from "./src/sg.js";
+import { registerRefsTool } from "./src/refs.js";
 import { registerWriteTool } from "./src/write.js";
 export default function piReadseekExtension(pi: ExtensionAPI): void {
 	const readPaths = new Set<string>();
@@ -20,5 +21,6 @@ export default function piReadseekExtension(pi: ExtensionAPI): void {
 
 	registerGrepTool(pi, { searchGuideline, onFileAnchored: noteRead });
 	registerSgTool(pi, { onFileAnchored: noteRead });
+	registerRefsTool(pi, { onFileAnchored: noteRead });
 	registerWriteTool(pi, { onFileAnchored: noteRead });
 }

@@ -80,7 +80,7 @@ Syntax validation runs before writing when supported:
 - Default `warn`: write succeeds, but warnings include `syntax-regression: lines X-Y`.
 - `block`: aborts without writing.
 - `off`: skips validation.
-- `PI_HASHLINE_SYNTAX_VALIDATE` can set the default mode.
+- `READSEEK_SYNTAX_VALIDATE` can set the default mode.
 
 Existing syntax errors are tolerated; warnings are for newly introduced parser errors.
 

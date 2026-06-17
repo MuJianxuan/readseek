@@ -34,6 +34,9 @@ npm install --save-dev @jarkkojs/readseek
   follow-up `read`.
 - **search** — searches code by structural pattern (AST) and returns anchored
   matches. Use when syntax matters more than raw text.
+- **refs** — finds binding-accurate references to an identifier and returns
+  anchored usages with their enclosing symbols. Use before renaming or deleting
+  a symbol.
 - **write** — creates or overwrites whole files and returns anchors for
   immediate follow-up edits.
 

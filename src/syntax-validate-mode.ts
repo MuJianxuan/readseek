@@ -19,7 +19,7 @@ export function resolveSyntaxValidateMode(
 ): SyntaxValidateMode {
   const fromOpt = coerce(opts.syntaxValidate);
   if (fromOpt) return fromOpt;
-  const fromEnv = coerce(process.env.PI_HASHLINE_SYNTAX_VALIDATE);
+  const fromEnv = coerce(process.env.READSEEK_SYNTAX_VALIDATE);
   if (fromEnv) return fromEnv;
   return DEFAULT;
 }

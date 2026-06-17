@@ -70,6 +70,30 @@ interface ReadseekSearchOutput {
 	results: ReadseekSearchFileOutput[];
 }
 
+export interface ReadseekReference {
+	file: string;
+	line: number;
+	column: number;
+	line_hash: string;
+	text: string;
+	enclosingSymbol?: string;
+}
+
+interface ReadseekRefsOutput {
+	references: ReadseekReference[];
+}
+
+export interface ReadseekRefsOptions {
+	scope?: boolean;
+	line?: number;
+	column?: number;
+	language?: string;
+	cached?: boolean;
+	others?: boolean;
+	ignored?: boolean;
+	signal?: AbortSignal;
+}
+
 export interface ReadseekSearchOptions {
 	language?: string;
 	cached?: boolean;
@@ -398,7 +422,53 @@ export async function readseekMapContent(
 	options: { signal?: AbortSignal } = {},
 ): Promise<FileMap | null> {
 	const output = parseMapOutput(
-		await runReadseek(["map", "--stdin", "--path", filePath], { signal: options.signal, stdin: content }),
+		await runReadseek(["map", "--stdin", filePath], { signal: options.signal, stdin: content }),
 	);
 	return fileMapFromReadseekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+	if (value === undefined || value === null) return undefined;
+	return requireString(value, field);
+}
+
+function parseRefsOutput(value: unknown): ReadseekRefsOutput {
+	if (!value || typeof value !== "object") throw new Error("invalid readseek refs output");
+	const output = value as Record<string, unknown>;
+	if (!Array.isArray(output.references)) throw new Error("invalid readseek references");
+	return {
+		references: output.references.map((reference) => {
+			if (!reference || typeof reference !== "object") throw new Error("invalid readseek reference");
+			const item = reference as Record<string, unknown>;
+			const symbol = item.symbol;
+			const enclosing =
+				symbol && typeof symbol === "object"
+					? optionalString((symbol as Record<string, unknown>).qualified_name, "reference.symbol.qualified_name")
+					: undefined;
+			return {
+				file: requireString(item.file, "reference.file"),
+				line: requireNumber(item.line, "reference.line"),
+				column: requireNumber(item.column, "reference.column"),
+				line_hash: requireString(item.line_hash, "reference.line_hash"),
+				text: requireString(item.text, "reference.text"),
+				enclosingSymbol: enclosing,
+			};
+		}),
+	};
+}
+
+export async function readseekRefs(
+	target: string,
+	name: string,
+	options: ReadseekRefsOptions = {},
+): Promise<ReadseekReference[]> {
+	const args = ["refs", target, name];
+	if (options.scope) args.push("--scope");
+	if (options.line !== undefined) args.push("--line", String(options.line));
+	if (options.column !== undefined) args.push("--column", String(options.column));
+	if (options.language) args.push("--language", options.language);
+	if (options.cached) args.push("--cached");
+	if (options.others) args.push("--others");
+	if (options.ignored) args.push("--ignored");
+	return parseRefsOutput(await runReadseek(args, { signal: options.signal })).references;
 }

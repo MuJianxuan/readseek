@@ -4,7 +4,7 @@ import { resolveReadseekJsonSettings } from "./readseek-settings.js";
 const POSITIVE_BASE10_INT = /^[1-9][0-9]*$/;
 
 /**
- * Strict positive base-10 integer parser used by hashline env knobs.
+ * Strict positive base-10 integer parser used by readseek env knobs.
  *
  * Accepts: trimmed strings matching /^[1-9][0-9]*$/ that parse to a finite
  * positive integer.
@@ -66,12 +66,12 @@ export function resolveGrepOutputBudget(): GrepOutputBudget {
 	const settings = resolveReadseekJsonSettings().settings.grep;
 	return {
 		maxLines: resolveDimension(
-			process.env.PI_HASHLINE_GREP_MAX_LINES,
+			process.env.READSEEK_GREP_MAX_LINES,
 			settings?.maxLines,
 			GREP_OUTPUT_DEFAULT_MAX_LINES,
 		),
 		maxBytes: resolveDimension(
-			process.env.PI_HASHLINE_GREP_MAX_BYTES,
+			process.env.READSEEK_GREP_MAX_BYTES,
 			settings?.maxBytes,
 			GREP_OUTPUT_DEFAULT_MAX_BYTES,
 		),

@@ -269,7 +269,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			// Error-precedence order: replace_symbol resolution > anchor-overlap > anchored-edit.
 			//
 			// AC 4: store successful probe results and reuse them in the apply loop so
-			// generateMapFromContent is invoked at most once per replace_symbol edit.
+			// readseekMapContent is invoked at most once per replace_symbol edit.
 			const replaceSymbolRanges: { start: number; end: number }[] = [];
 			const rsProbeResults: { type: "ok"; content: string; replacement: string; warnings: string[]; range: { start: number; end: number } }[] = [];
 			for (const rs of replaceSymbolEdits) {
@@ -342,7 +342,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			// Apply pass: reuse all probe results (AC 4). The probe pass resolved every
 			// replace_symbol against originalNormalized; apply those replacements in
 			// reverse source order so original line ranges stay valid and no second
-			// replaceSymbol/generateMapFromContent call is needed.
+			// replaceSymbol/readseekMapContent call is needed.
 			const replaceSymbolWarnings: string[] = [];
 			if (rsProbeResults.length > 0) {
 				const lines = originalNormalized.split("\n");

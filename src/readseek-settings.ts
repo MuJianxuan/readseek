@@ -121,7 +121,7 @@ export function resolveReadseekJsonSettings(): ReadseekSettingsResult {
 }
 
 export function resolveEditDiffDisplay(env: NodeJS.ProcessEnv = process.env): "collapsed" | "expanded" {
-  const raw = env.PI_HASHLINE_EDIT_DIFF_DISPLAY;
+  const raw = env.READSEEK_EDIT_DIFF_DISPLAY;
   if (typeof raw === "string") {
     const normalized = raw.trim().toLowerCase();
     if (normalized === "expanded" || normalized === "collapsed") return normalized;

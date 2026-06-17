@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import type { FileMap } from "./readseek/types.js";
-import { generateMap } from "./readseek/mapper.js";
+import { readseekMap } from "./readseek-client.js";
 
 interface CacheEntry {
 	mtimeMs: number;
@@ -60,7 +60,7 @@ export async function getOrGenerateMap(absPath: string): Promise<FileMap | null>
 		if (inflight) return inflight;
 
 		const generation = (async () => {
-			const map = await generateMap(absPath);
+			const map = await readseekMap(absPath, fileStat.size);
 			rememberInMemory(absPath, { mtimeMs, map });
 			return map;
 		})()
