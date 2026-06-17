@@ -222,13 +222,14 @@ fn run_search(command: &cli::SearchCommand) -> Result<()> {
 
     let results: Vec<_> = paths
         .par_iter()
-        .filter_map(|path| {
+        .map(|path| {
             let mut parser = tree_sitter::Parser::new();
             crate::search::search_file(path, command.language, &pattern, &mut parser)
-                .ok()
-                .flatten()
-                .filter(|result| !result.matches.is_empty())
+                .map(|result| result.filter(|result| !result.matches.is_empty()))
         })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
         .collect();
 
     print_json(&SearchOutput { results })

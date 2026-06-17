@@ -62,7 +62,7 @@ pub(crate) fn search_file(
 
     let owned_pattern_tree;
     let pattern_tree_ref = if let Some(pre_parsed) = &pattern.tree {
-        if pre_parsed.root_node().has_error() {
+        if pattern_tree_has_error(pre_parsed) {
             bail!("pattern is not valid {} syntax", detected_language.id());
         }
         pre_parsed
@@ -70,11 +70,14 @@ pub(crate) fn search_file(
         owned_pattern_tree = parser
             .parse(&pattern.text, None)
             .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
-        if owned_pattern_tree.root_node().has_error() {
+        if pattern_tree_has_error(&owned_pattern_tree) {
             bail!("pattern is not valid {} syntax", detected_language.id());
         }
         &owned_pattern_tree
     };
+    if pattern_tree_ref.root_node().named_child_count() == 0 {
+        bail!("pattern is not valid {} syntax", detected_language.id());
+    }
     let pattern_root = if pattern_tree_ref.root_node().named_child_count() == 1 {
         pattern_tree_ref.root_node().named_child(0)
     } else {
@@ -341,6 +344,19 @@ fn pattern_meta<'a>(pattern: &'a SearchPattern, node: Node<'_>) -> Option<&'a Pa
 
 fn node_text<'a>(node: Node<'_>, text: &'a str) -> Option<&'a str> {
     node.utf8_text(text.as_bytes()).ok()
+}
+
+fn pattern_tree_has_error(tree: &Tree) -> bool {
+    node_has_error(tree.root_node())
+}
+
+fn node_has_error(node: Node<'_>) -> bool {
+    if node.has_error() || node.is_error() || node.is_missing() {
+        return true;
+    }
+
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(node_has_error)
 }
 
 fn search_match(
