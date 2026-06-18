@@ -1,5 +1,7 @@
 import { spawn, type StdioOptions } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import { DetailLevel } from "./readseek/enums.js";
@@ -165,6 +167,8 @@ function symbolsFromReadseek(symbols: ReadseekSymbol[]): FileSymbol[] {
 }
 
 const require = createRequire(import.meta.url);
+const READSEEK_REPO_PACKAGE_NAMES = new Set(["@jarkkojs/readseek", "readseek"]);
+let defaultReadseekDirInit: Promise<string | null> | undefined;
 
 function readseekPackageDir(): string {
 	return path.dirname(require.resolve("@jarkkojs/readseek/package.json"));
@@ -199,12 +203,39 @@ export function isReadseekAvailable(): boolean {
 	}
 }
 
-interface RunReadseekOptions {
-	signal?: AbortSignal;
-	stdin?: string;
+function directoryExists(dirPath: string): boolean {
+	try {
+		return statSync(dirPath).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
-async function runReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
+function isOwnReadseekRepository(cwd = process.cwd()): boolean {
+	let dir = path.resolve(cwd);
+	while (true) {
+		const packageJsonPath = path.join(dir, "package.json");
+		if (existsSync(packageJsonPath)) {
+			try {
+				const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
+				if (typeof packageJson.name === "string" && READSEEK_REPO_PACKAGE_NAMES.has(packageJson.name)) return true;
+			} catch {
+				// Ignore unreadable or invalid package manifests while walking up.
+			}
+		}
+
+		const parent = path.dirname(dir);
+		if (parent === dir) return false;
+		dir = parent;
+	}
+}
+
+function defaultReadseekDir(): string | null {
+	const home = homedir();
+	return home ? path.join(home, ".pi", "readseek") : null;
+}
+
+async function spawnReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let settled = false;
 		const fail = (error: Error): void => {
@@ -263,6 +294,36 @@ async function runReadseekRaw(args: string[], options: RunReadseekOptions = {}):
 			else fail(new Error((stderr || `readseek exited with status ${code}`).replace(/^error:\s*/i, "")));
 		});
 	});
+}
+
+async function ensureDefaultReadseekDir(): Promise<string | null> {
+	const dir = defaultReadseekDir();
+	if (!dir) return null;
+	if (directoryExists(dir)) return dir;
+
+	defaultReadseekDirInit ??= spawnReadseekRaw(["--readseek-dir", dir, "init"])
+		.then(() => (directoryExists(dir) ? dir : null))
+		.catch(() => null)
+		.finally(() => {
+			defaultReadseekDirInit = undefined;
+		});
+	return defaultReadseekDirInit;
+}
+
+async function readseekInvocationArgs(args: string[]): Promise<string[]> {
+	if (isOwnReadseekRepository()) return args;
+
+	const readseekDir = await ensureDefaultReadseekDir();
+	return readseekDir ? ["--readseek-dir", readseekDir, ...args] : args;
+}
+
+interface RunReadseekOptions {
+	signal?: AbortSignal;
+	stdin?: string;
+}
+
+async function runReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
+	return spawnReadseekRaw(await readseekInvocationArgs(args), options);
 }
 
 async function runReadseek(args: string[], options: RunReadseekOptions = {}): Promise<unknown> {
