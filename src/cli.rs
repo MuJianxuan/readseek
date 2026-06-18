@@ -19,6 +19,10 @@ pub(crate) struct Cli {
     #[argh(option, long = "output")]
     pub(crate) output: Option<PathBuf>,
 
+    /// use the given .readseek directory instead of discovering one
+    #[argh(option, long = "readseek-dir")]
+    pub(crate) readseek_dir: Option<PathBuf>,
+
     /// command to run
     #[argh(subcommand)]
     pub(crate) command: Option<Command>,

@@ -5,6 +5,7 @@ readseek \- structural source-code reader with stable line hashing
 .nf
 \fBreadseek\fR [\fB\-h\fR|\fB--help\fR]
 \fBreadseek\fR [\fB\-V\fR|\fB--version\fR]
+\fBreadseek\fR [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
@@ -238,6 +239,12 @@ Print usage information and exit.
 .TP
 \fB\-V\fR, \fB--version\fR
 Print the program version and exit.
+.TP
+\fB--readseek-dir\fR \fIdir\fR
+Use \fIdir\fR as the \fI.readseek/\fR directory instead of discovering one by
+walking up from the target, analogous to \fBgit\fR's \fB--git-dir\fR. This global
+option must precede the command. For \fBinit\fR it controls where the directory is
+created; other commands read and refresh their source-map cache there.
 .TP
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.

@@ -172,6 +172,73 @@ def main():
             failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
         elif assert_equal(name, result_init.stdout, expected_init):
             passed(name)
+
+        name = "init: --readseek-dir custom location"
+        rsdir_work = os.path.join(tmpdir, "rsdir-work")
+        os.mkdir(rsdir_work)
+        custom_index = os.path.join(tmpdir, "custom-index")
+        write_file(rsdir_work, "lib.rs", "fn custom_target() {}\n")
+        result_init = run(["--readseek-dir", custom_index, "init", rsdir_work])
+        expected_init = f"Initialized empty readseek repository in {custom_index}/\n"
+        if result_init.returncode != 0:
+            failed(name, f"status {result_init.returncode} stderr={result_init.stderr[:200]}")
+        elif all(
+            [
+                assert_equal(name, result_init.stdout, expected_init),
+                assert_true(
+                    name,
+                    os.path.isdir(os.path.join(custom_index, "maps")),
+                    "custom maps directory missing",
+                ),
+                assert_true(
+                    name,
+                    os.path.isdir(os.path.join(custom_index, "def-index")),
+                    "custom def-index directory missing",
+                ),
+                assert_true(
+                    name,
+                    not os.path.isdir(os.path.join(rsdir_work, ".readseek")),
+                    "override created a .readseek in the work tree",
+                ),
+            ]
+        ):
+            passed(name)
+
+        name = "map: --readseek-dir caches to custom location"
+
+        def custom_map_count():
+            maps_dir = os.path.join(custom_index, "maps")
+            return sum(len(files) for _, _, files in os.walk(maps_dir))
+
+        extra_path = write_file(rsdir_work, "extra.rs", "fn extra_fn() {}\n")
+        before = custom_map_count()
+        data = readseek_json(name, ["--readseek-dir", custom_index, "map", extra_path])
+        if data and all(
+            [
+                assert_symbol(name, data.get("symbols", []), "function", "extra_fn"),
+                assert_true(name, custom_map_count() > before, "map did not cache into custom index"),
+                assert_true(
+                    name,
+                    not os.path.isdir(os.path.join(rsdir_work, ".readseek")),
+                    "override created a .readseek in the work tree",
+                ),
+            ]
+        ):
+            passed(name)
+
+        name = "definition: --readseek-dir custom index"
+        data = readseek_json(name, ["--readseek-dir", custom_index, "def", rsdir_work, "custom_target"])
+        if data:
+            definitions = data.get("definitions", [])
+            if all(
+                [
+                    assert_equal(name, len(definitions), 1),
+                    assert_equal(name, os.path.basename(definitions[0].get("file", "")), "lib.rs"),
+                    assert_equal(name, definitions[0]["symbol"].get("name"), "custom_target"),
+                ]
+            ):
+                passed(name)
+
         name = "file: rust file"
         path = write_file(tmpdir, "sample.rs", "fn main() {}\n")
         data = readseek_json(name, ["detect", path])

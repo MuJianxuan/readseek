@@ -71,6 +71,9 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(dir) = cli.readseek_dir {
+        crate::repo::set_dir_override(dir);
+    }
     if let Some(path) = cli.output {
         OUTPUT_FILE.set(path).ok();
     }

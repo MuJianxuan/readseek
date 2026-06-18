@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::mem::offset_of;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use zerocopy::byteorder::{LittleEndian, U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -93,7 +94,21 @@ struct UpdatePathResult {
     entries: Vec<DefIndexEntry>,
 }
 
+static DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Pin the `.readseek` directory, bypassing ancestor discovery (`--readseek-dir`).
+pub(crate) fn set_dir_override(path: PathBuf) {
+    DIR_OVERRIDE.set(path).ok();
+}
+
+fn dir_override() -> Option<&'static Path> {
+    DIR_OVERRIDE.get().map(PathBuf::as_path)
+}
+
 pub(crate) fn find_readseek_dir(base: &Path) -> Option<PathBuf> {
+    if let Some(dir) = dir_override() {
+        return dir.is_dir().then(|| dir.to_path_buf());
+    }
     let base = base.canonicalize().ok()?;
     base.ancestors()
         .find(|ancestor| {
@@ -115,9 +130,11 @@ pub(crate) struct InitResult {
 }
 
 pub(crate) fn init(dir: &Path) -> Result<InitResult> {
-    let readseek_dir = dir.join(READSEEK_DIR);
     let canonical = dir.canonicalize().context("resolve init path")?;
-    let canonical_readseek = canonical.join(READSEEK_DIR);
+    let (readseek_dir, canonical_readseek) = match dir_override() {
+        Some(dir) => (dir.to_path_buf(), dir.to_path_buf()),
+        None => (dir.join(READSEEK_DIR), canonical.join(READSEEK_DIR)),
+    };
     let reinitialized = canonical_readseek.exists();
     let maps_dir = canonical_readseek.join(MAPS_DIR);
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
@@ -441,8 +458,18 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
 
 pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let readseek_dir = readseek_dir_or_err(dir)?;
-    let project_root = readseek_dir.parent().context(".readseek has no parent")?;
-    let paths = crate::paths::command_paths(project_root, flags)?;
+    // With an override the readseek dir is decoupled from the work tree, so the
+    // project root is the caller-supplied work tree rather than the dir's parent.
+    let project_root = match dir_override() {
+        Some(_) => dir
+            .canonicalize()
+            .with_context(|| format!("resolve {}", dir.display()))?,
+        None => readseek_dir
+            .parent()
+            .context(".readseek has no parent")?
+            .to_path_buf(),
+    };
+    let paths = crate::paths::command_paths(&project_root, flags)?;
 
     let results: Vec<_> = paths
         .par_iter()
