@@ -37,7 +37,8 @@ readseek \- structural source-code reader with stable line hashing
     \fItarget\fR \fIname\fR
 
 \fBreadseek rename\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR] \fB--to\fR \fIname\fR
-    [\fB--apply\fR] [\fB--language\fR \fIlanguage\fR] \fItarget\fR
+    [\fB--workspace\fR \fIdir\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+    [\fB\-i\fR|\fB--ignored\fR] [\fB--apply\fR] [\fB--language\fR \fIlanguage\fR] \fItarget\fR
 
 \fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
@@ -204,6 +205,17 @@ matches the plan, so a file that changed since planning is rejected rather than
 corrupted. The reported \fIapplied\fR field indicates whether the file was written.
 Rename uses the same scope resolution as \fBrefs --scope\fR and is available for the
 same languages.
+.IP
+With \fB--workspace\fR the rename expands across the given directory or repository.
+The cursor file stays binding-accurate; every other file is matched by name, the
+same way \fBrefs\fR matches, and the additional files appear in an \fIothers\fR array
+of per-file plans. Because readseek has no cross-file symbol resolver, an occurrence
+in another file is renamed only when it does not resolve to a local declaration
+there, so a same-named local binding is left untouched; files in languages without
+binding support are matched by name alone. Directory selection honours the same
+\fB\-c\fR/\fB\-o\fR/\fB\-i\fR Git flags as \fBrefs\fR. With \fB--apply\fR every file is
+verified first and only written if all pass, so a conflict or hash drift in any file
+aborts the whole rename without leaving a partial result.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file under a directory.
@@ -243,10 +255,11 @@ with editor-friendly fields.
 .TP
 \fB--line\fR \fIline\fR
 One-based target line for \fBsymbol\fR or \fBidentify\fR, or the cursor line for
-\fBrefs --scope\fR.
+\fBrefs --scope\fR and \fBrename\fR.
 .TP
 \fB--column\fR \fIcolumn\fR
-One-based byte column for \fBidentify\fR or the cursor column for \fBrefs --scope\fR.
+One-based byte column for \fBidentify\fR or the cursor column for \fBrefs --scope\fR
+and \fBrename\fR.
 Identifier ranges in JSON use a one-based inclusive start column and a one-based
 exclusive end column.
 .TP
@@ -258,9 +271,16 @@ in a single file instead of matching every occurrence of the name.
 For \fBrename\fR, the new name for the binding. Must be a plain identifier and
 differ from the current name.
 .TP
+\fB--workspace\fR \fIdir\fR
+For \fBrename\fR, expand the rename across the directory or repository \fIdir\fR.
+The cursor file stays binding-accurate; other files are matched by name (local
+shadows excluded) and returned in an \fIothers\fR array. Honours the
+\fB\-c\fR/\fB\-o\fR/\fB\-i\fR Git flags.
+.TP
 \fB--apply\fR
-For \fBrename\fR, write the planned edits to the file. Refuses on any naming
-conflict and verifies each edited line's hash before writing.
+For \fBrename\fR, write the planned edits. Refuses on any naming conflict and
+verifies each edited line's hash before writing. With \fB--workspace\fR every file
+is verified first and written all-or-nothing.
 .TP
 \fB--offset\fR \fIline\fR
 First line to include when reading. Cannot be combined with \fB--end\fR or
@@ -273,12 +293,12 @@ Last line to include when reading. Cannot be combined with \fB--limit\fR.
 Maximum number of lines to include when reading. Cannot be combined with \fB--end\fR.
 .TP
 \fB\-c\fR, \fB--cached\fR
-When searching a directory inside a Git repository, search tracked and indexed
-files.
+When searching a directory inside a Git repository, or expanding \fBrename
+--workspace\fR, search tracked and indexed files.
 .TP
 \fB\-o\fR, \fB--others\fR
-When searching a directory inside a Git repository, search untracked files that
-are not ignored.
+When searching a directory inside a Git repository, or expanding \fBrename
+--workspace\fR, search untracked files that are not ignored.
 .TP
 \fB\-i\fR, \fB--ignored\fR
 With \fB--others\fR, also include ignored untracked files. Inside a Git repository
@@ -383,6 +403,12 @@ readseek rename src/main.rs --line 42 --column 8 --to renamed
 Apply the rename to the file:
 .EX
 readseek rename src/main.rs --line 42 --column 8 --to renamed --apply
+.EE
+
+Rename a symbol across the repository (cursor file binding-accurate, other files
+matched by name) and apply it all-or-nothing:
+.EX
+readseek rename src/main.rs --line 42 --column 8 --to renamed --workspace . --apply
 .EE
 
 .SH BUILDING

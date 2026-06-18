@@ -1250,6 +1250,98 @@ def main():
         ):
             passed(name)
 
+        name = "rename: single-file omits others"
+        data = readseek_json(
+            name, ["rename", scope_path, "--line", "4", "--column", "13", "--to", "renamed2"]
+        )
+        if data and assert_true(
+            name, "others" not in data, "single-file output must omit others"
+        ):
+            passed(name)
+
+        xfile_dir = os.path.join(tmpdir, "xfile")
+        os.mkdir(xfile_dir)
+        write_file(xfile_dir, "lib.rs", "pub fn target() -> u32 { 1 }\n")
+        write_file(
+            xfile_dir,
+            "use1.rs",
+            "use crate::target;\nfn run() -> u32 { target() + target() }\n",
+        )
+        write_file(xfile_dir, "shadow.rs", "fn run() -> u32 { let target = 5; target }\n")
+        write_file(xfile_dir, "notes.md", "target appears here as prose target.\n")
+        xfile_lib = os.path.join(xfile_dir, "lib.rs")
+
+        name = "rename: cross-file plan excludes local shadow"
+        data = readseek_json(
+            name,
+            ["rename", xfile_lib, "--line", "1", "--column", "8", "--to", "renamed", "--workspace", xfile_dir],
+        )
+        if data:
+            others = {os.path.basename(o["file"]): len(o["edits"]) for o in data.get("others", [])}
+            if all(
+                [
+                    assert_equal(name, data.get("old_name"), "target"),
+                    assert_equal(name, len(data.get("edits", [])), 1),
+                    assert_equal(name, others, {"notes.md": 2, "use1.rs": 3}),
+                    assert_true(name, "shadow.rs" not in others, "local shadow must be excluded"),
+                ]
+            ):
+                passed(name)
+
+        name = "rename: cross-file applies every file"
+        data = readseek_json(
+            name,
+            ["rename", xfile_lib, "--line", "1", "--column", "8", "--to", "renamed", "--workspace", xfile_dir, "--apply"],
+        )
+        if data and assert_equal(name, data.get("applied"), True):
+            def xfile_read(filename):
+                with open(os.path.join(xfile_dir, filename), encoding="utf-8") as file:
+                    return file.read()
+            if all(
+                [
+                    assert_equal(name, xfile_read("lib.rs"), "pub fn renamed() -> u32 { 1 }\n"),
+                    assert_equal(
+                        name,
+                        xfile_read("use1.rs"),
+                        "use crate::renamed;\nfn run() -> u32 { renamed() + renamed() }\n",
+                    ),
+                    assert_equal(
+                        name,
+                        xfile_read("shadow.rs"),
+                        "fn run() -> u32 { let target = 5; target }\n",
+                    ),
+                    assert_equal(
+                        name, xfile_read("notes.md"), "renamed appears here as prose renamed.\n"
+                    ),
+                ]
+            ):
+                passed(name)
+
+        name = "rename: cross-file refuses on conflict and writes nothing"
+        conflict_dir = os.path.join(tmpdir, "xfile-conflict")
+        os.mkdir(conflict_dir)
+        write_file(conflict_dir, "lib.rs", "pub fn target() -> u32 { 1 }\n")
+        write_file(
+            conflict_dir,
+            "capture.rs",
+            "fn run() -> u32 { let renamed = 9; target(); renamed }\n",
+        )
+        conflict_lib = os.path.join(conflict_dir, "lib.rs")
+        conflict_capture = os.path.join(conflict_dir, "capture.rs")
+        before_lib = open(conflict_lib, encoding="utf-8").read()
+        before_capture = open(conflict_capture, encoding="utf-8").read()
+        result = run(
+            ["rename", conflict_lib, "--line", "1", "--column", "8", "--to", "renamed", "--workspace", conflict_dir, "--apply"]
+        )
+        if all(
+            [
+                assert_true(name, result.returncode != 0, "expected failure"),
+                assert_equal(name, open(conflict_lib, encoding="utf-8").read(), before_lib),
+                assert_equal(name, open(conflict_capture, encoding="utf-8").read(), before_capture),
+            ]
+        ):
+            passed(name)
+
         name = "references: C ignores comments and literals"
         c_references_dir = os.path.join(tmpdir, "c-references")
         os.mkdir(c_references_dir)

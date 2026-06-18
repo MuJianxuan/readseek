@@ -266,8 +266,9 @@ pub(crate) struct RefsCommand {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "rename")]
 #[argh(help_triggers("-h", "--help"))]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct RenameCommand {
-    /// file to rename within (a single regular file)
+    /// file holding the binding under the cursor (a single regular file)
     #[argh(positional)]
     pub(crate) target: PathBuf,
 
@@ -283,6 +284,11 @@ pub(crate) struct RenameCommand {
     #[argh(option, long = "to")]
     pub(crate) to: String,
 
+    /// expand the rename across this directory or repository (name-based
+    /// outside the cursor file); omit for a single-file rename
+    #[argh(option)]
+    pub(crate) workspace: Option<PathBuf>,
+
     /// write the planned edits to the file after verifying line hashes
     #[argh(switch)]
     pub(crate) apply: bool,
@@ -290,6 +296,18 @@ pub(crate) struct RenameCommand {
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
+
+    /// search tracked/indexed files when expanding across a Git repository
+    #[argh(switch, short = 'c')]
+    pub(crate) cached: bool,
+
+    /// search untracked files when expanding across a Git repository
+    #[argh(switch, short = 'o')]
+    pub(crate) others: bool,
+
+    /// include ignored untracked files when expanding across a Git repository
+    #[argh(switch, short = 'i')]
+    pub(crate) ignored: bool,
 }
 
 /// search files with an AST pattern

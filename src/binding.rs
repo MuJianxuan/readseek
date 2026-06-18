@@ -113,6 +113,103 @@ pub(crate) fn resolve_with_conflicts(
     Some((Binding { name, occurrences }, conflicts))
 }
 
+/// The identifier text under `byte`, if the cursor sits on one.
+///
+/// Unlike [`resolve`], this does not require the name to bind to a local
+/// declaration, so it also names top-level symbols (functions, types) the
+/// resolver does not track but a cross-file rename still targets.
+pub(crate) fn identifier_at(source: &SourceFile, byte: usize) -> Option<String> {
+    let table = binding_table(source.detection.language)?;
+    let language = tree_sitter_language(source.detection.language)?;
+    let mut parser = Parser::new();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(&source.text, None)?;
+    let root = tree.root_node();
+    let lookup = byte.min(source.text.len().saturating_sub(1));
+    let leaf = identifier_leaf(root.descendant_for_byte_range(lookup, lookup)?, table)?;
+    leaf.utf8_text(source.text.as_bytes())
+        .ok()
+        .map(str::to_owned)
+}
+
+/// Name occurrences a cross-file rename should touch within one file.
+pub(crate) struct CrossFileMatches {
+    /// Byte spans of free uses of the old name to rename.
+    pub(crate) occurrences: Vec<(usize, usize)>,
+    /// Byte offsets where renaming to the new name would capture a local binding.
+    pub(crate) conflicts: Vec<usize>,
+}
+
+/// Find the occurrences of `name` in a file that take part in a cross-file
+/// rename to `new_name`.
+///
+/// readseek has no cross-file symbol resolver, so a use in another file is taken
+/// to reference the cross-file target only when it does *not* resolve to a local
+/// declaration here; an occurrence that binds to a local declaration is a shadow
+/// and is left untouched. Returns `None` for languages without a binding table,
+/// so the caller can fall back to a plain name scan.
+pub(crate) fn cross_file_matches(
+    source: &SourceFile,
+    name: &str,
+    new_name: &str,
+) -> Option<CrossFileMatches> {
+    let table = binding_table(source.detection.language)?;
+    let language = tree_sitter_language(source.detection.language)?;
+    let mut parser = Parser::new();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(&source.text, None)?;
+    let root = tree.root_node();
+    let src = source.text.as_bytes();
+
+    let mut declarations = Vec::new();
+    collect_declarations(root, src, table, &mut declarations);
+
+    let mut matches = CrossFileMatches {
+        occurrences: Vec::new(),
+        conflicts: Vec::new(),
+    };
+    collect_free_occurrences(
+        root,
+        src,
+        table,
+        name,
+        new_name,
+        &declarations,
+        &mut matches,
+    );
+    matches.occurrences.sort_by_key(|&(start, _)| start);
+    matches.conflicts.sort_unstable();
+    Some(matches)
+}
+
+/// Walk the tree collecting uses of `name` that do not resolve to a local
+/// declaration, flagging any where `new_name` already binds locally (capture).
+#[allow(clippy::too_many_arguments)]
+fn collect_free_occurrences(
+    node: Node<'_>,
+    src: &[u8],
+    table: &BindingTable,
+    name: &str,
+    new_name: &str,
+    declarations: &[Declaration<'_>],
+    out: &mut CrossFileMatches,
+) {
+    if is_identifier_kind(node.kind(), table)
+        && node.child_count() == 0
+        && node.utf8_text(src) == Ok(name)
+        && resolve_node(node, name, declarations).is_none()
+    {
+        out.occurrences.push((node.start_byte(), node.end_byte()));
+        if resolve_node(node, new_name, declarations).is_some() {
+            out.conflicts.push(node.start_byte());
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_free_occurrences(child, src, table, name, new_name, declarations, out);
+    }
+}
+
 /// Check whether renaming the binding to `new_name` would capture or be captured.
 fn find_conflicts(
     root: Node<'_>,

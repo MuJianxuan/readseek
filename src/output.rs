@@ -176,6 +176,21 @@ pub(crate) struct RenameOutput {
     pub(crate) unsupported: bool,
     pub(crate) conflicts: Vec<RenameConflict>,
     pub(crate) edits: Vec<RenameEdit>,
+    /// Additional files edited when `--workspace` expands the rename. The
+    /// top-level fields describe the cursor file (binding-accurate); each entry
+    /// here is matched by name (binding-resolved only to drop local shadows).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) others: Vec<RenameFileOutput>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RenameFileOutput {
+    pub(crate) file: PathBuf,
+    pub(crate) language: Language,
+    pub(crate) engine: EngineField,
+    pub(crate) file_hash: String,
+    pub(crate) conflicts: Vec<RenameConflict>,
+    pub(crate) edits: Vec<RenameEdit>,
 }
 
 #[derive(Debug, Serialize)]
