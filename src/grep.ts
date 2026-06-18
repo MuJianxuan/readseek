@@ -6,9 +6,9 @@ import path from "path";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { normalizeToLF, stripBom, hasBareCarriageReturn } from "./edit-diff.js";
 import { looksLikeBinary } from "./binary-detect.js";
-import { ensureHashInit, formatHashlineDisplay, escapeControlCharsForDisplay } from "./hashline.js";
-import { buildReadseekLine, buildToolErrorResult } from "./readseek-value.js";
-import { buildGrepOutput } from "./grep-output.js";
+import { ensureHashInit, escapeControlCharsForDisplay } from "./hashline.js";
+import { buildReadseekLine, buildToolErrorResult, type ReadseekLine } from "./readseek-value.js";
+import { buildGrepOutput, type GrepOutputEntry, type GrepOutputGroup, type GrepOutputRecord, type GrepScopeWarning } from "./grep-output.js";
 
 import { getOrGenerateMap } from "./map-cache.js";
 import { scopeGrepGroupsToSymbols } from "./grep-symbol-scope.js";
@@ -99,177 +99,76 @@ function parseGrepOutputLine(line: string):
 	return null;
 }
 
-export interface GrepIRLine {
-	kind: "match" | "context" | "separator";
-	raw: string;
-}
-
-export interface GrepIRFile {
-	path: string;
-	matchCount: number;
-	lines: GrepIRLine[];
-}
-
-export interface GrepIR {
-	totalMatches: number;
-	files: GrepIRFile[];
-}
-
-interface GrepReadseekRecord {
-	path: string;
-	line: number;
-	hash: string;
-	anchor: string;
-	kind: "match" | "context";
-	raw: string;
-	display: string;
-}
-
-function collectReadseekRecordsFromIR(
-	ir: GrepIR,
-	recordByRenderedLine: Map<string, GrepReadseekRecord>,
-): GrepReadseekRecord[] {
-	const records: GrepReadseekRecord[] = [];
-	for (const file of ir.files) {
-		for (const line of file.lines) {
-			if (line.kind === "separator") continue;
-			const record = recordByRenderedLine.get(line.raw);
-			if (record) records.push(record);
-		}
-	}
-	return records;
-}
-
-const IR_MATCH_LINE_RE = /^(.+?):>>/;
-const IR_CONTEXT_LINE_RE = /^(.+?):  /;
-
-export function parseGrepIR(lines: string[]): GrepIR {
-	const fileMap = new Map<string, GrepIRFile>();
-	let totalMatches = 0;
-
-	for (const line of lines) {
-		const matchResult = line.match(IR_MATCH_LINE_RE);
-		let filePath: string | undefined;
-		let kind: "match" | "context" = "context";
-
-		if (matchResult) {
-			filePath = matchResult[1];
-			kind = "match";
-			totalMatches++;
-		} else {
-			const contextResult = line.match(IR_CONTEXT_LINE_RE);
-			if (contextResult) {
-				filePath = contextResult[1];
-				kind = "context";
-			}
-		}
-
-		if (!filePath) continue;
-
-		let file = fileMap.get(filePath);
-		if (!file) {
-			file = { path: filePath, matchCount: 0, lines: [] };
-			fileMap.set(filePath, file);
-		}
-
-		file.lines.push({ kind, raw: line });
-		if (kind === "match") file.matchCount++;
-	}
-
-	return { totalMatches, files: [...fileMap.values()] };
-}
-
-export function formatGrepOutput(ir: GrepIR, options?: { summary?: boolean; limit?: number }): string {
-	const header = `[${ir.totalMatches} matches in ${ir.files.length} files]`;
-	if (ir.files.length === 0) return header;
-	let output: string;
-	if (options?.summary) {
-		const fileLines = [...ir.files]
-			.sort((a, b) => b.matchCount - a.matchCount)
-			.map((f) => `${f.path}: ${f.matchCount} matches`);
-		output = [header, ...fileLines].join("\n");
-	} else {
-		const blocks: string[] = [header];
-		for (const file of ir.files) {
-			blocks.push(`--- ${file.path} (${file.matchCount} matches) ---`);
-			for (const line of file.lines) {
-				blocks.push(line.raw);
-			}
-		}
-		output = blocks.join("\n");
-	}
-
-	if (options?.limit !== undefined && ir.totalMatches === options.limit) {
-		output += `\n\n[Results truncated at ${options.limit} matches — refine pattern or increase limit]`;
-	}
-
-	return output;
-}
-
 const GREP_TRUNCATION_THRESHOLD = 50;
 const GREP_MAX_MATCHES_PER_FILE = 10;
 
-export function truncateGrepIR(ir: GrepIR): GrepIR {
-	if (ir.totalMatches <= GREP_TRUNCATION_THRESHOLD) return ir;
+type GrepAnchoredEntry = Extract<GrepOutputEntry, { kind: "match" | "context" }>;
 
-	const files = ir.files.map((file) => {
-		let matchesSeen = 0;
-		const keptLines: GrepIRLine[] = [];
-		let truncatedCount = 0;
+/**
+ * Collapse context lines that duplicate a match line by line number (a match
+ * supersedes a context entry at the same line), then sort ascending and insert
+ * a `--` separator across each line-number gap.
+ */
+function dedupeContextEntries(entries: GrepOutputEntry[]): GrepOutputEntry[] {
+	if (entries.length === 0) return entries;
 
-		for (const line of file.lines) {
-			if (line.kind === "match") {
-				matchesSeen++;
-				if (matchesSeen <= GREP_MAX_MATCHES_PER_FILE) {
-					keptLines.push(line);
-				} else {
-					truncatedCount++;
-				}
-			} else if (matchesSeen <= GREP_MAX_MATCHES_PER_FILE) {
-				keptLines.push(line);
-			}
-		}
-
-		if (truncatedCount > 0) {
-			keptLines.push({
-				kind: "separator",
-				raw: `... +${truncatedCount} more matches`,
-			});
-		}
-
-		return { ...file, lines: keptLines };
-	});
-
-	return { ...ir, files };
-}
-
-const LINE_NUM_RE = /(?:>>|  )(\d+):/;
-
-export function deduplicateContext(lines: GrepIRLine[]): GrepIRLine[] {
-	if (lines.length === 0) return lines;
-
-	const byLineNum = new Map<number, GrepIRLine>();
-	for (const line of lines) {
-		const match = line.raw.match(LINE_NUM_RE);
-		if (!match) continue;
-		const lineNum = Number.parseInt(match[1], 10);
-		const existing = byLineNum.get(lineNum);
-		if (!existing || (line.kind === "match" && existing.kind === "context")) {
-			byLineNum.set(lineNum, line);
+	const byLine = new Map<number, GrepAnchoredEntry>();
+	for (const entry of entries) {
+		if (entry.kind === "separator") continue;
+		const existing = byLine.get(entry.line.line);
+		if (!existing || (entry.kind === "match" && existing.kind === "context")) {
+			byLine.set(entry.line.line, entry);
 		}
 	}
 
-	const sorted = [...byLineNum.entries()].sort(([a], [b]) => a - b);
-	const result: GrepIRLine[] = [];
-
+	const sorted = [...byLine.entries()].sort(([a], [b]) => a - b);
+	const result: GrepOutputEntry[] = [];
 	for (let i = 0; i < sorted.length; i++) {
 		if (i > 0 && sorted[i][0] > sorted[i - 1][0] + 1) {
-			result.push({ kind: "separator", raw: "--" });
+			result.push({ kind: "separator", text: "--" });
 		}
 		result.push(sorted[i][1]);
 	}
 
 	return result;
+}
+
+/**
+ * Keep at most {@link GREP_MAX_MATCHES_PER_FILE} matches (with their context)
+ * per file, appending a `... +N more matches` separator when matches are
+ * dropped. The group's `matchCount` retains the pre-truncation total.
+ */
+function truncateGroupEntries(group: GrepOutputGroup): GrepOutputGroup {
+	let matchesSeen = 0;
+	let truncatedCount = 0;
+	const kept: GrepOutputEntry[] = [];
+
+	for (const entry of group.entries) {
+		if (entry.kind === "match") {
+			matchesSeen++;
+			if (matchesSeen <= GREP_MAX_MATCHES_PER_FILE) {
+				kept.push(entry);
+			} else {
+				truncatedCount++;
+			}
+		} else if (matchesSeen <= GREP_MAX_MATCHES_PER_FILE) {
+			kept.push(entry);
+		}
+	}
+
+	if (truncatedCount > 0) {
+		kept.push({ kind: "separator", text: `... +${truncatedCount} more matches` });
+	}
+
+	return { ...group, entries: kept };
+}
+
+function recordsFromGroups(groups: GrepOutputGroup[]): GrepOutputRecord[] {
+	return groups.flatMap((group) =>
+		group.entries.flatMap((entry) =>
+			entry.kind === "separator" ? [] : [{ path: group.absolutePath, ...entry.line, kind: entry.kind }],
+		),
+	);
 }
 
 /**
@@ -406,12 +305,25 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		return searchPath;
 	};
 
-	const transformed: string[] = [];
+	const groupsByPath = new Map<string, GrepOutputGroup>();
 	const passthroughLines: string[] = [];
-	const recordByRenderedLine = new Map<string, GrepReadseekRecord>();
+	let totalMatches = 0;
 	let parsedCount = 0;
 	let candidateUnparsedCount = 0;
 	const candidateLinePattern = /^.+(?::|-)\d+(?::|-)\s/;
+
+	const addEntry = (displayPath: string, absolutePath: string, kind: "match" | "context", line: ReadseekLine) => {
+		let group = groupsByPath.get(displayPath);
+		if (!group) {
+			group = { displayPath, absolutePath, matchCount: 0, entries: [] };
+			groupsByPath.set(displayPath, group);
+		}
+		group.entries.push({ kind, line });
+		if (kind === "match") {
+			group.matchCount++;
+			totalMatches++;
+		}
+	};
 
 	for (const line of textBlock.text.split("\n")) {
 		throwIfAborted(signal);
@@ -424,7 +336,6 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 			if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
 				passthroughLines.push(trimmed);
 			}
-			transformed.push(line);
 			continue;
 		}
 		parsedCount++;
@@ -438,13 +349,12 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		// parsed.kind === "match"; context lines are irrelevant here (rg won’t
 		// produce them for bare-CR files in any meaningful way).
 		if (parsed.kind === "match" && bareCRFiles.has(absolute)) {
-			const gp = p;
-			const flags = gp.ignoreCase ? "i" : "";
+			const flags = p.ignoreCase ? "i" : "";
 			let patternRe: RegExp | null = null;
 			try {
-				patternRe = gp.literal
-					? new RegExp(escapeForRegex(gp.pattern), flags)
-					: new RegExp(gp.pattern, flags);
+				patternRe = p.literal
+					? new RegExp(escapeForRegex(p.pattern), flags)
+					: new RegExp(p.pattern, flags);
 			} catch {
 				// Malformed regex — fall through to normal anchor path
 			}
@@ -452,20 +362,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 				let emitted = false;
 				for (let i = 0; i < fileLines.length; i++) {
 					if (!patternRe.test(fileLines[i])) continue;
-					const lineNum = i + 1;
-					const marker = ">>";
-					const renderedLine = `${parsed.displayPath}:${marker}${formatHashlineDisplay(lineNum, fileLines[i])}`;
-					transformed.push(renderedLine);
-					const built = buildReadseekLine(lineNum, fileLines[i]);
-					recordByRenderedLine.set(renderedLine, {
-						path: toAbsolutePath(parsed.displayPath),
-						line: built.line,
-						hash: built.hash,
-						anchor: built.anchor,
-						kind: "match",
-						raw: built.raw,
-						display: built.display,
-					});
+					addEntry(parsed.displayPath, absolute, "match", buildReadseekLine(i + 1, fileLines[i]));
 					emitted = true;
 				}
 				if (emitted) continue;
@@ -473,20 +370,11 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 			}
 		}
 		// Normal (non-bare-CR) path
-		const sourceLine = fileLines?.[parsed.lineNumber - 1] ?? parsed.text;
+		const sourceLine = fileLines[parsed.lineNumber - 1] ?? parsed.text;
 		const built = buildReadseekLine(parsed.lineNumber, sourceLine);
-		const marker = parsed.kind === "match" ? ">>" : "  ";
-		const renderedDisplay = escapeControlCharsForDisplay(parsed.text);
-		const renderedLine = `${parsed.displayPath}:${marker}${built.anchor}|${renderedDisplay}`;
-		transformed.push(renderedLine);
-		recordByRenderedLine.set(renderedLine, {
-			path: toAbsolutePath(parsed.displayPath),
-			line: built.line,
-			hash: built.hash,
-			anchor: built.anchor,
-			kind: parsed.kind,
-			raw: built.raw,
-			display: renderedDisplay,
+		addEntry(parsed.displayPath, absolute, parsed.kind, {
+			...built,
+			display: escapeControlCharsForDisplay(parsed.text),
 		});
 	}
 
@@ -516,46 +404,15 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		};
 	}
 
-	const grepIR = parseGrepIR(transformed);
-	for (const file of grepIR.files) {
-		file.lines = deduplicateContext(file.lines);
-	}
-	const truncatedIR = truncateGrepIR(grepIR);
 	const summary = p.summary;
 	const effectiveLimit = typeof p.limit === "number" ? p.limit : 100;
-	const outputIR = summary
-		? {
-			...truncatedIR,
-			files: truncatedIR.files.map((file) => ({ ...file, path: toAbsolutePath(file.path) })),
-		}
-		: truncatedIR;
-	let renderedGroups = outputIR.files.map((file) => ({
-		displayPath: file.path,
-		absolutePath: summary ? file.path : toAbsolutePath(file.path),
-		matchCount: file.matchCount,
-		entries: file.lines.map((line) => {
-			if (line.kind === "separator") {
-				return { kind: "separator" as const, text: line.raw };
-			}
-			const record = recordByRenderedLine.get(line.raw);
-			if (!record) {
-				throw new Error(`Missing grep record for rendered line: ${line.raw}`);
-			}
-			return {
-				kind: record.kind,
-				line: {
-					line: record.line,
-					hash: record.hash,
-					anchor: record.anchor,
-					raw: record.raw,
-					display: record.display,
-				},
-			};
-		}),
-	}));
-
-	let readseekRecords = collectReadseekRecordsFromIR(outputIR, recordByRenderedLine);
-	let scopeWarnings: import("./grep-output.js").GrepScopeWarning[] = [];
+	const groups = [...groupsByPath.values()];
+	for (const group of groups) {
+		group.entries = dedupeContextEntries(group.entries);
+	}
+	let renderedGroups: GrepOutputGroup[] =
+		totalMatches > GREP_TRUNCATION_THRESHOLD ? groups.map(truncateGroupEntries) : groups;
+	let scopeWarnings: GrepScopeWarning[] = [];
 
 	if (p.scope === "symbol" && !summary) {
 		const fileLinesByPath = new Map<string, string[]>();
@@ -577,27 +434,11 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 
 		renderedGroups = scoped.groups;
 		scopeWarnings = scoped.warnings;
-		readseekRecords = renderedGroups.flatMap((group) =>
-			group.entries.flatMap((entry) =>
-				entry.kind === "separator"
-					? []
-					: [
-							{
-								path: group.absolutePath,
-								kind: entry.kind,
-								line: entry.line.line,
-								hash: entry.line.hash,
-								anchor: entry.line.anchor,
-								raw: entry.line.raw,
-								display: entry.line.display,
-							},
-						],
-			),
-		);
 	}
+	const readseekRecords = recordsFromGroups(renderedGroups);
 	const builtOutput = buildGrepOutput({
 		summary: !!summary,
-		totalMatches: grepIR.totalMatches,
+		totalMatches,
 		groups: renderedGroups,
 		limit: effectiveLimit,
 		records: readseekRecords,
