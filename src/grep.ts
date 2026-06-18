@@ -284,6 +284,352 @@ interface GrepToolOptions {
 	onFileAnchored?: (absolutePath: string) => void;
 }
 
+export interface ExecuteGrepOptions {
+	toolCallId: string;
+	params: unknown;
+	signal: AbortSignal | undefined;
+	onUpdate: any;
+	cwd: string;
+	onFileAnchored?: (absolutePath: string) => void;
+}
+
+export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
+	const { toolCallId, params, signal, onUpdate, cwd, onFileAnchored } = opts;
+	await ensureHashInit();
+	const rawParams = params as GrepParams;
+	const context = coerceObviousBase10Int(rawParams.context, "context");
+	if (!context.ok) {
+		return buildToolErrorResult("grep", "invalid-params-combo", context.message);
+	}
+	const limit = coerceObviousBase10Int(rawParams.limit, "limit");
+	if (!limit.ok) {
+		return buildToolErrorResult("grep", "invalid-limit", limit.message);
+	}
+	const scopeContext = coerceObviousBase10Int(rawParams.scopeContext, "scopeContext");
+	if (!scopeContext.ok) {
+		return buildToolErrorResult("grep", "invalid-params-combo", scopeContext.message);
+	}
+	if (scopeContext.value !== undefined && rawParams.scope !== "symbol") {
+		const message = 'Invalid scopeContext: requires scope: "symbol". For normal surrounding-line context outside symbol scope, use the `context` parameter.';
+		return buildToolErrorResult("grep", "invalid-params-combo", message);
+	}
+	if (scopeContext.value !== undefined && scopeContext.value < 0) {
+		const message = `Invalid scopeContext: expected a non-negative integer, received ${scopeContext.value}.`;
+		return buildToolErrorResult("grep", "invalid-params-combo", message);
+	}
+	const p: GrepParams = {
+		...rawParams,
+		context: context.value,
+		limit: limit.value,
+		scopeContext: scopeContext.value,
+	};
+	const builtin = createGrepTool(cwd);
+	const result = await builtin.execute(
+		toolCallId,
+		{
+			...p,
+			context: context.value,
+			limit: limit.value,
+		},
+		signal,
+		onUpdate,
+	);
+
+	const textBlock = result.content?.find(
+		(item): item is { type: "text"; text: string } =>
+			item.type === "text" && "text" in item && typeof (item as { text?: unknown }).text === "string",
+	);
+	if (!textBlock?.text) return result;
+
+	const { path: rawSearchPath } = p;
+	const searchPath = resolveToCwd(rawSearchPath || ".", cwd);
+
+	let searchPathIsDirectory = false;
+	try {
+		searchPathIsDirectory = (await fsStat(searchPath)).isDirectory();
+	} catch {
+		searchPathIsDirectory = false;
+	}
+	// Warn when the user targets a single binary file directly — grep
+	// silently skips binary files and would return 0 matches with no
+	// indication of why.
+	if (!searchPathIsDirectory) {
+		try {
+			const buf = await fsReadFile(searchPath);
+			if (looksLikeBinary(buf)) {
+				const warning = `[Warning: '${p.path ?? searchPath}' appears to be a binary file — grep skips binary files by default. Use a hex tool or the read tool to inspect it.]`;
+				return {
+					...result,
+					content: result.content.map((item) =>
+						item === textBlock ? ({ ...item, text: warning } as typeof item) : item,
+					),
+					details: {
+						...(typeof result.details === "object" && result.details !== null ? result.details : {}),
+						readseekValue: {
+							tool: "grep",
+							summary: !!p.summary,
+							totalMatches: 0,
+							records: [],
+						},
+					},
+				};
+			}
+		} catch {
+			// can't read file — let normal flow continue
+		}
+	}
+
+	const fileCache = new Map<string, string[] | undefined>();
+	const bareCRFiles = new Set<string>();
+	const getFileLines = async (absolutePath: string): Promise<string[] | undefined> => {
+		throwIfAborted(signal);
+		if (fileCache.has(absolutePath)) return fileCache.get(absolutePath);
+		try {
+			const rawBuffer = await fsReadFile(absolutePath);
+			if (looksLikeBinary(rawBuffer)) {
+				fileCache.set(absolutePath, undefined);
+				return undefined;
+			}
+			const raw = rawBuffer.toString("utf-8");
+			if (hasBareCarriageReturn(raw)) bareCRFiles.add(absolutePath);
+			const lines = normalizeToLF(stripBom(raw).text).split("\n");
+			fileCache.set(absolutePath, lines);
+			return lines;
+		} catch {
+			fileCache.set(absolutePath, undefined);
+			return undefined;
+		}
+	};
+
+	const toAbsolutePath = (displayPath: string): string => {
+		if (searchPathIsDirectory) return path.resolve(searchPath, displayPath);
+		return searchPath;
+	};
+
+	const transformed: string[] = [];
+	const passthroughLines: string[] = [];
+	const recordByRenderedLine = new Map<string, GrepReadseekRecord>();
+	let parsedCount = 0;
+	let candidateUnparsedCount = 0;
+	const candidateLinePattern = /^.+(?::|-)\d+(?::|-)\s/;
+
+	for (const line of textBlock.text.split("\n")) {
+		throwIfAborted(signal);
+		const parsed = parseGrepOutputLine(line);
+		if (!parsed || !Number.isFinite(parsed.lineNumber) || parsed.lineNumber < 1) {
+			if (candidateLinePattern.test(line)) {
+				candidateUnparsedCount++;
+			}
+			const trimmed = line.trim();
+			if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+				passthroughLines.push(trimmed);
+			}
+			transformed.push(line);
+			continue;
+		}
+		parsedCount++;
+		const absolute = toAbsolutePath(parsed.displayPath);
+		const fileLines = await getFileLines(absolute);
+		if (fileLines === undefined) continue;
+		// Bare-CR remapping: rg treats the entire bare-CR file as line 1, and the
+		// builtin grep tool may strip \r before this code sees the output. So
+		// parsed.text is just the first CR-separated fragment and parsed.lineNumber
+		// is always 1 — both are wrong for match lines. Only remap when
+		// parsed.kind === "match"; context lines are irrelevant here (rg won’t
+		// produce them for bare-CR files in any meaningful way).
+		if (parsed.kind === "match" && bareCRFiles.has(absolute)) {
+			const gp = p;
+			const flags = gp.ignoreCase ? "i" : "";
+			let patternRe: RegExp | null = null;
+			try {
+				patternRe = gp.literal
+					? new RegExp(escapeForRegex(gp.pattern), flags)
+					: new RegExp(gp.pattern, flags);
+			} catch {
+				// Malformed regex — fall through to normal anchor path
+			}
+			if (patternRe !== null) {
+				let emitted = false;
+				for (let i = 0; i < fileLines.length; i++) {
+					if (!patternRe.test(fileLines[i])) continue;
+					const lineNum = i + 1;
+					const marker = ">>";
+					const renderedLine = `${parsed.displayPath}:${marker}${formatHashlineDisplay(lineNum, fileLines[i])}`;
+					transformed.push(renderedLine);
+					const built = buildReadseekLine(lineNum, fileLines[i]);
+					recordByRenderedLine.set(renderedLine, {
+						path: toAbsolutePath(parsed.displayPath),
+						line: built.line,
+						hash: built.hash,
+						anchor: built.anchor,
+						kind: "match",
+						raw: built.raw,
+						display: built.display,
+					});
+					emitted = true;
+				}
+				if (emitted) continue;
+				// No lines matched — fall through to normal path
+			}
+		}
+		// Normal (non-bare-CR) path
+		const sourceLine = fileLines?.[parsed.lineNumber - 1] ?? parsed.text;
+		const built = buildReadseekLine(parsed.lineNumber, sourceLine);
+		const marker = parsed.kind === "match" ? ">>" : "  ";
+		const renderedDisplay = escapeControlCharsForDisplay(parsed.text);
+		const renderedLine = `${parsed.displayPath}:${marker}${built.anchor}|${renderedDisplay}`;
+		transformed.push(renderedLine);
+		recordByRenderedLine.set(renderedLine, {
+			path: toAbsolutePath(parsed.displayPath),
+			line: built.line,
+			hash: built.hash,
+			anchor: built.anchor,
+			kind: parsed.kind,
+			raw: built.raw,
+			display: renderedDisplay,
+		});
+	}
+
+	if (parsedCount === 0 && candidateUnparsedCount > 0) {
+		const warning =
+			"[hashline grep passthrough] Unparsed grep format; returned original output.";
+		const passthroughDetails =
+			typeof result.details === "object" && result.details !== null
+				? (result.details as Record<string, unknown>)
+				: {};
+		return {
+			...result,
+			content: result.content.map((item) =>
+				item === textBlock ? ({ ...item, text: `${textBlock.text}\n\n${warning}` } as typeof item) : item,
+			),
+			details: {
+				...passthroughDetails,
+				hashlinePassthrough: true,
+				hashlineWarning: warning,
+				readseekValue: {
+					tool: "grep",
+					summary: !!p.summary,
+					totalMatches: 0,
+					records: [],
+				},
+			},
+		};
+	}
+
+	const grepIR = parseGrepIR(transformed);
+	for (const file of grepIR.files) {
+		file.lines = deduplicateContext(file.lines);
+	}
+	const truncatedIR = truncateGrepIR(grepIR);
+	const summary = p.summary;
+	const effectiveLimit = typeof p.limit === "number" ? p.limit : 100;
+	const outputIR = summary
+		? {
+			...truncatedIR,
+			files: truncatedIR.files.map((file) => ({ ...file, path: toAbsolutePath(file.path) })),
+		}
+		: truncatedIR;
+	let renderedGroups = outputIR.files.map((file) => ({
+		displayPath: file.path,
+		absolutePath: summary ? file.path : toAbsolutePath(file.path),
+		matchCount: file.matchCount,
+		entries: file.lines.map((line) => {
+			if (line.kind === "separator") {
+				return { kind: "separator" as const, text: line.raw };
+			}
+			const record = recordByRenderedLine.get(line.raw);
+			if (!record) {
+				throw new Error(`Missing grep record for rendered line: ${line.raw}`);
+			}
+			return {
+				kind: record.kind,
+				line: {
+					line: record.line,
+					hash: record.hash,
+					anchor: record.anchor,
+					raw: record.raw,
+					display: record.display,
+				},
+			};
+		}),
+	}));
+
+	let readseekRecords = collectReadseekRecordsFromIR(outputIR, recordByRenderedLine);
+	let scopeWarnings: import("./grep-output.js").GrepScopeWarning[] = [];
+
+	if (p.scope === "symbol" && !summary) {
+		const fileLinesByPath = new Map<string, string[]>();
+		const fileMapsByPath = new Map<string, Awaited<ReturnType<typeof getOrGenerateMap>>>();
+
+		for (const group of renderedGroups) {
+			const lines = await getFileLines(group.absolutePath);
+			if (lines) fileLinesByPath.set(group.absolutePath, lines);
+			fileMapsByPath.set(group.absolutePath, await getOrGenerateMap(group.absolutePath));
+		}
+
+		const scoped = scopeGrepGroupsToSymbols({
+			groups: renderedGroups,
+			fileLinesByPath,
+			fileMapsByPath,
+			contextLines: typeof p.context === "number" ? p.context : 0,
+			scopeContext: typeof p.scopeContext === "number" ? p.scopeContext : undefined,
+		});
+
+		renderedGroups = scoped.groups;
+		scopeWarnings = scoped.warnings;
+		readseekRecords = renderedGroups.flatMap((group) =>
+			group.entries.flatMap((entry) =>
+				entry.kind === "separator"
+					? []
+					: [
+							{
+								path: group.absolutePath,
+								kind: entry.kind,
+								line: entry.line.line,
+								hash: entry.line.hash,
+								anchor: entry.line.anchor,
+								raw: entry.line.raw,
+								display: entry.line.display,
+							},
+						],
+			),
+		);
+	}
+	const builtOutput = buildGrepOutput({
+		summary: !!summary,
+		totalMatches: grepIR.totalMatches,
+		groups: renderedGroups,
+		limit: effectiveLimit,
+		records: readseekRecords,
+		scopeMode: p.scope === "symbol" && !summary ? "symbol" : undefined,
+		scopeWarnings,
+		passthroughLines,
+	});
+
+	if (!summary && readseekRecords.length > 0) {
+		const anchoredPaths = new Set(readseekRecords.map((record) => record.path));
+		for (const absolutePath of anchoredPaths) {
+			onFileAnchored?.(absolutePath);
+		}
+	}
+
+	const existingDetails =
+		typeof result.details === "object" && result.details !== null
+			? (result.details as Record<string, unknown>)
+			: {};
+	const { linesTruncated: _ignoredLinesTruncated, truncation: _ignoredTruncation, ...compactDetails } = existingDetails;
+	return {
+		...result,
+		content: result.content.map((item) =>
+			item === textBlock ? ({ ...item, text: builtOutput.text } as typeof item) : item,
+		),
+		details: {
+			...compactDetails,
+			readseekValue: builtOutput.readseekValue,
+		},
+	};
+}
+
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
 	const toolConfig = {
 		callable: true,
@@ -305,339 +651,14 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 			? [GREP_PROMPT_METADATA.promptGuidelines[0], options.searchGuideline]
 			: GREP_PROMPT_METADATA.promptGuidelines,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			await ensureHashInit();
-			const rawParams = params as GrepParams;
-			const context = coerceObviousBase10Int(rawParams.context, "context");
-			if (!context.ok) {
-				return buildToolErrorResult("grep", "invalid-params-combo", context.message);
-			}
-			const limit = coerceObviousBase10Int(rawParams.limit, "limit");
-			if (!limit.ok) {
-				return buildToolErrorResult("grep", "invalid-limit", limit.message);
-			}
-			const scopeContext = coerceObviousBase10Int(rawParams.scopeContext, "scopeContext");
-			if (!scopeContext.ok) {
-				return buildToolErrorResult("grep", "invalid-params-combo", scopeContext.message);
-			}
-			if (scopeContext.value !== undefined && rawParams.scope !== "symbol") {
-				const message = 'Invalid scopeContext: requires scope: "symbol". For normal surrounding-line context outside symbol scope, use the `context` parameter.';
-				return buildToolErrorResult("grep", "invalid-params-combo", message);
-			}
-			if (scopeContext.value !== undefined && scopeContext.value < 0) {
-				const message = `Invalid scopeContext: expected a non-negative integer, received ${scopeContext.value}.`;
-				return buildToolErrorResult("grep", "invalid-params-combo", message);
-			}
-			const p: GrepParams = {
-				...rawParams,
-				context: context.value,
-				limit: limit.value,
-				scopeContext: scopeContext.value,
-			};
-			const builtin = createGrepTool(ctx.cwd);
-			const result = await builtin.execute(
+			return executeGrep({
 				toolCallId,
-				{
-					...p,
-					context: context.value,
-					limit: limit.value,
-				},
+				params,
 				signal,
 				onUpdate,
-			);
-
-			const textBlock = result.content?.find(
-				(item): item is { type: "text"; text: string } =>
-					item.type === "text" && "text" in item && typeof (item as { text?: unknown }).text === "string",
-			);
-			if (!textBlock?.text) return result;
-
-			const { path: rawSearchPath } = p;
-			const searchPath = resolveToCwd(rawSearchPath || ".", ctx.cwd);
-
-			let searchPathIsDirectory = false;
-			try {
-				searchPathIsDirectory = (await fsStat(searchPath)).isDirectory();
-			} catch {
-				searchPathIsDirectory = false;
-			}
-			// Warn when the user targets a single binary file directly — grep
-			// silently skips binary files and would return 0 matches with no
-			// indication of why.
-			if (!searchPathIsDirectory) {
-				try {
-					const buf = await fsReadFile(searchPath);
-					if (looksLikeBinary(buf)) {
-						const warning = `[Warning: '${p.path ?? searchPath}' appears to be a binary file — grep skips binary files by default. Use a hex tool or the read tool to inspect it.]`;
-						return {
-							...result,
-							content: result.content.map((item) =>
-								item === textBlock ? ({ ...item, text: warning } as typeof item) : item,
-							),
-							details: {
-								...(typeof result.details === "object" && result.details !== null ? result.details : {}),
-								readseekValue: {
-									tool: "grep",
-									summary: !!p.summary,
-									totalMatches: 0,
-									records: [],
-								},
-							},
-						};
-					}
-				} catch {
-					// can't read file — let normal flow continue
-				}
-			}
-
-			const fileCache = new Map<string, string[] | undefined>();
-			const bareCRFiles = new Set<string>();
-			const getFileLines = async (absolutePath: string): Promise<string[] | undefined> => {
-				throwIfAborted(signal);
-				if (fileCache.has(absolutePath)) return fileCache.get(absolutePath);
-				try {
-					const rawBuffer = await fsReadFile(absolutePath);
-					if (looksLikeBinary(rawBuffer)) {
-						fileCache.set(absolutePath, undefined);
-						return undefined;
-					}
-					const raw = rawBuffer.toString("utf-8");
-					if (hasBareCarriageReturn(raw)) bareCRFiles.add(absolutePath);
-					const lines = normalizeToLF(stripBom(raw).text).split("\n");
-					fileCache.set(absolutePath, lines);
-					return lines;
-				} catch {
-					fileCache.set(absolutePath, undefined);
-					return undefined;
-				}
-			};
-
-			const toAbsolutePath = (displayPath: string): string => {
-				if (searchPathIsDirectory) return path.resolve(searchPath, displayPath);
-				return searchPath;
-			};
-
-			const transformed: string[] = [];
-			const passthroughLines: string[] = [];
-			const recordByRenderedLine = new Map<string, GrepReadseekRecord>();
-			let parsedCount = 0;
-			let candidateUnparsedCount = 0;
-			const candidateLinePattern = /^.+(?::|-)\d+(?::|-)\s/;
-
-			for (const line of textBlock.text.split("\n")) {
-				throwIfAborted(signal);
-				const parsed = parseGrepOutputLine(line);
-				if (!parsed || !Number.isFinite(parsed.lineNumber) || parsed.lineNumber < 1) {
-					if (candidateLinePattern.test(line)) {
-						candidateUnparsedCount++;
-					}
-					const trimmed = line.trim();
-					if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-						passthroughLines.push(trimmed);
-					}
-					transformed.push(line);
-					continue;
-				}
-				parsedCount++;
-				const absolute = toAbsolutePath(parsed.displayPath);
-				const fileLines = await getFileLines(absolute);
-				if (fileLines === undefined) continue;
-				// Bare-CR remapping: rg treats the entire bare-CR file as line 1, and the
-				// builtin grep tool may strip \r before this code sees the output. So
-				// parsed.text is just the first CR-separated fragment and parsed.lineNumber
-				// is always 1 — both are wrong for match lines. Only remap when
-				// parsed.kind === "match"; context lines are irrelevant here (rg won’t
-				// produce them for bare-CR files in any meaningful way).
-				if (parsed.kind === "match" && bareCRFiles.has(absolute)) {
-					const gp = p;
-					const flags = gp.ignoreCase ? "i" : "";
-					let patternRe: RegExp | null = null;
-					try {
-						patternRe = gp.literal
-							? new RegExp(escapeForRegex(gp.pattern), flags)
-							: new RegExp(gp.pattern, flags);
-					} catch {
-						// Malformed regex — fall through to normal anchor path
-					}
-					if (patternRe !== null) {
-						let emitted = false;
-						for (let i = 0; i < fileLines.length; i++) {
-							if (!patternRe.test(fileLines[i])) continue;
-							const lineNum = i + 1;
-							const marker = ">>";
-							const renderedLine = `${parsed.displayPath}:${marker}${formatHashlineDisplay(lineNum, fileLines[i])}`;
-							transformed.push(renderedLine);
-							const built = buildReadseekLine(lineNum, fileLines[i]);
-							recordByRenderedLine.set(renderedLine, {
-								path: toAbsolutePath(parsed.displayPath),
-								line: built.line,
-								hash: built.hash,
-								anchor: built.anchor,
-								kind: "match",
-								raw: built.raw,
-								display: built.display,
-							});
-							emitted = true;
-						}
-						if (emitted) continue;
-						// No lines matched — fall through to normal path
-					}
-				}
-				// Normal (non-bare-CR) path
-				const sourceLine = fileLines?.[parsed.lineNumber - 1] ?? parsed.text;
-				const built = buildReadseekLine(parsed.lineNumber, sourceLine);
-				const marker = parsed.kind === "match" ? ">>" : "  ";
-				const renderedDisplay = escapeControlCharsForDisplay(parsed.text);
-				const renderedLine = `${parsed.displayPath}:${marker}${built.anchor}|${renderedDisplay}`;
-				transformed.push(renderedLine);
-				recordByRenderedLine.set(renderedLine, {
-					path: toAbsolutePath(parsed.displayPath),
-					line: built.line,
-					hash: built.hash,
-					anchor: built.anchor,
-					kind: parsed.kind,
-					raw: built.raw,
-					display: renderedDisplay,
-				});
-			}
-
-			if (parsedCount === 0 && candidateUnparsedCount > 0) {
-				const warning =
-					"[hashline grep passthrough] Unparsed grep format; returned original output.";
-				const passthroughDetails =
-					typeof result.details === "object" && result.details !== null
-						? (result.details as Record<string, unknown>)
-						: {};
-				return {
-					...result,
-					content: result.content.map((item) =>
-						item === textBlock ? ({ ...item, text: `${textBlock.text}\n\n${warning}` } as typeof item) : item,
-					),
-					details: {
-						...passthroughDetails,
-						hashlinePassthrough: true,
-						hashlineWarning: warning,
-						readseekValue: {
-							tool: "grep",
-							summary: !!p.summary,
-							totalMatches: 0,
-							records: [],
-						},
-					},
-				};
-			}
-
-			const grepIR = parseGrepIR(transformed);
-			for (const file of grepIR.files) {
-				file.lines = deduplicateContext(file.lines);
-			}
-			const truncatedIR = truncateGrepIR(grepIR);
-			const summary = p.summary;
-			const effectiveLimit = typeof p.limit === "number" ? p.limit : 100;
-			const outputIR = summary
-				? {
-					...truncatedIR,
-					files: truncatedIR.files.map((file) => ({ ...file, path: toAbsolutePath(file.path) })),
-				}
-				: truncatedIR;
-let renderedGroups = outputIR.files.map((file) => ({
-	displayPath: file.path,
-	absolutePath: summary ? file.path : toAbsolutePath(file.path),
-	matchCount: file.matchCount,
-	entries: file.lines.map((line) => {
-		if (line.kind === "separator") {
-			return { kind: "separator" as const, text: line.raw };
-		}
-		const record = recordByRenderedLine.get(line.raw);
-		if (!record) {
-			throw new Error(`Missing grep record for rendered line: ${line.raw}`);
-		}
-		return {
-			kind: record.kind,
-			line: {
-				line: record.line,
-				hash: record.hash,
-				anchor: record.anchor,
-				raw: record.raw,
-				display: record.display,
-			},
-		};
-	}),
-}));
-
-let readseekRecords = collectReadseekRecordsFromIR(outputIR, recordByRenderedLine);
-let scopeWarnings: import("./grep-output.js").GrepScopeWarning[] = [];
-
-if (p.scope === "symbol" && !summary) {
-	const fileLinesByPath = new Map<string, string[]>();
-	const fileMapsByPath = new Map<string, Awaited<ReturnType<typeof getOrGenerateMap>>>();
-
-	for (const group of renderedGroups) {
-		const lines = await getFileLines(group.absolutePath);
-		if (lines) fileLinesByPath.set(group.absolutePath, lines);
-		fileMapsByPath.set(group.absolutePath, await getOrGenerateMap(group.absolutePath));
-	}
-
-	const scoped = scopeGrepGroupsToSymbols({
-		groups: renderedGroups,
-		fileLinesByPath,
-		fileMapsByPath,
-		contextLines: typeof p.context === "number" ? p.context : 0,
-		scopeContext: typeof p.scopeContext === "number" ? p.scopeContext : undefined,
-	});
-
-	renderedGroups = scoped.groups;
-	scopeWarnings = scoped.warnings;
-	readseekRecords = renderedGroups.flatMap((group) =>
-		group.entries.flatMap((entry) =>
-			entry.kind === "separator"
-				? []
-				: [
-					{
-						path: group.absolutePath,
-						kind: entry.kind,
-						line: entry.line.line,
-						hash: entry.line.hash,
-						anchor: entry.line.anchor,
-						raw: entry.line.raw,
-						display: entry.line.display,
-					},
-				],
-		),
-	);
-}
-			const builtOutput = buildGrepOutput({
-				summary: !!summary,
-				totalMatches: grepIR.totalMatches,
-				groups: renderedGroups,
-				limit: effectiveLimit,
-				records: readseekRecords,
-				scopeMode: p.scope === "symbol" && !summary ? "symbol" : undefined,
-				scopeWarnings,
-				passthroughLines,
+				cwd: ctx.cwd,
+				onFileAnchored: options.onFileAnchored,
 			});
-
-			if (!summary && readseekRecords.length > 0) {
-				const anchoredPaths = new Set(readseekRecords.map((record) => record.path));
-				for (const absolutePath of anchoredPaths) {
-					options.onFileAnchored?.(absolutePath);
-				}
-			}
-
-			const existingDetails =
-				typeof result.details === "object" && result.details !== null
-					? (result.details as Record<string, unknown>)
-					: {};
-			const { linesTruncated: _ignoredLinesTruncated, truncation: _ignoredTruncation, ...compactDetails } = existingDetails;
-			return {
-				...result,
-				content: result.content.map((item) =>
-					item === textBlock ? ({ ...item, text: builtOutput.text } as typeof item) : item,
-				),
-				details: {
-					...compactDetails,
-					readseekValue: builtOutput.readseekValue,
-				},
-			};
 		},
 		renderCall(args: any, theme: any, ...rest: any[]) {
 			const context = rest[0] ?? {};
