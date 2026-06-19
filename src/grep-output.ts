@@ -47,6 +47,14 @@ export interface GrepOutputGroup {
   };
 }
 
+type ScopedGrepOutputGroup = GrepOutputGroup & {
+  scope: NonNullable<GrepOutputGroup["scope"]>;
+};
+
+function hasScope(group: GrepOutputGroup): group is ScopedGrepOutputGroup {
+  return group.scope !== undefined;
+}
+
 export interface BuildGrepOutputInput {
   summary: boolean;
   totalMatches: number;
@@ -100,13 +108,13 @@ function buildScopeMetadata(groups: GrepOutputGroup[], warnings: GrepScopeWarnin
   return {
     mode: "symbol" as const,
     groups: groups
-      .filter((group) => group.scope)
+      .filter(hasScope)
       .map((group) => ({
         path: group.absolutePath,
         displayPath: group.displayPath,
-        symbol: group.scope!.symbol,
+        symbol: group.scope.symbol,
         matchCount: group.matchCount,
-        matchLines: [...group.scope!.matchLines],
+        matchLines: [...group.scope.matchLines],
         lineAnchors: group.entries.flatMap((entry) => (entry.kind === "separator" ? [] : [entry.line.anchor])),
       })),
     warnings: [...warnings],
@@ -132,14 +140,16 @@ export function buildGrepOutput(input: BuildGrepOutputInput): GrepOutputResult {
     }
     text = blocks.join("\n");
   }
-  if ((input.passthroughLines?.length ?? 0) > 0) {
-    text += `\n\n${input.passthroughLines!.join("\n")}`;
+  const passthroughLines = input.passthroughLines ?? [];
+  if (passthroughLines.length > 0) {
+    text += `\n\n${passthroughLines.join("\n")}`;
   }
   if (input.limit !== undefined && input.totalMatches === input.limit) {
     text += `\n\n[Results truncated at ${input.limit} matches — refine pattern or increase limit]`;
   }
-  if (!input.summary && input.scopeMode === "symbol" && (input.scopeWarnings?.length ?? 0) > 0) {
-    text = `${input.scopeWarnings!.map((warning) => warning.message).join("\n\n")}\n\n${text}`;
+  const scopeWarnings = input.scopeWarnings ?? [];
+  if (!input.summary && input.scopeMode === "symbol" && scopeWarnings.length > 0) {
+    text = `${scopeWarnings.map((warning) => warning.message).join("\n\n")}\n\n${text}`;
   }
   const budget = resolveGrepOutputBudget();
   const truncated = truncateHead(text, {
@@ -161,7 +171,7 @@ export function buildGrepOutput(input: BuildGrepOutputInput): GrepOutputResult {
     })),
   };
   if (!input.summary && input.scopeMode === "symbol") {
-    readseekValue.scopes = buildScopeMetadata(input.groups, input.scopeWarnings ?? []);
+    readseekValue.scopes = buildScopeMetadata(input.groups, scopeWarnings);
   }
 
   return {
