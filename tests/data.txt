@@ -1,0 +1,81 @@
+# Data-driven integration cases. See tests/data.rs for the field syntax.
+
+# detect / language
+
+name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | language=rust | supported=true | binary=false
+name=file stdin path | stdin=class BufferGreeter {}\n | args=detect --stdin buffer.ts | file=buffer.ts | language=typescript | binary=false
+name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | language=html | supported=true
+name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | language=xml | supported=true
+name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | language=json | supported=true
+name=file yaml | path=sample.yaml | content=name: sample\n | args=detect %s | language=yaml | supported=true
+name=file puppet | path=site.pp | content=class profile::sample {}\n | args=detect %s | language=puppet | supported=true
+name=file dockerfile | path=Dockerfile | content=FROM alpine:3.20\nRUN echo hello\n | args=detect %s | language=dockerfile | supported=true
+name=file nix | path=flake.nix | content={ description = "sample"; }\n | args=detect %s | language=nix | supported=true
+name=file lua | path=sample.lua | content=function greet()\n  return 'hello'\nend\n | args=detect %s | language=lua | supported=true
+name=file perl | path=sample.pl | content=sub greet { return "hello"; }\n | args=detect %s | language=perl | supported=true
+name=file zig | path=sample.zig | content=pub fn main() void {}\n | args=detect %s | language=zig | supported=true
+name=file vimscript | path=plugin.vim | content=function! Greet() abort\nendfunction\n | args=detect %s | language=vimscript | supported=true
+name=file meson build | path=meson.build | content=project('sample', 'c')\n | args=detect %s | language=meson | supported=true
+name=file language override | path=script | content=#!/usr/bin/env node\nfunction main() {}\n | args=detect %s --language typescript | language=typescript | supported=true
+name=file language alias | path=header | content=int add(int a, int b);\n | args=detect %s --language c-plus-plus | language=cpp | supported=true
+name=file special filename | path=go.mod | content=module example.com/readseek\n | args=detect %s | language=go | supported=true
+name=file tex | path=paper.tex | content=\\section{Intro}\nText.\n | args=detect %s | language=latex | supported=true
+name=file typst | path=paper.typ | content== Intro\nText.\n | args=detect %s | language=typst | supported=true
+name=file assembly | path=boot.S | content=_start:\n    mov %rsp, %rbp\n | args=detect %s | language=assembly | supported=true
+name=file riscv | path=boot.riscv | content=_start:\n    addi sp, sp, -16\n | args=detect %s | language=riscv | supported=true
+name=file gdscript | path=player.gd | content=func _ready():\n    pass\n | args=detect %s | language=gdscript | supported=true
+name=file sql | path=query.sql | content=select * from users;\n | args=detect %s | language=sql | supported=true
+name=file toml | path=config.toml | content=name = "demo"\n | args=detect %s | language=toml | supported=true
+name=file binary rejected | path=blob.bin | content=\x00\x01\x02\x03 | args=detect %s | status=1 | stderr=unsupported binary file
+
+# read
+
+name=read requested range | path=sample.py | content=one\ntwo\nthree\n | args=read %s --offset 2 --end 3 | language=python | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.0.hash.len=3
+name=read offset and limit | path=offset.txt | content=one\ntwo\nthree\nfour\n | args=read %s --offset 2 --limit 2 | line_count=4 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.1.line=3 | hashlines.1.text=three
+name=read limit clamps to end | path=clamp.txt | content=one\ntwo\nthree\n | args=read %s --offset 2 --limit 99 | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2
+name=read plain text normalizes | path=normalized.txt | content=﻿one\r\ntwo\rthree\n | args=read %s | language=unknown | line_count=3 | hashlines.0.text=one | hashlines.1.text=two | hashlines.2.text=three
+name=read preserves blank lines | path=blank-lines.txt | content=one\n\nthree\n | args=read %s | line_count=3 | hashlines.len=3 | hashlines.1.line=2 | hashlines.1.text=
+name=read empty file | path=empty.txt | content= | args=read %s | line_count=0 | start_line=1 | end_line=0 | hashlines.len=0
+name=read target line | path=target-line.txt | content=one\ntwo\nthree\n | args=read %s:2 --limit 1 | start_line=2 | end_line=2 | hashlines.0.text=two
+name=read stdin path | stdin=one\ntwo\nthree\n | args=read --stdin buffer.ts --offset 2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
+name=read binary lossy text | path=blob-read.bin | content=\x00A\xff\n | args=read %s | language=unknown | line_count=1 | hashlines.0.text=\x00A�
+
+# map
+
+name=map javascript | path=sample.js | content=class Greeter {\n  greet() { return 'hello'; }\n}\nconst make = () => new Greeter();\n | args=map %s | language=javascript | symbol=class,Greeter,start_byte=0,name_byte=6 | symbol=method,greet | symbol=function,make
+name=map jsx | path=sample.jsx | content=export function App() {\n  return <main>Hello</main>;\n}\n | args=map %s | language=jsx | symbol=function,App
+name=map typescript | path=sample.ts | content=interface Named { name: string; }\nclass Greeter implements Named {\n  name = 'reader';\n  greet() { return 'hello'; }\n}\nconst make = (): Greeter => new Greeter();\n | args=map %s | language=typescript | symbol=interface,Named | symbol=class,Greeter | symbol=method,greet | symbol=function,make
+name=map tsx | path=sample.tsx | content=type Props = { name: string };\nexport function App(props: Props) {\n  return <main>{props.name}</main>;\n}\n | args=map %s | language=tsx | symbol=type,Props | symbol=function,App
+name=map cpp | path=sample.cpp | content=namespace demo {\nclass Thing {\npublic:\n  int value();\n};\n}\nint add(int a, int b) { return a + b; }\n | args=map %s | symbol=namespace,demo | symbol=class,Thing | symbol=function,add
+name=map makefile target | path=Makefile | content=build: main.c\n\tcc -o app main.c\n | args=map %s | language=make | symbol=target,build
+name=map justfile recipe | path=Justfile | content=build:\n    cargo build\n | args=map %s | language=just | symbol=recipe,build
+name=map vimscript function | path=plugin.vim | content=function! s:greet(name) abort\n  echo a:name\nendfunction\n | args=map %s | language=vimscript | symbol=function,s:greet
+name=map markdown headings | path=notes.md | content=# Title\n\nSome text.\n\n## Details ##\n | args=map %s | language=markdown | symbol=heading,Title,start_line=1,end_line=1,end_hash=@start_hash | symbol=heading,Details
+name=map kconfig symbols | path=Kconfig | content=menu "Drivers"\n\nconfig USB_SUPPORT\n    bool "USB support"\n\nmenuconfig NET\n    bool "Networking support"\n\nendmenu\n | args=map %s | language=kconfig | symbol=menu,Drivers | symbol=config,USB_SUPPORT | symbol=menuconfig,NET
+name=map swift symbols | path=sample.swift | content=actor BankAccount {\n    var balance: Double = 0\n    func deposit(_ amount: Double) {\n        balance += amount\n    }\n}\n | args=map %s | language=swift | symbol=class,actor BankAccount | symbol=function,func deposit(_ amount: Double)
+name=map unknown text | path=notes.txt | content=alpha\nbeta\n | args=map %s | language=unknown | symbols.len=0
+name=map stdin path | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=map --stdin buffer.ts | file=buffer.ts | language=typescript | symbol=class,BufferGreeter | symbol=method,greet
+name=map dockerfile parser | path=Containerfile | content=FROM alpine:3.20\nRUN echo hello\n | args=map %s | language=dockerfile
+name=map nix parser | path=parser.nix | content={ packages.default = null; }\n | args=map %s | language=nix
+name=map lua parser | path=parser.lua | content=function greet()\n  return 'hello'\nend\n | args=map %s | language=lua
+name=map perl parser | path=parser.pl | content=sub greet { return "hello"; }\n | args=map %s | language=perl
+name=map zig parser | path=parser.zig | content=pub fn main() void {}\n | args=map %s | language=zig
+name=map vimscript parser | path=parser.vim | content=function! Greet() abort\nendfunction\n | args=map %s | language=vimscript
+
+# check
+
+name=check clean source | stdin=fn main() {}\n | args=check --stdin clean.rs | error_count=0 | missing_count=0 | diagnostics.len=0
+name=check parse error | stdin=fn main() {\n    let x =\n}\n | args=check --stdin broken.rs | error_count=1 | missing_count=0 | diagnostics.len=1 | diagnostics.0.kind=error | diagnostics.0.start_line=2
+name=check missing token | stdin=int main() {\n  int x = 1\n  return x;\n}\n | args=check --stdin missing.c | error_count=0 | missing_count=1 | diagnostics.len=1 | diagnostics.0.kind=missing | diagnostics.0.start_line=2
+name=check unsupported file | stdin=just some text\n | args=check --stdin notes.txt | language=unknown | diagnostics.len=0
+
+# identify
+
+name=identify cursor identifier and symbol | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=identify --stdin buffer.ts --line 2 --column 3 | file=buffer.ts | line=2 | line_hash=@hashlines.0.hash | identifier.text=greet | identifier.start_column=3 | identifier.end_column=8 | identifier.start_byte=24 | identifier.end_byte=29 | symbol.qualified_name=BufferGreeter.greet
+name=identify unicode identifier span | stdin=fn café() {}\n | args=identify --stdin unicode.rs --line 1 --column 8 | identifier.text=café | identifier.start_column=4 | identifier.end_column=9
+
+# symbol
+
+name=symbol target suffix | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s --name Greeter.greet | language=typescript | symbol.kind=method | symbol.name=greet | symbol.qualified_name=Greeter.greet | hashlines.len=3 | hashlines.0.line=2
+name=symbol target line | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s:3 | symbol.kind=method | symbol.name=greet | hashlines.0.line=2
+name=symbol stdin target line | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=symbol --stdin buffer.ts --line 2 | file=buffer.ts | symbol.qualified_name=BufferGreeter.greet | hashlines.0.line=2

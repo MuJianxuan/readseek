@@ -391,10 +391,10 @@ pub(crate) fn symbol_output(
 
         let symbol = matches
             .next()
-            .with_context(|| format!("symbol not found: {address}"))?;
+            .with_context(|| format!("no symbol `{address}`"))?;
 
         if matches.next().is_some() {
-            bail!("qualified symbol name is ambiguous: {address}");
+            bail!("ambiguous symbol `{address}`");
         }
 
         let symbol = symbol.clone();
@@ -412,8 +412,8 @@ pub(crate) fn symbol_output(
 
     let line = target_line.context("symbol requires qualified name or target line/hash")?;
     let source_map = source_map(source)?;
-    let symbol = find_symbol(&source_map, line)
-        .with_context(|| format!("symbol not found at line {line}"))?;
+    let symbol =
+        find_symbol(&source_map, line).with_context(|| format!("no symbol at line {line}"))?;
     Ok(SymbolOutput {
         file: source.path.clone(),
         language: source.detection.language,

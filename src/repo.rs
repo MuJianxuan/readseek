@@ -358,19 +358,19 @@ pub(crate) fn store_map(
         strtab.extend_from_slice(symbol.qualified_name.as_bytes());
 
         let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
-            .with_context(|| format!("invalid start hash for symbol '{}'", symbol.name))?;
+            .with_context(|| format!("invalid start hash for symbol `{}`", symbol.name))?;
         if start_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
             bail!(
-                "hash {:#x} exceeds modulus for symbol '{}'",
+                "hashline {:#x} out of range for symbol `{}`",
                 start_hash,
                 symbol.name
             );
         }
         let end_hash = u16::from_str_radix(&symbol.end_hash, 16)
-            .with_context(|| format!("invalid end hash for symbol '{}'", symbol.name))?;
+            .with_context(|| format!("invalid end hash for symbol `{}`", symbol.name))?;
         if end_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
             bail!(
-                "hash {:#x} exceeds modulus for symbol '{}'",
+                "hashline {:#x} out of range for symbol `{}`",
                 end_hash,
                 symbol.name
             );

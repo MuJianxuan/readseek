@@ -368,7 +368,7 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
                 .contains(&alias.as_str())
                 .then_some(spec.language)
         })
-        .ok_or_else(|| format!("unknown language: {value}"))
+        .ok_or_else(|| format!("unknown language `{value}`"))
 }
 
 fn parse_input_target_with(
