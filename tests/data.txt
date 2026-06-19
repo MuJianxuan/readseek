@@ -93,8 +93,10 @@ name=def plain function | path=def.rs | content=fn greet() {}\nfn main() {\n    
 
 name=refs identifier | path=refs.rs | content=fn main() {\n    let value = 1;\n    println!("{}", value);\n}\n | args=refs %s value --language rust | references.len=2 | references.0.line=2 | references.0.column=9 | references.0.text=    let value = 1; | references.1.line=3 | references.1.column=20 | references.1.symbol.name=main
 name=refs invalid identifier | path=refs-invalid.rs | content=fn main() {}\n | args=refs %s not-valid --language rust | status=1 | stderr=reference name must be an ASCII identifier
+name=refs scope column out of range | path=refs-column.rs | content=fn main() {\n    let value = 1;\n}\n | args=refs %s value --scope --line 1 --column 15 --language rust | status=1 | stderr=exceeds maximum column
 
 # rename
 
 name=rename local binding | path=rename.rs | content=fn main() {\n    let value = 1;\n    println!("{}", value);\n}\n | args=rename %s --line 2 --column 9 --to renamed --language rust | old_name=value | new_name=renamed | applied=false | unsupported=false | conflicts.len=0 | edits.len=2 | edits.0.occurrence=definition | edits.0.start_column=9 | edits.1.occurrence=reference | edits.1.line=3
 name=rename invalid new name | path=rename-invalid.rs | content=fn main() {\n    let value = 1;\n}\n | args=rename %s --line 2 --column 9 --to not-valid --language rust | status=1 | stderr=new name must be a plain identifier
+name=rename column out of range | path=rename-column.rs | content=fn main() {\n    let value = 1;\n}\n | args=rename %s --line 1 --column 15 --to renamed --language rust | status=1 | stderr=exceeds maximum column
