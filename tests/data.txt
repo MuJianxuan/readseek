@@ -73,6 +73,7 @@ name=check unsupported file | stdin=just some text\n | args=check --stdin notes.
 
 name=identify cursor identifier and symbol | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=identify --stdin buffer.ts --line 2 --column 3 | file=buffer.ts | line=2 | line_hash=@hashlines.0.hash | identifier.text=greet | identifier.start_column=3 | identifier.end_column=8 | identifier.start_byte=24 | identifier.end_byte=29 | symbol.qualified_name=BufferGreeter.greet
 name=identify unicode identifier span | stdin=fn café() {}\n | args=identify --stdin unicode.rs --line 1 --column 8 | identifier.text=café | identifier.start_column=4 | identifier.end_column=9
+name=identify column out of range | stdin=fn main() {}\n | args=identify --stdin cursor.rs --line 1 --column 20 | status=1 | stderr=exceeds maximum column
 
 # symbol
 

@@ -410,18 +410,11 @@ pub(crate) fn identify_output(
 ) -> Result<IdentifyOutput> {
     let line = target_line.context("identify requires --line or target line/hash")?;
     let column = column.unwrap_or(1);
-    if line == 0 {
-        bail!("line must be greater than zero");
-    }
-    if column == 0 {
-        bail!("column must be greater than zero");
-    }
-
+    let cursor_byte = source.cursor_byte(line, column)?;
     let source_line = source
         .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
     let line_start = source.line_starts[line - 1];
-    let cursor_byte = line_start + column.saturating_sub(1).min(source_line.text.len());
     let identifier = crate::symbols::token_at(source, cursor_byte)
         .map(|token| IdentifierOutput {
             text: token.text,
