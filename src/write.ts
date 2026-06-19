@@ -14,7 +14,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildPendingWritePreviewData, buildWritePreviewKey, resolvePendingDiffPreview, type PendingDiffPreviewResult } from "./pending-diff-preview.js";
 import { generateCompactOrFullDiff, normalizeToLF, hasBareCarriageReturn } from "./edit-diff.js";
 import { buildDiffData, type DiffData } from "./diff-data.js";
-import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, renderToolLabel, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, renderErrorResult, renderToolLabel, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { registerReadseekTool } from "./register-tool.js";
@@ -474,9 +474,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       const details = result.details ?? {};
       const output = result.content?.[0]?.type === "text" ? result.content[0].text : "";
       if (result.isError || details.readseekValue?.ok === false) {
-        const firstLine = output.split("\n")[0] || "write failed";
-        const body = expanded && output ? output : firstLine;
-        return new Text(clampLinesToWidth(summaryLine(body).split("\n"), width).join("\n"), 0, 0);
+        return renderErrorResult(output, { expanded, width, fallback: "write failed" });
       }
       const diffData = details.diffData;
       const state = details.writeState === "overwritten" ? "overwritten" : "created";

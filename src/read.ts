@@ -26,7 +26,7 @@ import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { readseekRead } from "./readseek-client.js";
 import { Text } from "@earendil-works/pi-tui";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidth } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidth } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { registerReadseekTool } from "./register-tool.js";
 
@@ -484,7 +484,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);
-			if (isPartial) return new Text(clampLinesToWidth([summaryLine("pending read")], width).join("\n"), 0, 0);
+			if (isPartial) return renderPendingResult("pending read", width);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";

@@ -17,7 +17,7 @@ import { throwIfAborted } from "./runtime.js";
 import { Text } from "@earendil-works/pi-tui";
 import { formatGrepCallText, formatGrepResultText } from "./grep-render-helpers.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { registerReadseekTool } from "./register-tool.js";
 
@@ -553,16 +553,12 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
-			if (isPartial) return new Text(clampLinesToWidth([summaryLine("pending search")], width).join("\n"), 0, 0);
+			if (isPartial) return renderPendingResult("pending search", width);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";
 
-			if (isError || result.isError) {
-				const firstLine = textContent.split("\n")[0] || "Error";
-				const body = expanded && textContent ? textContent : firstLine;
-				return new Text(clampLinesToWidth(summaryLine(body).split("\n"), width).join("\n"), 0, 0);
-			}
+			if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
 
 			const readseekValue = (result.details as any)?.readseekValue as {
 				tool: "grep";

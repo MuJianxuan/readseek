@@ -156,6 +156,27 @@ export function wrapReadHashlinesForWidth(text: string, width: number | undefine
   return output.join("\n");
 }
 
+/**
+ * Render the `isPartial` placeholder line shared by every tool's `renderResult`.
+ */
+export function renderPendingResult(pendingLabel: string, width: number | undefined): Text {
+  return new Text(clampLinesToWidth([summaryLine(pendingLabel)], width).join("\n"), 0, 0);
+}
+
+/**
+ * Render a tool result error: the first line of `textContent`, or its full body
+ * when expanded, prefixed and clamped to width. Tools pass their own `fallback`
+ * for the empty-content case.
+ */
+export function renderErrorResult(
+  textContent: string,
+  options: { expanded: boolean; width: number | undefined; fallback?: string },
+): Text {
+  const firstLine = textContent.split("\n")[0] || (options.fallback ?? "Error");
+  const body = options.expanded && textContent ? textContent : firstLine;
+  return new Text(clampLinesToWidth(summaryLine(body).split("\n"), options.width).join("\n"), 0, 0);
+}
+
 export interface AnchoredFilesLabels {
   pendingLabel: string;
   emptyLabel: string;
@@ -178,15 +199,11 @@ export function renderAnchoredFilesResult(
 ): Text {
   const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
-  if (isPartial) return new Text(clampLinesToWidth([summaryLine(labels.pendingLabel)], width).join("\n"), 0, 0);
+  if (isPartial) return renderPendingResult(labels.pendingLabel, width);
 
   const content = result.content?.[0];
   const textContent = content?.type === "text" ? content.text : "";
-  if (isError || result.isError) {
-    const firstLine = textContent.split("\n")[0] || "Error";
-    const body = expanded && textContent ? textContent : firstLine;
-    return new Text(clampLinesToWidth(summaryLine(body).split("\n"), width).join("\n"), 0, 0);
-  }
+  if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
 
   const readseekValue = (result.details as any)?.readseekValue as
     | { files: Array<{ path: string; lines: any[] }> }

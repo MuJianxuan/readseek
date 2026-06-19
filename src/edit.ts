@@ -20,7 +20,7 @@ import { resolveSyntaxValidateMode, type SyntaxValidateOptions } from "./syntax-
 import { replaceSymbol } from "./replace-symbol.js";
 import { buildEditPreviewKey, buildPendingEditPreviewData, resolvePendingDiffPreview, type PendingDiffPreviewResult } from "./pending-diff-preview.js";
 import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FreshAnchorsPredicate } from "./tool-types.js";
 import { registerReadseekTool } from "./register-tool.js";
@@ -641,7 +641,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			const { isPartial, isError, expanded: baseExpanded, width, context } = resolveRenderResultContext(options, rest);
 
 			if (isPartial) {
-				return new Text(clampLinesToWidth([summaryLine("pending edit")], width).join("\n"), 0, 0);
+				return renderPendingResult("pending edit", width);
 			}
 
 			// Extract data from result
