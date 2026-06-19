@@ -256,17 +256,19 @@ pub(crate) fn load_map(
         );
     }
 
-    let syms_slice = &data[HEADER_SIZE..];
-    let syms_end = sym_count * SYM_ENTRY_SIZE;
-    let strtab_start = HEADER_SIZE + syms_end;
-    let strtab_end = strtab_start + strtab_sz;
+    let strtab_start = HEADER_SIZE
+        .checked_add(sym_total)
+        .context("map symbol table size overflow")?;
+    let strtab_end = strtab_start
+        .checked_add(strtab_sz)
+        .context("map string table size overflow")?;
 
     if data.len() < strtab_end {
         log::warn!("truncated data in {}", path.display());
         return Ok(None);
     }
 
-    let sym_bytes = &syms_slice[..syms_end];
+    let sym_bytes = &data[HEADER_SIZE..strtab_start];
     let strtab = &data[strtab_start..strtab_end];
 
     let mut symbols = Vec::with_capacity(sym_count);
@@ -284,20 +286,38 @@ fn parse_sym_entry(
     sym_count: usize,
     path: &Path,
 ) -> Result<Symbol> {
-    let start = i * SYM_ENTRY_SIZE;
-    let entry = SymEntry::ref_from_bytes(&sym_bytes[start..start + SYM_ENTRY_SIZE])
+    let start = i
+        .checked_mul(SYM_ENTRY_SIZE)
+        .context("symbol index overflow")?;
+    let end = start
+        .checked_add(SYM_ENTRY_SIZE)
+        .context("symbol entry range overflow")?;
+    let entry_bytes = sym_bytes
+        .get(start..end)
+        .with_context(|| format!("symbol entry {i} out of bounds in {}", path.display()))?;
+    let entry = SymEntry::ref_from_bytes(entry_bytes)
         .map_err(|e| anyhow::anyhow!("parse sym entry {i} of {}: {e}", path.display()))?;
     let kind = read_str(strtab, entry.kind_off.get(), entry.kind_len.get())?;
     let name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
-    let qname_len = if i + 1 < sym_count {
-        let next_start = (i + 1) * SYM_ENTRY_SIZE;
-        let next = SymEntry::ref_from_bytes(&sym_bytes[next_start..next_start + SYM_ENTRY_SIZE])
+    let qname_end = if i + 1 < sym_count {
+        let next_start = (i + 1)
+            .checked_mul(SYM_ENTRY_SIZE)
+            .context("next symbol index overflow")?;
+        let next_end = next_start
+            .checked_add(SYM_ENTRY_SIZE)
+            .context("next symbol entry range overflow")?;
+        let next_bytes = sym_bytes.get(next_start..next_end).with_context(|| {
+            format!("symbol entry {} out of bounds in {}", i + 1, path.display())
+        })?;
+        let next = SymEntry::ref_from_bytes(next_bytes)
             .map_err(|e| anyhow::anyhow!("parse sym entry {} of {}: {e}", i + 1, path.display()))?;
-        next.kind_off.get() - entry.qname_off.get()
+        next.kind_off.get()
     } else {
-        u32::try_from(strtab.len() - entry.qname_off.get() as usize)
-            .context("qname offset overflow")?
+        u32::try_from(strtab.len()).context("string table too large")?
     };
+    let qname_len = qname_end
+        .checked_sub(entry.qname_off.get())
+        .context("qualified name offset is out of order")?;
     let qualified_name = read_str(
         strtab,
         entry.qname_off.get(),
@@ -318,15 +338,18 @@ fn parse_sym_entry(
 }
 
 fn read_str(strtab: &[u8], offset: u32, len: u16) -> Result<&str> {
-    let start = offset as usize;
-    let end = start + len as usize;
-    if end > strtab.len() {
-        bail!(
+    let start = usize::try_from(offset).context("string table offset overflow")?;
+    let len = usize::from(len);
+    let end = start
+        .checked_add(len)
+        .context("string table range overflow")?;
+    let bytes = strtab.get(start..end).with_context(|| {
+        format!(
             "string table out of bounds: offset={offset} len={len} strtab_len={}",
             strtab.len()
-        );
-    }
-    std::str::from_utf8(&strtab[start..end])
+        )
+    })?;
+    std::str::from_utf8(bytes)
         .with_context(|| format!("invalid UTF-8 in string table at offset {offset}"))
 }
 
