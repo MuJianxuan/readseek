@@ -167,11 +167,11 @@ that contains that line is resolved.
 .B identify
 Print the requested cursor line, its hash, the identifier at the cursor position,
 and the enclosing mapped symbol. If \fB--column\fR is omitted, column 1 is used.
-Columns are one-based byte offsets. The identifier token is resolved with the
-language parser when available, falling back to an ASCII identifier scan otherwise.
-Identifier ranges in the JSON use a one-based inclusive start column and a one-based
-exclusive end column, plus \fIstart_byte\fR and \fIend_byte\fR file offsets that
-mark the exact token span.
+Columns are one-based byte offsets and must be within the selected line. The
+identifier token is resolved with the language parser when available, falling
+back to an ASCII identifier scan otherwise. Identifier ranges in the JSON use a
+one-based inclusive start column and a one-based exclusive end column, plus
+\fIstart_byte\fR and \fIend_byte\fR file offsets that mark the exact token span.
 .TP
 .B def
 Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
@@ -325,12 +325,6 @@ non-ignored files. Pass \fB--cached\fR or \fB--others\fR to restrict to one grou
 Outside a Git work tree the selection flags are ignored and a normal recursive
 walk is used.
 
-.SH ENVIRONMENT
-.TP
-.B READSEEK_CACHE_DIR
-Override the base cache directory. When set, the source-map cache is stored under
-\fIREADSEEK_CACHE_DIR/readseek\fR.
-
 .SH EXIT STATUS
 .TP
 .B 0
@@ -345,11 +339,14 @@ Usage error: incorrect invocation or argument combination.
 
 .SH FILES
 .TP
-.I READSEEK_CACHE_DIR/readseek/cache.sqlite3
-Source-map cache location when \fBREADSEEK_CACHE_DIR\fR is set.
+.I .readseek/maps/
+Binary source-map cache files keyed by file hash.
 .TP
-.I ${XDG_CACHE_HOME:-~/.cache}/readseek/cache.sqlite3
-Default cache location on Linux.
+.I .readseek/def-index/
+Sharded JSON definition index used by \fBdef\fR directory lookup.
+.TP
+.I .readseek/def-index.json
+Legacy definition index removed during cache refresh when present.
 
 .SH EXAMPLES
 
