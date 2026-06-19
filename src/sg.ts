@@ -6,7 +6,7 @@ import { stat as fsStat } from "node:fs/promises";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildReadseekLineWithHash, buildToolErrorResult, type ReadseekLine } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
-import { isReadseekAvailable, readseekSearch, type ReadseekHashline, type ReadseekSearchFileOutput } from "./readseek-client.js";
+import { classifyReadseekFailure, isReadseekAvailable, readseekSearch, type ReadseekHashline, type ReadseekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { registerReadseekTool } from "./register-tool.js";
@@ -194,14 +194,8 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       },
     };
   } catch (err: any) {
-    const message = String(err?.message || err);
-    const missingReadseek = err?.code === "ENOENT" || /Cannot find package|Cannot find module|no such file/i.test(message);
-    return buildToolErrorResult(
-      "search",
-      missingReadseek ? "readseek-not-installed" : "readseek-execution-error",
-      message,
-      missingReadseek ? { hint: "Run npm install to install @jarkkojs/readseek." } : {},
-    );
+    const failure = classifyReadseekFailure(err);
+    return buildToolErrorResult("search", failure.code, failure.message, failure.hint ? { hint: failure.hint } : {});
   }
 }
 

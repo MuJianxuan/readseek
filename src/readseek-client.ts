@@ -203,6 +203,28 @@ export function isReadseekAvailable(): boolean {
 	}
 }
 
+export interface ReadseekFailure {
+	code: "readseek-not-installed" | "readseek-execution-error";
+	message: string;
+	hint?: string;
+}
+
+/**
+ * Classify an error thrown while invoking readseek into the shared failure
+ * taxonomy: a missing binary or package (`readseek-not-installed`, with an
+ * install hint) versus any other execution error.
+ */
+export function classifyReadseekFailure(err: unknown): ReadseekFailure {
+	const message = String((err as { message?: unknown } | null)?.message || err);
+	const missing =
+		(err as { code?: unknown } | null)?.code === "ENOENT" ||
+		/Cannot find package|Cannot find module|no such file/i.test(message);
+	if (missing) {
+		return { code: "readseek-not-installed", message, hint: "Run npm install to install @jarkkojs/readseek." };
+	}
+	return { code: "readseek-execution-error", message };
+}
+
 function directoryExists(dirPath: string): boolean {
 	try {
 		return statSync(dirPath).isDirectory();
