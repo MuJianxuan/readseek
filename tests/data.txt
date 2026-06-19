@@ -79,3 +79,22 @@ name=identify unicode identifier span | stdin=fn café() {}\n | args=identify --
 name=symbol target suffix | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s --name Greeter.greet | language=typescript | symbol.kind=method | symbol.name=greet | symbol.qualified_name=Greeter.greet | hashlines.len=3 | hashlines.0.line=2
 name=symbol target line | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s:3 | symbol.kind=method | symbol.name=greet | hashlines.0.line=2
 name=symbol stdin target line | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=symbol --stdin buffer.ts --line 2 | file=buffer.ts | symbol.qualified_name=BufferGreeter.greet | hashlines.0.line=2
+
+# search
+
+name=search captures call | path=search.rs | content=fn greet() {}\nfn main() {\n    greet();\n}\n | args=search %s $NAME(); --language rust | results.len=1 | results.0.language=rust | results.0.matches.len=1 | results.0.matches.0.start_line=3 | results.0.matches.0.hashlines.0.text=    greet(); | results.0.matches.0.captures.len=1 | results.0.matches.0.captures.0.name=NAME
+name=search no match | path=search-none.rs | content=fn greet() {}\n | args=search %s missing(); --language rust | results.len=0
+
+# def
+
+name=def plain function | path=def.rs | content=fn greet() {}\nfn main() {\n    greet();\n}\n | args=def %s greet --language rust --format plain | locations.len=1 | locations.0.line=1 | locations.0.kind=function | locations.0.name=greet | locations.0.qualified_name=greet | locations.0.text=fn greet() {}
+
+# refs
+
+name=refs identifier | path=refs.rs | content=fn main() {\n    let value = 1;\n    println!("{}", value);\n}\n | args=refs %s value --language rust | references.len=2 | references.0.line=2 | references.0.column=9 | references.0.text=    let value = 1; | references.1.line=3 | references.1.column=20 | references.1.symbol.name=main
+name=refs invalid identifier | path=refs-invalid.rs | content=fn main() {}\n | args=refs %s not-valid --language rust | status=1 | stderr=reference name must be an ASCII identifier
+
+# rename
+
+name=rename local binding | path=rename.rs | content=fn main() {\n    let value = 1;\n    println!("{}", value);\n}\n | args=rename %s --line 2 --column 9 --to renamed --language rust | old_name=value | new_name=renamed | applied=false | unsupported=false | conflicts.len=0 | edits.len=2 | edits.0.occurrence=definition | edits.0.start_column=9 | edits.1.occurrence=reference | edits.1.line=3
+name=rename invalid new name | path=rename-invalid.rs | content=fn main() {\n    let value = 1;\n}\n | args=rename %s --line 2 --column 9 --to not-valid --language rust | status=1 | stderr=new name must be a plain identifier
