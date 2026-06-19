@@ -332,7 +332,7 @@ async function runReadseek(args: string[], options: RunReadseekOptions = {}): Pr
 }
 
 function requireNumber(value: unknown, field: string): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`invalid readseek ${field}`);
+	if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`invalid readseek ${field}: expected safe integer`);
 	return value;
 }
 
