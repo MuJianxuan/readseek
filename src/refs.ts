@@ -9,6 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { isReadseekAvailable, readseekRefs, type ReadseekReference } from "./readseek-client.js";
 import { buildRefsOutput, type RefsOutputFile, type RefsOutputLine } from "./refs-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
 
@@ -139,16 +140,11 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
 }
 
 export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}) {
-  const toolConfig = {
-    callable: true,
-    enabled: true,
-    policy: "read-only" as const,
-    readOnly: true,
+  const tool = registerReadseekTool(pi, {
+    policy: "read-only",
     pythonName: "refs",
-    defaultExposure: "opt-in" as const,
-  };
-
-  const tool = {
+    defaultExposure: "opt-in",
+  }, {
     name: "refs",
     label: "References",
     description: REFS_PROMPT_METADATA.description,
@@ -165,7 +161,6 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
       others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
       ignored: Type.Optional(Type.Boolean({ description: "With others=true, include ignored untracked files" })),
     }),
-    ptc: toolConfig,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeRefs({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
     },
@@ -186,8 +181,6 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
         unitPlural: "references",
       });
     },
-  } satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-
-  pi.registerTool(tool);
+  });
   return tool;
 }

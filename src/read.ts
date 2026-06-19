@@ -28,6 +28,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidth } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 const READ_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/read.md", import.meta.url),
@@ -423,16 +424,11 @@ function splitReadseekLines(text: string): string[] {
 }
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
-	const toolConfig = {
-		callable: true,
-		enabled: true,
-		policy: "read-only" as const,
-		readOnly: true,
+	const tool = registerReadseekTool(pi, {
+		policy: "read-only",
 		pythonName: "read",
-		defaultExposure: "safe-by-default" as const,
-	};
-
-	const tool = {
+		defaultExposure: "safe-by-default",
+	}, {
 		name: "read",
 		label: "Read",
 		description: READ_PROMPT_METADATA.description,
@@ -460,7 +456,6 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				}),
 			),
 		}),
-		ptc: toolConfig,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return executeRead({
 				toolCallId,
@@ -516,8 +511,6 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 			if (expanded && textContent) text += "\n" + wrapReadHashlinesForWidth(textContent, width);
 			return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
 		},
-	} satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-
-	pi.registerTool(tool);
+	});
 	return tool;
 }

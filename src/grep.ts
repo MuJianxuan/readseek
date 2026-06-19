@@ -19,6 +19,7 @@ import { formatGrepCallText, formatGrepResultText } from "./grep-render-helpers.
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 const GREP_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/grep.md", import.meta.url),
@@ -508,21 +509,15 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 }
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
-	const toolConfig = {
-		callable: true,
-		enabled: true,
-		policy: "read-only" as const,
-		readOnly: true,
+	const tool = registerReadseekTool(pi, {
+		policy: "read-only",
 		pythonName: "grep",
-		defaultExposure: "safe-by-default" as const,
-	};
-
-	const tool = {
+		defaultExposure: "safe-by-default",
+	}, {
 		name: "grep",
 		label: "grep",
 		description: GREP_PROMPT_METADATA.description,
 		parameters: grepSchema,
-		ptc: toolConfig,
 		promptSnippet: GREP_PROMPT_METADATA.promptSnippet,
 		promptGuidelines: options.searchGuideline
 			? [GREP_PROMPT_METADATA.promptGuidelines[0], options.searchGuideline]
@@ -607,8 +602,6 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 			}
 			return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
 		},
-	} satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-
-	pi.registerTool(tool);
+	});
 	return tool;
 }

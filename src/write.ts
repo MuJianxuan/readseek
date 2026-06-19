@@ -17,6 +17,7 @@ import { buildDiffData, type DiffData } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, renderToolLabel, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 const WRITE_PENDING_PREVIEW_STATE_KEY = "hashline-write-pending-preview";
 
@@ -301,21 +302,16 @@ export async function executeWrite(opts: {
 }
 
 export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = {}) {
-  const toolConfig = {
-    callable: true,
-    enabled: true,
-    policy: "mutating" as const,
-    readOnly: false,
+  const tool = registerReadseekTool(pi, {
+    policy: "mutating",
     pythonName: "write",
-    defaultExposure: "not-safe-by-default" as const,
-  };
-  const tool = {
+    defaultExposure: "not-safe-by-default",
+  }, {
     name: "write",
     label: "write",
     description: WRITE_PROMPT_METADATA.description,
     promptSnippet: WRITE_PROMPT_METADATA.promptSnippet,
     promptGuidelines: WRITE_PROMPT_METADATA.promptGuidelines,
-    ptc: toolConfig,
     parameters: Type.Object({
       path: Type.String({ description: "File path" }),
       content: Type.String({ description: "File content" }),
@@ -510,7 +506,6 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       }
       return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
     },
-  } satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-  pi.registerTool(tool);
+  });
   return tool;
 }

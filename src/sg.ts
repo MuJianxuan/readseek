@@ -9,6 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { isReadseekAvailable, readseekSearch, type ReadseekHashline, type ReadseekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
 
@@ -205,16 +206,11 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
 }
 
 export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
-  const toolConfig = {
-    callable: true,
-    enabled: true,
-    policy: "read-only" as const,
-    readOnly: true,
+  const tool = registerReadseekTool(pi, {
+    policy: "read-only",
     pythonName: "search",
-    defaultExposure: "opt-in" as const,
-  };
-
-  const tool = {
+    defaultExposure: "opt-in",
+  }, {
     name: "search",
     label: "Structural Search",
     description: SG_PROMPT_METADATA.description,
@@ -228,7 +224,6 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
       ignored: Type.Optional(Type.Boolean({ description: "With others=true, include ignored untracked files" })),
     }),
-    ptc: toolConfig,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeSg({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
     },
@@ -249,8 +244,6 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
         unitPlural: "matches",
       });
     },
-  } satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-
-  pi.registerTool(tool);
+  });
   return tool;
 }

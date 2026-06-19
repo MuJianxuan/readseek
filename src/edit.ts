@@ -23,6 +23,7 @@ import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FreshAnchorsPredicate } from "./tool-types.js";
+import { registerReadseekTool } from "./register-tool.js";
 
 import { resolveEditDiffDisplay } from "./readseek-settings.js";
 
@@ -566,22 +567,17 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
-	const toolConfig = {
-		callable: true,
-		enabled: true,
-		policy: "mutating" as const,
-		readOnly: false,
+	const tool = registerReadseekTool(pi, {
+		policy: "mutating",
 		pythonName: "edit",
-		defaultExposure: "not-safe-by-default" as const,
-	};
-	const tool = {
+		defaultExposure: "not-safe-by-default",
+	}, {
 		name: "edit",
 		label: "Edit",
 		description: EDIT_PROMPT_METADATA.description,
 		promptSnippet: EDIT_PROMPT_METADATA.promptSnippet,
 		promptGuidelines: EDIT_PROMPT_METADATA.promptGuidelines,
 		parameters: hashlineEditSchema,
-		ptc: toolConfig,
 		renderShell: "default" as const,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			return executeEdit({
@@ -698,8 +694,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			}
 			return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
 		},
-	} satisfies Parameters<ExtensionAPI["registerTool"]>[0] & { ptc: typeof toolConfig };
-
-	pi.registerTool(tool);
+	});
 	return tool;
 }
