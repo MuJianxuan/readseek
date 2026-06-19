@@ -56,6 +56,15 @@ export interface ExecuteReadOptions {
 	onSuccessfulRead?: FileAnchoredCallback;
 }
 
+function hasReadAnchors(result: AgentToolResult<any>): boolean {
+	const details = (result as { details?: unknown }).details;
+	if (!details || typeof details !== "object") return false;
+	const readseekValue = (details as { readseekValue?: unknown }).readseekValue;
+	if (!readseekValue || typeof readseekValue !== "object") return false;
+	const lines = (readseekValue as { lines?: unknown }).lines;
+	return Array.isArray(lines) && lines.length > 0;
+}
+
 export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolResult<any>> {
 	const { toolCallId, params, signal, onUpdate, cwd, onSuccessfulRead } = opts;
 	await ensureHashInit();
@@ -93,7 +102,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	const absolutePath = resolveToCwd(rawPath, cwd);
 	const succeed = <T extends AgentToolResult<any>>(result: T): T => {
 		const isError = (result as { isError?: boolean }).isError;
-		if (!isError) {
+		if (!isError && hasReadAnchors(result)) {
 			onSuccessfulRead?.(absolutePath);
 		}
 		return result;
