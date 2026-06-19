@@ -170,6 +170,30 @@ function mapFsWriteError(err: any, path: string): MappedFsError {
   };
 }
 
+function buildWriteFsErrorResult(err: any, absolutePath: string) {
+  const mapped = mapFsWriteError(err, absolutePath);
+  return {
+    content: [{ type: "text" as const, text: mapped.message }],
+    isError: true,
+    details: {
+      readseekValue: {
+        tool: "write" as const,
+        path: absolutePath,
+        lines: [] as ReadseekLine[],
+        warnings: [] as ReadseekWarning[],
+        ok: false,
+        error: buildReadseekError(
+          mapped.code,
+          mapped.message,
+          undefined,
+          mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
+        ),
+      },
+      warnings: [] as string[],
+    },
+  };
+}
+
 export async function executeWrite(opts: {
   path: string;
   content: string;
@@ -321,112 +345,72 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       const cwd = ctx?.cwd ?? process.cwd();
       const absolutePath = resolveToCwd(params.path, cwd);
       try {
-      return await withFileMutationQueue(absolutePath, async () => {
-      let result: WriteResult;
-      try {
-        result = await executeWrite({
-          path: absolutePath,
-          content: params.content,
-          map: params.map,
-          cwd,
+        return await withFileMutationQueue(absolutePath, async () => {
+          let result: WriteResult;
+          try {
+            result = await executeWrite({
+              path: absolutePath,
+              content: params.content,
+              map: params.map,
+              cwd,
+            });
+          } catch (err: any) {
+            return buildWriteFsErrorResult(err, absolutePath);
+          }
+
+          if (result.readseekValue.lines.length > 0) {
+            options.onFileAnchored?.(absolutePath);
+          }
+
+          // Lift binary-content signal into a fatal readseekValue.error envelope so
+          // downstream consumers get the same taxonomy shape as every other tool.
+          // The existing ReadseekWarning entry is preserved on readseekValue.warnings for
+          // backward compatibility (see AC 12 — warnings namespace alignment).
+          const binaryWarning = result.readseekValue.warnings.find((w) => w.code === "binary-content");
+          if (binaryWarning) {
+            return {
+              content: [{ type: "text" as const, text: result.text }],
+              isError: true,
+              details: {
+                readseekValue: {
+                  ...result.readseekValue,
+                  ok: false,
+                  error: buildReadseekError("binary-content", binaryWarning.message),
+                },
+                warnings: result.warnings,
+              },
+            };
+          }
+
+          const bareCrWarning = result.readseekValue.warnings.find((w) => w.code === "bare-cr");
+          if (bareCrWarning) {
+            return {
+              content: [{ type: "text" as const, text: result.text }],
+              isError: true,
+              details: {
+                readseekValue: {
+                  ...result.readseekValue,
+                  ok: false,
+                  error: buildReadseekError("bare-cr", bareCrWarning.message),
+                },
+                warnings: result.warnings,
+              },
+            };
+          }
+
+          return {
+            content: [{ type: "text" as const, text: result.text }],
+            details: {
+              ...(result.diff !== undefined ? { diff: result.diff } : {}),
+              ...(result.diffData !== undefined ? { diffData: result.diffData } : {}),
+              ...(result.writeState ? { writeState: result.writeState } : {}),
+              readseekValue: result.readseekValue,
+              warnings: result.warnings,
+            },
+          };
         });
       } catch (err: any) {
-        const mapped = mapFsWriteError(err, absolutePath);
-        return {
-          content: [{ type: "text" as const, text: mapped.message }],
-          isError: true,
-          details: {
-            readseekValue: {
-              tool: "write" as const,
-              path: absolutePath,
-              lines: [] as ReadseekLine[],
-              warnings: [] as ReadseekWarning[],
-              ok: false,
-              error: buildReadseekError(
-                mapped.code,
-                mapped.message,
-                undefined,
-                mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
-              ),
-            },
-            warnings: [] as string[],
-          },
-        };
-      }
-
-      if (result.readseekValue.lines.length > 0) {
-        options.onFileAnchored?.(absolutePath);
-      }
-
-      // Lift binary-content signal into a fatal readseekValue.error envelope so
-      // downstream consumers get the same taxonomy shape as every other tool.
-      // The existing ReadseekWarning entry is preserved on readseekValue.warnings for
-      // backward compatibility (see AC 12 — warnings namespace alignment).
-      const binaryWarning = result.readseekValue.warnings.find((w) => w.code === "binary-content");
-      if (binaryWarning) {
-        return {
-          content: [{ type: "text" as const, text: result.text }],
-          isError: true,
-          details: {
-            readseekValue: {
-              ...result.readseekValue,
-              ok: false,
-              error: buildReadseekError("binary-content", binaryWarning.message),
-            },
-            warnings: result.warnings,
-          },
-        };
-      }
-
-      const bareCrWarning = result.readseekValue.warnings.find((w) => w.code === "bare-cr");
-      if (bareCrWarning) {
-        return {
-          content: [{ type: "text" as const, text: result.text }],
-          isError: true,
-          details: {
-            readseekValue: {
-              ...result.readseekValue,
-              ok: false,
-              error: buildReadseekError("bare-cr", bareCrWarning.message),
-            },
-            warnings: result.warnings,
-          },
-        };
-      }
-
-      return {
-        content: [{ type: "text" as const, text: result.text }],
-        details: {
-          ...(result.diff !== undefined ? { diff: result.diff } : {}),
-          ...(result.diffData !== undefined ? { diffData: result.diffData } : {}),
-          ...(result.writeState ? { writeState: result.writeState } : {}),
-          readseekValue: result.readseekValue,
-          warnings: result.warnings,
-        },
-      };
-      });
-      } catch (err: any) {
-        const mapped = mapFsWriteError(err, absolutePath);
-        return {
-          content: [{ type: "text" as const, text: mapped.message }],
-          isError: true,
-          details: {
-            readseekValue: {
-              tool: "write" as const,
-              path: absolutePath,
-              lines: [] as ReadseekLine[],
-              warnings: [] as ReadseekWarning[],
-              ok: false,
-              error: buildReadseekError(
-                mapped.code,
-                mapped.message,
-                undefined,
-                mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
-              ),
-            },
-            warnings: [] as string[],
-          },
-        };
+        return buildWriteFsErrorResult(err, absolutePath);
       }
     },
     renderCall(args: any, theme: any, context: any = {}) {
