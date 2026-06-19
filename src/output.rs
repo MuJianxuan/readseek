@@ -27,12 +27,30 @@ impl argh::FromArgValue for Format {
     }
 }
 #[derive(Debug, Serialize)]
-pub(crate) struct ReadOutput {
+pub(crate) struct SourceHeader {
     file: PathBuf,
     language: Language,
     engine: EngineField,
     line_count: usize,
     file_hash: String,
+}
+
+impl From<&SourceFile> for SourceHeader {
+    fn from(source: &SourceFile) -> Self {
+        Self {
+            file: source.path.clone(),
+            language: source.detection.language,
+            engine: source.detection.engine,
+            line_count: source.lines.len(),
+            file_hash: source.file_hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReadOutput {
+    #[serde(flatten)]
+    header: SourceHeader,
     start_line: usize,
     end_line: usize,
     hashlines: Vec<HashLine>,
@@ -40,21 +58,15 @@ pub(crate) struct ReadOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct MapOutput {
-    file: PathBuf,
-    language: Language,
-    engine: EngineField,
-    line_count: usize,
-    file_hash: String,
+    #[serde(flatten)]
+    header: SourceHeader,
     symbols: Vec<Symbol>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct CheckOutput {
-    file: PathBuf,
-    language: Language,
-    engine: EngineField,
-    line_count: usize,
-    file_hash: String,
+    #[serde(flatten)]
+    header: SourceHeader,
     error_count: usize,
     missing_count: usize,
     diagnostics: Vec<Diagnostic>,
@@ -76,22 +88,16 @@ pub(crate) struct Diagnostic {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SymbolOutput {
-    file: PathBuf,
-    language: Language,
-    engine: EngineField,
-    line_count: usize,
-    file_hash: String,
+    #[serde(flatten)]
+    header: SourceHeader,
     symbol: Symbol,
     hashlines: Vec<HashLine>,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct IdentifyOutput {
-    file: PathBuf,
-    language: Language,
-    engine: EngineField,
-    line_count: usize,
-    file_hash: String,
+    #[serde(flatten)]
+    header: SourceHeader,
     line: usize,
     column: usize,
     line_hash: String,
@@ -276,7 +282,7 @@ pub(crate) fn resolve_explicit_target(
 
 pub(crate) fn load_source_for_input(
     path: &Path,
-    stdin: Option<&PathBuf>,
+    stdin: Option<&Path>,
     override_language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
@@ -305,11 +311,7 @@ pub(crate) fn read_output(
     }
     if line_count == 0 && start.is_none() && end.is_none() {
         return Ok(ReadOutput {
-            file: source.path.clone(),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            line_count,
-            file_hash: source.file_hash.clone(),
+            header: source.into(),
             start_line,
             end_line,
             hashlines: Vec::new(),
@@ -325,19 +327,11 @@ pub(crate) fn read_output(
 
     let hashlines = source.lines[slice_start..end_line]
         .iter()
-        .map(|line| HashLine {
-            line: line.number,
-            hash: line.hash(),
-            text: line.text.clone(),
-        })
+        .map(HashLine::from)
         .collect();
 
     Ok(ReadOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count,
-        file_hash: source.file_hash.clone(),
+        header: source.into(),
         start_line,
         end_line,
         hashlines,
@@ -348,11 +342,7 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
     let source_map = source_map(source)?;
 
     Ok(MapOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count: source.lines.len(),
-        file_hash: source.file_hash.clone(),
+        header: source.into(),
         symbols: source_map.symbols,
     })
 }
@@ -366,11 +356,7 @@ pub(crate) fn check_output(source: &SourceFile) -> Result<CheckOutput> {
     let missing_count = diagnostics.len() - error_count;
 
     Ok(CheckOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count: source.lines.len(),
-        file_hash: source.file_hash.clone(),
+        header: source.into(),
         error_count,
         missing_count,
         diagnostics,
@@ -400,11 +386,7 @@ pub(crate) fn symbol_output(
         let symbol = symbol.clone();
 
         return Ok(SymbolOutput {
-            file: source.path.clone(),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            line_count: source.lines.len(),
-            file_hash: source.file_hash.clone(),
+            header: source.into(),
             hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
             symbol,
         });
@@ -415,11 +397,7 @@ pub(crate) fn symbol_output(
     let symbol =
         find_symbol(&source_map, line).with_context(|| format!("no symbol at line {line}"))?;
     Ok(SymbolOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count: source.lines.len(),
-        file_hash: source.file_hash.clone(),
+        header: source.into(),
         hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
         symbol,
     })
@@ -457,19 +435,11 @@ pub(crate) fn identify_output(
     let symbol = find_symbol(&source_map, line);
 
     Ok(IdentifyOutput {
-        file: source.path.clone(),
-        language: source.detection.language,
-        engine: source.detection.engine,
-        line_count: source.lines.len(),
-        file_hash: source.file_hash.clone(),
+        header: source.into(),
         line,
         column,
         line_hash: source_line.hash(),
-        hashlines: vec![HashLine {
-            line: source_line.number,
-            hash: source_line.hash(),
-            text: source_line.text.clone(),
-        }],
+        hashlines: vec![HashLine::from(source_line)],
         identifier,
         symbol,
     })

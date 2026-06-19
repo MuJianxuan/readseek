@@ -8,8 +8,7 @@ use anyhow::{Context, Result};
 use argh::FromArgs;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::path::Path;
 use std::{env, process};
 
 use crate::cli::Cli;
@@ -20,14 +19,11 @@ use crate::paths::command_paths;
 use crate::source::SourceFile;
 use crate::target::Target;
 
-fn load_source(input: &cli::InputArgs, binary_mode: BinaryMode) -> Result<(Target, SourceFile)> {
+fn load_source(command: &impl cli::Input, binary_mode: BinaryMode) -> Result<(Target, SourceFile)> {
+    let input = command.input();
     let target = input.to_target()?;
-    let source = output::load_source_for_input(
-        &target.path,
-        input.stdin.as_ref(),
-        input.language,
-        binary_mode,
-    )?;
+    let source =
+        output::load_source_for_input(&target.path, input.stdin, input.language, binary_mode)?;
     Ok((target, source))
 }
 
@@ -46,8 +42,6 @@ mod search;
 mod source;
 mod symbols;
 mod target;
-
-static OUTPUT_FILE: OnceLock<PathBuf> = OnceLock::new();
 
 fn main() {
     env_logger::init();
@@ -74,12 +68,10 @@ fn run() -> Result<()> {
     if let Some(dir) = cli.readseek_dir {
         crate::repo::set_dir_override(dir);
     }
-    if let Some(path) = cli.output {
-        OUTPUT_FILE.set(path).ok();
-    }
+    let output_path = cli.output;
     let command = cli.command.context("command required")?;
 
-    match command {
+    let json = match command {
         crate::cli::Command::Detect(command) => run_detect(&command)?,
         crate::cli::Command::Read(command) => run_read(&command)?,
         crate::cli::Command::Map(command) => run_map(&command)?,
@@ -89,46 +81,39 @@ fn run() -> Result<()> {
         crate::cli::Command::Def(command) => {
             let output = def::output(&command)?;
             match command.format {
-                crate::output::Format::Plain => print_json(&def::compact(&output))?,
-                crate::output::Format::Json => print_json(&output)?,
+                crate::output::Format::Plain => to_json(&def::compact(&output))?,
+                crate::output::Format::Json => to_json(&output)?,
             }
         }
         crate::cli::Command::Refs(command) => {
             let output = refs::output(&command)?;
             match command.format {
-                crate::output::Format::Plain => print_json(&refs::compact(&output))?,
-                crate::output::Format::Json => print_json(&output)?,
+                crate::output::Format::Plain => to_json(&refs::compact(&output))?,
+                crate::output::Format::Json => to_json(&output)?,
             }
         }
-        crate::cli::Command::Rename(command) => print_json(&rename::output(&command)?)?,
+        crate::cli::Command::Rename(command) => to_json(&rename::output(&command)?)?,
         crate::cli::Command::Search(command) => run_search(&command)?,
-        crate::cli::Command::Init(command) => run_init(&command)?,
-    }
+        crate::cli::Command::Init(command) => {
+            run_init(&command)?;
+            return Ok(());
+        }
+    };
 
-    Ok(())
+    write_output(&json, output_path.as_deref())
 }
 
-fn run_detect(command: &cli::DetectCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let (_, source) = load_source(&input, BinaryMode::Reject)?;
-    print_json(&source.detection)
+fn run_detect(command: &cli::DetectCommand) -> Result<String> {
+    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    to_json(&source.detection)
 }
 
-fn run_read(command: &cli::ReadCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let (target, source) = load_source(&input, BinaryMode::Lossy)?;
+fn run_read(command: &cli::ReadCommand) -> Result<String> {
+    let (target, source) = load_source(command, BinaryMode::Lossy)?;
     let target_line = output::resolve_target(&source, &target)?;
-    let start = match (command.offset, target_line) {
+    let start = match (command.start, target_line) {
         (Some(start), Some(line)) if start != line => {
-            anyhow::bail!("target line conflicts with --offset")
+            anyhow::bail!("target line conflicts with --start")
         }
         (Some(start), _) | (_, Some(start)) => Some(start),
         (None, None) => None,
@@ -152,61 +137,35 @@ fn run_read(command: &cli::ReadCommand) -> Result<()> {
         command.end
     };
     let output = output::read_output(&source, start, end)?;
-    print_json(&output)
+    to_json(&output)
 }
 
-fn run_map(command: &cli::MapCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let (_, source) = load_source(&input, BinaryMode::Reject)?;
-    print_json(&output::map_output(&source)?)
+fn run_map(command: &cli::MapCommand) -> Result<String> {
+    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    to_json(&output::map_output(&source)?)
 }
 
-fn run_check(command: &cli::CheckCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let (_, source) = load_source(&input, BinaryMode::Reject)?;
-    print_json(&output::check_output(&source)?)
+fn run_check(command: &cli::CheckCommand) -> Result<String> {
+    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    to_json(&output::check_output(&source)?)
 }
 
-fn run_symbol(command: &cli::SymbolCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let target = input.to_target()?;
-    let source = output::load_source_for_input(
-        &target.path,
-        input.stdin.as_ref(),
-        input.language,
-        BinaryMode::Reject,
-    )?;
+fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
+    let (target, source) = load_source(command, BinaryMode::Reject)?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let address = command.name.as_deref();
     let output = output::symbol_output(&source, address, target_line)?;
-    print_json(&output)
+    to_json(&output)
 }
 
-fn run_identify(command: &cli::IdentifyCommand) -> Result<()> {
-    let input = cli::InputArgs {
-        target: command.target.clone(),
-        stdin: command.stdin.clone(),
-        language: command.language,
-    };
-    let (target, source) = load_source(&input, BinaryMode::Reject)?;
+fn run_identify(command: &cli::IdentifyCommand) -> Result<String> {
+    let (target, source) = load_source(command, BinaryMode::Reject)?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let output = output::identify_output(&source, target_line, command.column)?;
-    print_json(&output)
+    to_json(&output)
 }
 
-fn run_search(command: &cli::SearchCommand) -> Result<()> {
+fn run_search(command: &cli::SearchCommand) -> Result<String> {
     let paths = command_paths(
         &command.target,
         GitFlags {
@@ -235,7 +194,7 @@ fn run_search(command: &cli::SearchCommand) -> Result<()> {
         .flatten()
         .collect();
 
-    print_json(&SearchOutput { results })
+    to_json(&SearchOutput { results })
 }
 
 fn run_init(command: &cli::InitCommand) -> Result<()> {
@@ -263,12 +222,15 @@ fn run_init(command: &cli::InitCommand) -> Result<()> {
     Ok(())
 }
 
-fn print_json(value: &impl Serialize) -> Result<()> {
-    let json = serde_json::to_string_pretty(value)?;
-    if let Some(path) = OUTPUT_FILE.get() {
-        std::fs::write(path, json).with_context(|| format!("write {}", path.display()))?;
+fn to_json(value: &impl Serialize) -> Result<String> {
+    Ok(serde_json::to_string_pretty(value)?)
+}
+
+fn write_output(json: &str, path: Option<&Path>) -> Result<()> {
+    if let Some(path) = path {
+        std::fs::write(path, json).with_context(|| format!("write {}", path.display()))
     } else {
         println!("{json}");
+        Ok(())
     }
-    Ok(())
 }

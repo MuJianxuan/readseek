@@ -77,7 +77,7 @@ pub(crate) struct ReadCommand {
 
     /// first line to include
     #[argh(option)]
-    pub(crate) offset: Option<usize>,
+    pub(crate) start: Option<usize>,
 
     /// last line to include
     #[argh(option)]
@@ -196,7 +196,7 @@ pub(crate) struct DefCommand {
 
     /// read identify output from stdin to choose the symbol name
     #[argh(switch)]
-    pub(crate) stdin: bool,
+    pub(crate) from_identify: bool,
 
     /// output format
     #[argh(option, long = "format", default = "crate::output::Format::Json")]
@@ -427,14 +427,43 @@ fn is_line_hash(value: &str) -> bool {
     value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
-pub(crate) struct InputArgs {
-    pub(crate) target: Option<String>,
-    pub(crate) stdin: Option<PathBuf>,
+pub(crate) struct InputArgs<'a> {
+    pub(crate) target: Option<&'a str>,
+    pub(crate) stdin: Option<&'a Path>,
     pub(crate) language: Option<Language>,
 }
 
-impl InputArgs {
+impl InputArgs<'_> {
     pub(crate) fn to_target(&self) -> Result<Target> {
-        parse_input_target_with(self.target.as_deref(), self.stdin.as_deref(), parse_target)
+        parse_input_target_with(self.target, self.stdin, parse_target)
     }
 }
+
+pub(crate) trait Input {
+    fn input(&self) -> InputArgs<'_>;
+}
+
+macro_rules! impl_input {
+    ($($command:ty),+ $(,)?) => {
+        $(
+            impl Input for $command {
+                fn input(&self) -> InputArgs<'_> {
+                    InputArgs {
+                        target: self.target.as_deref(),
+                        stdin: self.stdin.as_deref(),
+                        language: self.language,
+                    }
+                }
+            }
+        )+
+    };
+}
+
+impl_input!(
+    DetectCommand,
+    ReadCommand,
+    MapCommand,
+    CheckCommand,
+    SymbolCommand,
+    IdentifyCommand,
+);

@@ -11,7 +11,7 @@ readseek \- structural source-code reader with stable line hashing
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--offset\fR \fIline\fR]
+    [\fB--start\fR \fIline\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
@@ -28,7 +28,7 @@ readseek \- structural source-code reader with stable line hashing
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
-\fBreadseek def\fR [\fB--stdin\fR] [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek def\fR [\fB--from-identify\fR] [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fIname\fR]
 
@@ -81,7 +81,7 @@ previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
 For \fBsymbol\fR, you can also pass \fB--name\fR with a qualified or unqualified
 symbol name. If the name matches more than one symbol the command reports an error.
 
-For \fBdef\fR, the \fB--stdin\fR flag reads a JSON object previously produced
+For \fBdef\fR, the \fB--from-identify\fR flag reads a JSON object previously produced
 by \fBidentify\fR. The lookup tries \fIsymbol.qualified_name\fR first and falls
 back to \fIidentifier.text\fR.
 
@@ -144,7 +144,7 @@ parser is available, whether the content is binary, MIME type, and syntax name.
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
 options the entire file is returned. Use a line or hash suffix on the target
-path, or pass \fB--offset\fR, to set the first line.
+path, or pass \fB--start\fR, to set the first line.
 Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
 .TP
@@ -175,7 +175,7 @@ mark the exact token span.
 .TP
 .B def
 Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
-matches a fully qualified or unqualified symbol name. With \fB--stdin\fR and no
+matches a fully qualified or unqualified symbol name. With \fB--from-identify\fR and no
 \fIname\fR, the name is read from an \fBidentify\fR JSON object on standard input.
 Directory search follows the same file-selection rules as \fBsearch\fR.
 Use \fB--format plain\fR to emit quickfix-friendly location entries instead of full
@@ -252,8 +252,10 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 \fB--stdin\fR \fIpath\fR
 Read document contents from standard input instead of a file, using \fIpath\fR
 for language detection and reported in JSON output.
-For \fBdef\fR, \fB--stdin\fR is a switch that reads an \fBidentify\fR
-JSON object from standard input instead.
+.TP
+\fB--from-identify\fR
+For \fBdef\fR, read an \fBidentify\fR JSON object from standard input and use it
+to choose the symbol name instead of passing \fIname\fR.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
@@ -289,9 +291,9 @@ For \fBrename\fR, write the planned edits. Refuses on any naming conflict and
 verifies each edited line's hash before writing. With \fB--workspace\fR every file
 is verified first and written all-or-nothing.
 .TP
-\fB--offset\fR \fIline\fR
-First line to include when reading. Cannot be combined with \fB--end\fR or
-\fB--limit\fR when a target line suffix is also present.
+\fB--start\fR \fIline\fR
+First line to include when reading. If the target path also carries a line
+suffix, the two must agree.
 .TP
 \fB--end\fR \fIline\fR
 Last line to include when reading. Cannot be combined with \fB--limit\fR.
@@ -358,7 +360,7 @@ readseek detect src/main.rs
 
 Read lines 10 through 20:
 .EX
-readseek read src/main.rs --offset 10 --end 20
+readseek read src/main.rs --start 10 --end 20
 .EE
 
 Read 12 lines starting from line 42:

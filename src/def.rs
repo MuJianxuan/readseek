@@ -29,9 +29,9 @@ struct SymbolInput {
 }
 
 pub(crate) fn output(command: &DefCommand) -> Result<DefOutput> {
-    let name = match (command.name.as_ref(), command.stdin) {
+    let name = match (command.name.as_ref(), command.from_identify) {
         (Some(name), _) => Ok::<String, anyhow::Error>(name.clone()),
-        (None, false) => bail!("definition requires a name or --stdin identify context"),
+        (None, false) => bail!("definition requires a name or --from-identify context"),
         (None, true) => {
             let mut text = String::new();
             io::stdin()
@@ -54,55 +54,22 @@ pub(crate) fn output(command: &DefCommand) -> Result<DefOutput> {
         .filter(|part| !part.is_empty())
         .unwrap_or(&name);
     let readseek_dir = crate::repo::find_readseek_dir(&command.target);
-    let results = if let Some(readseek_dir) = readseek_dir.as_deref() {
-        if let Some(index_entries) = crate::repo::load_index(readseek_dir, &name)? {
-            if index_entries.is_empty() {
-                def_candidate_paths(command, search_name)?
-                    .par_iter()
-                    .map(|path| {
-                        locations_in_path(
-                            path,
-                            &name,
-                            search_name,
-                            command.language,
-                            Some(readseek_dir),
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()?
-            } else {
-                index_entries
-                    .par_iter()
-                    .map(|entry| {
-                        locations_in_path(
-                            &entry.path,
-                            &name,
-                            search_name,
-                            command.language,
-                            Some(readseek_dir),
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()?
+    let readseek_dir = readseek_dir.as_deref();
+    let paths = match readseek_dir {
+        Some(dir) => match crate::repo::load_index(dir, &name)? {
+            Some(entries) if !entries.is_empty() => {
+                entries.into_iter().map(|entry| entry.path).collect()
             }
-        } else {
-            def_candidate_paths(command, search_name)?
-                .par_iter()
-                .map(|path| {
-                    locations_in_path(
-                        path,
-                        &name,
-                        search_name,
-                        command.language,
-                        Some(readseek_dir),
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?
-        }
-    } else {
-        def_candidate_paths(command, search_name)?
-            .par_iter()
-            .map(|path| locations_in_path(path, &name, search_name, command.language, None))
-            .collect::<Result<Vec<_>>>()?
+            _ => def_candidate_paths(command, search_name)?,
+        },
+        None => def_candidate_paths(command, search_name)?,
     };
+
+    let results = paths
+        .par_iter()
+        .map(|path| locations_in_path(path, &name, search_name, command.language, readseek_dir))
+        .collect::<Result<Vec<_>>>()?;
+
     let mut seen = BTreeSet::new();
     let mut definitions = Vec::new();
 

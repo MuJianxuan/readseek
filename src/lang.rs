@@ -5,11 +5,11 @@ use anyhow::{Context, Result};
 use serde::{Serialize, Serializer};
 use std::path::Path;
 use std::sync::OnceLock;
-use strum_macros::{Display, EnumString};
+use strum_macros::{Display, EnumString, FromRepr};
 use syntect::parsing::SyntaxSet;
 
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Display, EnumString, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, EnumString, Eq, FromRepr, PartialEq)]
 #[strum(serialize_all = "kebab-case", ascii_case_insensitive)]
 pub(crate) enum Language {
     Assembly = 0,
@@ -54,63 +54,9 @@ pub(crate) enum Language {
     Unknown = 39,
 }
 
-const LANGUAGE_VARIANTS: [Language; 40] = [
-    Language::Assembly,
-    Language::C,
-    Language::Bash,
-    Language::Cpp,
-    Language::CSharp,
-    Language::Css,
-    Language::Dockerfile,
-    Language::Go,
-    Language::Gdscript,
-    Language::Java,
-    Language::JavaScript,
-    Language::Jsx,
-    Language::Html,
-    Language::Json,
-    Language::Kconfig,
-    Language::Latex,
-    Language::Lua,
-    Language::Markdown,
-    Language::Xml,
-    Language::Yaml,
-    Language::Just,
-    Language::Make,
-    Language::Meson,
-    Language::Nix,
-    Language::Perl,
-    Language::Python,
-    Language::Php,
-    Language::Puppet,
-    Language::Ruby,
-    Language::Riscv,
-    Language::Rust,
-    Language::Swift,
-    Language::Sql,
-    Language::TypeScript,
-    Language::Typst,
-    Language::Toml,
-    Language::Tsx,
-    Language::Vimscript,
-    Language::Zig,
-    Language::Unknown,
-];
-
 impl From<Language> for u16 {
     fn from(language: Language) -> Self {
         language as u16
-    }
-}
-
-impl TryFrom<u16> for Language {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        LANGUAGE_VARIANTS
-            .get(value as usize)
-            .copied()
-            .with_context(|| format!("unknown Language discriminant: {value}"))
     }
 }
 
@@ -133,7 +79,7 @@ pub(crate) struct LanguageSpec {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, FromRepr, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[allow(dead_code)]
 pub(crate) enum AnalysisEngine {
@@ -144,20 +90,6 @@ pub(crate) enum AnalysisEngine {
 impl From<AnalysisEngine> for u8 {
     fn from(engine: AnalysisEngine) -> Self {
         engine as u8
-    }
-}
-
-const ANALYSIS_ENGINE_VARIANTS: [AnalysisEngine; 2] =
-    [AnalysisEngine::TreeSitter, AnalysisEngine::Llvm];
-
-impl TryFrom<u8> for AnalysisEngine {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        ANALYSIS_ENGINE_VARIANTS
-            .get(value as usize)
-            .copied()
-            .with_context(|| format!("unknown AnalysisEngine tag: {value}"))
     }
 }
 

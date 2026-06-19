@@ -77,6 +77,16 @@ impl SourceLine {
     }
 }
 
+impl From<&SourceLine> for HashLine {
+    fn from(line: &SourceLine) -> Self {
+        Self {
+            line: line.number,
+            hash: line.hash(),
+            text: line.text.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct SourceMap {
     pub(crate) symbols: Vec<Symbol>,
@@ -261,10 +271,6 @@ pub(crate) fn range_hashlines(
     let end = end_line.min(source.lines.len());
     source.lines[start..end]
         .iter()
-        .map(|line| HashLine {
-            line: line.number,
-            hash: line.hash(),
-            text: line.text.clone(),
-        })
+        .map(HashLine::from)
         .collect()
 }

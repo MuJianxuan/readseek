@@ -217,12 +217,15 @@ pub(crate) fn load_map(
         return Ok(None);
     }
 
-    let language = Language::try_from(header.lang_tag.get())
+    let language = Language::from_repr(header.lang_tag.get())
         .with_context(|| format!("unknown language tag {}", header.lang_tag.get()))?;
     let engine = if header.engine_tag == ENGINE_TAG_NONE {
         None
     } else {
-        Some(AnalysisEngine::try_from(header.engine_tag)?)
+        Some(
+            AnalysisEngine::from_repr(header.engine_tag)
+                .with_context(|| format!("unknown analysis engine tag {}", header.engine_tag))?,
+        )
     };
 
     let sym_count = header.sym_count.get() as usize;
