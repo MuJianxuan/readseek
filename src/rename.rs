@@ -16,10 +16,8 @@
 use crate::binding::{self, OccurrenceKind};
 use crate::cli::RenameCommand;
 use crate::flags::GitFlags;
-use crate::output::{
-    RenameConflict, RenameEdit, RenameFileOutput, RenameOutput, is_identifier_byte,
-};
-use crate::paths::{bytes_contain_identifier, command_paths};
+use crate::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
+use crate::paths::{bytes_contain_identifier, command_paths, identifier_spans};
 use crate::source::{SourceFile, source_from_text};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
@@ -235,12 +233,7 @@ fn name_scan(source: &SourceFile, name: &str) -> Vec<(usize, usize)> {
     let text = source.text.as_bytes();
     let needle = name.as_bytes();
     let mut spans = Vec::new();
-    for index in memchr::memmem::find_iter(text, needle) {
-        let before = index.checked_sub(1).map(|i| text[i]);
-        let after = text.get(index + needle.len()).copied();
-        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
-            continue;
-        }
+    for index in identifier_spans(text, needle) {
         spans.push((index, index + needle.len()));
     }
     spans

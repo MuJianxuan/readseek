@@ -150,10 +150,20 @@ pub(crate) fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
         return true;
     }
 
-    memchr::memmem::find_iter(text, identifier).any(|byte_index| {
+    identifier_spans(text, identifier).next().is_some()
+}
+
+/// Return byte offsets where `identifier` appears as a whole identifier.
+pub(crate) fn identifier_spans<'a>(
+    text: &'a [u8],
+    identifier: &'a [u8],
+) -> impl Iterator<Item = usize> + 'a {
+    memchr::memmem::find_iter(text, identifier).filter(|&byte_index| {
         let before = byte_index.checked_sub(1).map(|i| text[i]);
         let after = text.get(byte_index + identifier.len()).copied();
-        !before.is_some_and(is_identifier_byte) && !after.is_some_and(is_identifier_byte)
+        !identifier.is_empty()
+            && !before.is_some_and(is_identifier_byte)
+            && !after.is_some_and(is_identifier_byte)
     })
 }
 

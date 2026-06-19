@@ -3,7 +3,7 @@ use crate::flags::GitFlags;
 use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
 use crate::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
-use crate::paths::{bytes_contain_identifier, command_paths};
+use crate::paths::{bytes_contain_identifier, command_paths, identifier_spans};
 use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
@@ -169,12 +169,7 @@ fn scan_source(
     let name_bytes = name.as_bytes();
 
     let mut compact: Vec<(usize, usize)> = Vec::new();
-    for byte_index in memchr::memmem::find_iter(text_bytes, name_bytes) {
-        let before = byte_index.checked_sub(1).map(|i| text_bytes[i]);
-        let after = text_bytes.get(byte_index + name.len()).copied();
-        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
-            continue;
-        }
+    for byte_index in identifier_spans(text_bytes, name_bytes) {
         let line_idx = line_starts
             .partition_point(|&start| start <= byte_index)
             .saturating_sub(1);
