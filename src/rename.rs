@@ -64,15 +64,7 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
         });
     }
 
-    let source_line = source
-        .line(line)
-        .with_context(|| format!("line {line} not found in {}", command.target.display()))?;
-    let max_column = source_line.text.len() + 1;
-    if column > max_column {
-        bail!("column {column} exceeds maximum column {max_column} for line {line}");
-    }
-    let line_start = source.line_starts[line - 1];
-    let cursor_byte = line_start + column - 1;
+    let cursor_byte = source.cursor_byte(line, column)?;
 
     // The cursor file is binding-accurate when its symbol resolves to a local
     // declaration. Top-level symbols (functions, types) do not resolve, so in

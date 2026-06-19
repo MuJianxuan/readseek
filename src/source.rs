@@ -56,6 +56,20 @@ impl SourceFile {
     pub(crate) fn line(&self, n: usize) -> Option<&SourceLine> {
         self.lines.get(n.checked_sub(1)?)
     }
+
+    pub(crate) fn cursor_byte(&self, line: usize, column: usize) -> Result<usize> {
+        if line == 0 || column == 0 {
+            bail!("line and column must be greater than zero");
+        }
+        let source_line = self
+            .line(line)
+            .with_context(|| format!("line {line} not found in {}", self.path.display()))?;
+        let max_column = source_line.text.len() + 1;
+        if column > max_column {
+            bail!("column {column} exceeds maximum column {max_column} for line {line}");
+        }
+        Ok(self.line_starts[line - 1] + column - 1)
+    }
 }
 
 #[derive(Debug)]

@@ -69,9 +69,6 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
 fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
     let line = command.line.context("--scope requires --line")?;
     let column = command.column.unwrap_or(1);
-    if line == 0 || column == 0 {
-        bail!("line and column must be greater than zero");
-    }
     if !command.target.is_file() {
         bail!("--scope requires a single regular file target");
     }
@@ -79,16 +76,7 @@ fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
         fs::read(&command.target).with_context(|| format!("read {}", command.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
     let source = source_from_text(&command.target, text, command.language, false, None)?;
-
-    let source_line = source
-        .line(line)
-        .with_context(|| format!("line {line} not found in {}", command.target.display()))?;
-    let max_column = source_line.text.len() + 1;
-    if column > max_column {
-        bail!("column {column} exceeds maximum column {max_column} for line {line}");
-    }
-    let line_start = source.line_starts[line - 1];
-    let cursor_byte = line_start + column - 1;
+    let cursor_byte = source.cursor_byte(line, column)?;
     let binding = crate::binding::resolve(&source, cursor_byte).with_context(|| {
         format!(
             "no resolvable binding at {}:{line}:{column}",
