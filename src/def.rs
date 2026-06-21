@@ -1,13 +1,12 @@
 use crate::cli::DefCommand;
 use crate::lang::Language;
 use crate::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
-use crate::paths::{bytes_contain_identifier, def_candidate_paths};
-use crate::source::{SourceFile, Symbol, source_from_text, source_map_with_dir};
+use crate::paths::def_candidate_paths;
+use crate::source::{SourceFile, Symbol, read_source_containing, source_map_with_dir};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Deserialize;
 use std::collections::BTreeSet;
-use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
 use std::sync::Arc;
@@ -96,16 +95,7 @@ fn locations_in_path(
     language: Option<Language>,
     readseek_dir: Option<&Path>,
 ) -> Result<Vec<DefLocation>> {
-    let Ok(bytes) = fs::read(path) else {
-        return Ok(Vec::new());
-    };
-    if !bytes_contain_identifier(&bytes, search_name.as_bytes()) {
-        return Ok(Vec::new());
-    }
-    let Ok(text) = String::from_utf8(bytes) else {
-        return Ok(Vec::new());
-    };
-    let Ok(source) = source_from_text(path, text, language, false, None) else {
+    let Some(source) = read_source_containing(path, search_name, language) else {
         return Ok(Vec::new());
     };
     let mut definitions = macro_locations(&source, search_name);

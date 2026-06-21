@@ -17,8 +17,8 @@ use crate::binding::{self, OccurrenceKind};
 use crate::cli::RenameCommand;
 use crate::flags::GitFlags;
 use crate::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
-use crate::paths::{bytes_contain_identifier, command_paths, identifier_spans};
-use crate::source::{SourceFile, source_from_text};
+use crate::paths::{command_paths, identifier_spans};
+use crate::source::{SourceFile, read_source_containing, source_from_text};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
@@ -79,7 +79,7 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
         let conflicts = raw_conflicts
             .into_iter()
             .map(|conflict| {
-                let (line, column) = byte_to_line_column(&source, conflict.byte);
+                let (line, column) = source.line_column(conflict.byte);
                 RenameConflict {
                     line,
                     column,
@@ -171,12 +171,7 @@ fn workspace_others(command: &RenameCommand, old_name: &str) -> Result<Vec<Renam
         .par_iter()
         .filter(|path| !is_origin(path, &command.target, origin.as_deref()))
         .filter_map(|path| {
-            let bytes = fs::read(path).ok()?;
-            if !bytes_contain_identifier(&bytes, old_name.as_bytes()) {
-                return None;
-            }
-            let text = String::from_utf8(bytes).ok()?;
-            let source = source_from_text(path, text, command.language, false, None).ok()?;
+            let source = read_source_containing(path, old_name, command.language)?;
             build_other(&source, old_name, &command.to)
         })
         .collect();
@@ -205,7 +200,7 @@ fn build_other(source: &SourceFile, old_name: &str, new_name: &str) -> Option<Re
     let conflicts = conflict_bytes
         .into_iter()
         .map(|byte| {
-            let (line, column) = byte_to_line_column(source, byte);
+            let (line, column) = source.line_column(byte);
             RenameConflict {
                 line,
                 column,
@@ -252,10 +247,7 @@ fn rename_edit(
     end_byte: usize,
     kind: OccurrenceKind,
 ) -> RenameEdit {
-    let line_idx = source
-        .line_starts
-        .partition_point(|&start| start <= start_byte)
-        .saturating_sub(1);
+    let line_idx = source.line_index(start_byte);
     let source_line = &source.lines[line_idx];
     let line_start = source.line_starts[line_idx];
     RenameEdit {
@@ -353,18 +345,6 @@ fn rewrite(source: &str, edits: &[RenameEdit], old_name: &str, new_name: &str) -
         text.replace_range(edit.start_byte..edit.end_byte, new_name);
     }
     Ok(text)
-}
-
-fn byte_to_line_column(source: &crate::source::SourceFile, byte: usize) -> (usize, usize) {
-    let line_idx = source
-        .line_starts
-        .partition_point(|&start| start <= byte)
-        .saturating_sub(1);
-    let line = source
-        .lines
-        .get(line_idx)
-        .map_or(1, |source_line| source_line.number);
-    (line, byte - source.line_starts[line_idx] + 1)
 }
 
 fn is_plain_identifier(name: &str) -> bool {

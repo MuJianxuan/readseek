@@ -3,6 +3,7 @@ use crate::lang::{
     BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text,
 };
+use crate::paths::bytes_contain_identifier;
 use crate::symbols;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -55,6 +56,20 @@ pub(crate) struct SourceFile {
 impl SourceFile {
     pub(crate) fn line(&self, n: usize) -> Option<&SourceLine> {
         self.lines.get(n.checked_sub(1)?)
+    }
+
+    /// Zero-based index into `lines`/`line_starts` of the line holding `byte`.
+    pub(crate) fn line_index(&self, byte: usize) -> usize {
+        self.line_starts
+            .partition_point(|&start| start <= byte)
+            .saturating_sub(1)
+    }
+
+    /// One-based `(line, column)` of `byte`, with `column` measured in bytes.
+    pub(crate) fn line_column(&self, byte: usize) -> (usize, usize) {
+        let index = self.line_index(byte);
+        let number = self.lines.get(index).map_or(1, |line| line.number);
+        (number, byte - self.line_starts[index] + 1)
     }
 
     pub(crate) fn cursor_byte(&self, line: usize, column: usize) -> Result<usize> {
@@ -119,6 +134,25 @@ pub(crate) fn load_source(
         document.binary,
         document.mime,
     )
+}
+
+/// Load `path` as a source file, but only when it contains `name` as a whole
+/// identifier.
+///
+/// Returns `None` on a read, UTF-8, or parse error, or when the identifier is
+/// absent, so callers scanning many files can skip it without distinguishing the
+/// reasons.
+pub(crate) fn read_source_containing(
+    path: &Path,
+    name: &str,
+    language: Option<Language>,
+) -> Option<SourceFile> {
+    let bytes = fs::read(path).ok()?;
+    if !bytes_contain_identifier(&bytes, name.as_bytes()) {
+        return None;
+    }
+    let text = String::from_utf8(bytes).ok()?;
+    source_from_text(path, text, language, false, None).ok()
 }
 
 pub(crate) fn load_indexable_source(

@@ -3,8 +3,10 @@ use crate::flags::GitFlags;
 use crate::lang::{AnalysisEngine, Language};
 use crate::output::is_identifier_byte;
 use crate::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
-use crate::paths::{bytes_contain_identifier, command_paths, identifier_spans};
-use crate::source::{SourceFile, Symbol, find_symbol, source_from_text, source_map_with_dir};
+use crate::paths::{command_paths, identifier_spans};
+use crate::source::{
+    SourceFile, Symbol, find_symbol, read_source_containing, source_from_text, source_map_with_dir,
+};
 use crate::symbols;
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
@@ -40,16 +42,7 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
     let references: Vec<RefLocation> = paths
         .par_iter()
         .map_init(Parser::new, |parser, path| {
-            let Ok(bytes) = fs::read(path) else {
-                return vec![];
-            };
-            if !bytes_contain_identifier(&bytes, name.as_bytes()) {
-                return vec![];
-            }
-            let Ok(text) = String::from_utf8(bytes) else {
-                return vec![];
-            };
-            let Ok(source) = source_from_text(path, text, command.language, false, None) else {
+            let Some(source) = read_source_containing(path, name, command.language) else {
                 return vec![];
             };
             let needs_parser = matches!(
@@ -99,10 +92,7 @@ fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
         if occurrence.kind == crate::binding::OccurrenceKind::Shadowed {
             continue;
         }
-        let line_idx = source
-            .line_starts
-            .partition_point(|&start| start <= occurrence.start_byte)
-            .saturating_sub(1);
+        let line_idx = source.line_index(occurrence.start_byte);
         let source_line = &source.lines[line_idx];
         references.push(RefLocation {
             file: Arc::clone(&file),
