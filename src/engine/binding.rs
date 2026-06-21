@@ -10,9 +10,9 @@
 //! resolve to a lexical declaration. Everything else is reported as unresolved
 //! so callers can fall back to name matching without silently over-matching.
 
-use crate::lang::Language;
-use crate::source::SourceFile;
-use crate::symbols::tree_sitter_language;
+use crate::engine::lang::Language;
+use crate::engine::source::SourceFile;
+use crate::engine::symbols::tree_sitter_language;
 use serde::Serialize;
 use tree_sitter::{Node, Parser, Tree};
 

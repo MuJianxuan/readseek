@@ -1,6 +1,6 @@
 use crate::cli::DefCommand;
-use crate::flags::GitFlags;
-use crate::output::is_identifier_byte;
+use crate::engine::flags::GitFlags;
+use crate::engine::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::fs;

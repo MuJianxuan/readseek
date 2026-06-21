@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::lang::{LANGUAGE_SPECS, Language};
-use crate::target::{Target, TargetAddress};
+use crate::engine::lang::{LANGUAGE_SPECS, Language};
+use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use std::path::{Path, PathBuf};
+
+pub(crate) mod run;
 
 /// readseek
 #[derive(Debug, FromArgs)]
@@ -199,8 +201,8 @@ pub(crate) struct DefCommand {
     pub(crate) from_identify: bool,
 
     /// output format
-    #[argh(option, long = "format", default = "crate::output::Format::Json")]
-    pub(crate) format: crate::output::Format,
+    #[argh(option, long = "format", default = "crate::engine::output::Format::Json")]
+    pub(crate) format: crate::engine::output::Format,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -234,8 +236,8 @@ pub(crate) struct RefsCommand {
     pub(crate) name: String,
 
     /// output format
-    #[argh(option, long = "format", default = "crate::output::Format::Json")]
-    pub(crate) format: crate::output::Format,
+    #[argh(option, long = "format", default = "crate::engine::output::Format::Json")]
+    pub(crate) format: crate::engine::output::Format,
 
     /// restrict results to the binding under --line/--column (single file)
     #[argh(switch)]

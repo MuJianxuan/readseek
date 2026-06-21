@@ -1,10 +1,10 @@
-use crate::hash::{hash_line, hash_text};
-use crate::lang::{
+use crate::engine::hash::{hash_line, hash_text};
+use crate::engine::lang::{
     BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text,
 };
-use crate::paths::bytes_contain_identifier;
-use crate::symbols;
+use crate::engine::paths::bytes_contain_identifier;
+use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::fs;
@@ -256,7 +256,7 @@ fn is_binary_document(bytes: &[u8], mime: Option<&str>) -> bool {
 }
 
 pub(crate) fn source_map(source: &SourceFile) -> Result<SourceMap> {
-    let readseek_dir = crate::repo::find_readseek_dir(&source.path);
+    let readseek_dir = crate::engine::repo::find_readseek_dir(&source.path);
     source_map_with_dir(source, readseek_dir.as_deref())
 }
 
@@ -265,7 +265,7 @@ pub(crate) fn source_map_with_dir(
     readseek_dir: Option<&Path>,
 ) -> Result<SourceMap> {
     if let Some(readseek_dir) = readseek_dir {
-        match crate::repo::load_map(readseek_dir, &source.file_hash) {
+        match crate::engine::repo::load_map(readseek_dir, &source.file_hash) {
             Ok(Some((source_map, language, _engine))) => {
                 if language == source.detection.language {
                     return Ok(source_map);
@@ -282,7 +282,7 @@ pub(crate) fn source_map_with_dir(
 
         let source_map = symbols::parse_source_map(source)?;
         if let Err(error) =
-            crate::repo::store_map(readseek_dir, &source.file_hash, source, &source_map)
+            crate::engine::repo::store_map(readseek_dir, &source.file_hash, source, &source_map)
         {
             log::warn!("cache store error: {error:#}");
         }

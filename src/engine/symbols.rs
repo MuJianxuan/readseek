@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
-use crate::output::{Diagnostic, DiagnosticKind, is_identifier_byte};
-use crate::source::{SourceFile, SourceLine, SourceMap, Symbol};
+use crate::engine::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
+use crate::engine::output::{Diagnostic, DiagnosticKind, is_identifier_byte};
+use crate::engine::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
 

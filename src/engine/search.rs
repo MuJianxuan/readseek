@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::lang::{AnalysisEngine, BinaryMode, Language};
-use crate::output::{SearchCapture, SearchFileOutput, SearchMatch};
-use crate::source::{SourceFile, line_hash, load_source, range_hashlines};
-use crate::symbols;
+use crate::engine::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::engine::output::{SearchCapture, SearchFileOutput, SearchMatch};
+use crate::engine::source::{SourceFile, line_hash, load_source, range_hashlines};
+use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 use tree_sitter::{Node, Parser, Tree};

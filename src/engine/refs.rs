@@ -1,13 +1,13 @@
 use crate::cli::RefsCommand;
-use crate::flags::GitFlags;
-use crate::lang::{AnalysisEngine, Language};
-use crate::output::is_identifier_byte;
-use crate::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
-use crate::paths::{command_paths, identifier_spans};
-use crate::source::{
+use crate::engine::flags::GitFlags;
+use crate::engine::lang::{AnalysisEngine, Language};
+use crate::engine::output::is_identifier_byte;
+use crate::engine::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
+use crate::engine::paths::{command_paths, identifier_spans};
+use crate::engine::source::{
     SourceFile, Symbol, find_symbol, read_source_containing, source_from_text, source_map_with_dir,
 };
-use crate::symbols;
+use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
@@ -29,7 +29,7 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
     if command.line.is_some() || command.column.is_some() {
         bail!("--line and --column require --scope");
     }
-    let readseek_dir = crate::repo::find_readseek_dir(&command.target);
+    let readseek_dir = crate::engine::repo::find_readseek_dir(&command.target);
     let paths = command_paths(
         &command.target,
         GitFlags {
@@ -47,7 +47,7 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
             };
             let needs_parser = matches!(
                 source.detection.language,
-                crate::lang::Language::C | crate::lang::Language::Cpp
+                crate::engine::lang::Language::C | crate::engine::lang::Language::Cpp
             );
             let parser = needs_parser.then_some(&mut *parser);
             scan_source(&source, name, parser, readseek_dir.as_deref())
@@ -70,7 +70,7 @@ fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
     let source = source_from_text(&command.target, text, command.language, false, None)?;
     let cursor_byte = source.cursor_byte(line, column)?;
-    let binding = crate::binding::resolve(&source, cursor_byte).with_context(|| {
+    let binding = crate::engine::binding::resolve(&source, cursor_byte).with_context(|| {
         format!(
             "no resolvable binding at {}:{line}:{column}",
             command.target.display()
@@ -89,7 +89,7 @@ fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
     let file_hash: Arc<str> = Arc::from(source.file_hash.as_str());
     let mut references = Vec::with_capacity(binding.occurrences.len());
     for occurrence in &binding.occurrences {
-        if occurrence.kind == crate::binding::OccurrenceKind::Shadowed {
+        if occurrence.kind == crate::engine::binding::OccurrenceKind::Shadowed {
             continue;
         }
         let line_idx = source.line_index(occurrence.start_byte);

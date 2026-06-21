@@ -1,8 +1,8 @@
 use crate::cli::DefCommand;
-use crate::lang::Language;
-use crate::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
-use crate::paths::def_candidate_paths;
-use crate::source::{SourceFile, Symbol, read_source_containing, source_map_with_dir};
+use crate::engine::lang::Language;
+use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
+use crate::engine::paths::def_candidate_paths;
+use crate::engine::source::{SourceFile, Symbol, read_source_containing, source_map_with_dir};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -52,10 +52,10 @@ pub(crate) fn output(command: &DefCommand) -> Result<DefOutput> {
         .next()
         .filter(|part| !part.is_empty())
         .unwrap_or(&name);
-    let readseek_dir = crate::repo::find_readseek_dir(&command.target);
+    let readseek_dir = crate::engine::repo::find_readseek_dir(&command.target);
     let readseek_dir = readseek_dir.as_deref();
     let paths = match readseek_dir {
-        Some(dir) => match crate::repo::load_index(dir, &name)? {
+        Some(dir) => match crate::engine::repo::load_index(dir, &name)? {
             Some(entries) if !entries.is_empty() => {
                 entries.into_iter().map(|entry| entry.path).collect()
             }

@@ -1,9 +1,9 @@
-use crate::lang::{BinaryMode, EngineField, Language};
-use crate::source::{
+use crate::engine::lang::{BinaryMode, EngineField, Language};
+use crate::engine::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
     source_map,
 };
-use crate::target::{Target, TargetAddress};
+use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::io::{self, Read as _};
@@ -150,7 +150,7 @@ pub(crate) struct RefLocation {
     pub(crate) text: String,
     pub(crate) symbol: Option<Symbol>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) occurrence: Option<crate::binding::OccurrenceKind>,
+    pub(crate) occurrence: Option<crate::engine::binding::OccurrenceKind>,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,7 +206,7 @@ pub(crate) struct RenameEdit {
     pub(crate) end_column: usize,
     pub(crate) start_byte: usize,
     pub(crate) end_byte: usize,
-    pub(crate) occurrence: crate::binding::OccurrenceKind,
+    pub(crate) occurrence: crate::engine::binding::OccurrenceKind,
     pub(crate) line_hash: String,
     pub(crate) text: String,
 }
@@ -348,7 +348,7 @@ pub(crate) fn map_output(source: &SourceFile) -> Result<MapOutput> {
 }
 
 pub(crate) fn check_output(source: &SourceFile) -> Result<CheckOutput> {
-    let diagnostics = crate::symbols::parse_diagnostics(source)?;
+    let diagnostics = crate::engine::symbols::parse_diagnostics(source)?;
     let error_count = diagnostics
         .iter()
         .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::Error))
@@ -415,7 +415,7 @@ pub(crate) fn identify_output(
         .line(line)
         .with_context(|| format!("line {line} not found in {}", source.path.display()))?;
     let line_start = source.line_starts[line - 1];
-    let identifier = crate::symbols::token_at(source, cursor_byte)
+    let identifier = crate::engine::symbols::token_at(source, cursor_byte)
         .map(|token| IdentifierOutput {
             text: token.text,
             start_column: token.start_byte - line_start + 1,
@@ -447,7 +447,7 @@ pub(crate) fn is_identifier_byte(byte: u8) -> bool {
 /// Walks ASCII identifier bytes around the cursor on a single line. `line_start`
 /// is the byte offset of the line within the file, used to report absolute bytes.
 fn identify_byte_scan(
-    source_line: &crate::source::SourceLine,
+    source_line: &crate::engine::source::SourceLine,
     line_start: usize,
     column: usize,
 ) -> Option<IdentifierOutput> {

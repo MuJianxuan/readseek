@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::flags::GitFlags;
-use crate::hash::HASHLINE_MODULUS;
-use crate::lang::{AnalysisEngine, Language};
-use crate::source::{SourceFile, SourceMap, Symbol};
-use crate::symbols;
+use crate::engine::flags::GitFlags;
+use crate::engine::hash::HASHLINE_MODULUS;
+use crate::engine::lang::{AnalysisEngine, Language};
+use crate::engine::source::{SourceFile, SourceMap, Symbol};
+use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use crc::CRC_32_ISO_HDLC;
 use rayon::prelude::*;
@@ -31,7 +31,7 @@ const ENGINE_TAG_NONE: u8 = 0xff;
 const CHECKSUM_OFFSET: usize = offset_of!(Header, checksum);
 
 const _: () = assert!(
-    crate::hash::HASHLINE_MODULUS <= 0x10000,
+    crate::engine::hash::HASHLINE_MODULUS <= 0x10000,
     "HASHLINE_MODULUS must fit in a u16 for binary format storage"
 );
 
@@ -495,7 +495,7 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
             .context(".readseek has no parent")?
             .to_path_buf(),
     };
-    let paths = crate::paths::command_paths(&project_root, flags)?;
+    let paths = crate::engine::paths::command_paths(&project_root, flags)?;
 
     let results: Vec<_> = paths
         .par_iter()
@@ -533,7 +533,7 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
 }
 
 fn process_update_path(readseek_dir: &Path, path: &Path) -> Result<Option<UpdatePathResult>> {
-    let Some(source) = crate::source::load_indexable_source(path, None)? else {
+    let Some(source) = crate::engine::source::load_indexable_source(path, None)? else {
         return Ok(None);
     };
     if !source.detection.supported {

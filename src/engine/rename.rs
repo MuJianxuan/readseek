@@ -13,12 +13,12 @@
 //! uses only, local shadows excluded) because readseek has no cross-file symbol
 //! resolver. `--apply` then writes every file all-or-nothing.
 
-use crate::binding::{self, OccurrenceKind};
+use crate::engine::binding::{self, OccurrenceKind};
 use crate::cli::RenameCommand;
-use crate::flags::GitFlags;
-use crate::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
-use crate::paths::{command_paths, identifier_spans};
-use crate::source::{SourceFile, read_source_containing, source_from_text};
+use crate::engine::flags::GitFlags;
+use crate::engine::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
+use crate::engine::paths::{command_paths, identifier_spans};
+use crate::engine::source::{SourceFile, read_source_containing, source_from_text};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
