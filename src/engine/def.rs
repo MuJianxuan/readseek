@@ -1,4 +1,4 @@
-use crate::cli::DefCommand;
+use crate::engine::flags::GitFlags;
 use crate::engine::lang::Language;
 use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
 use crate::engine::paths::def_candidate_paths;
@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::io::{self, Read as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
@@ -27,8 +27,17 @@ struct SymbolInput {
     qualified_name: String,
 }
 
-pub(crate) fn output(command: &DefCommand) -> Result<DefOutput> {
-    let name = match (command.name.as_ref(), command.from_identify) {
+/// Inputs for [`output`]: the symbol to resolve and where to search for it.
+pub(crate) struct Request {
+    pub(crate) target: PathBuf,
+    pub(crate) name: Option<String>,
+    pub(crate) from_identify: bool,
+    pub(crate) language: Option<Language>,
+    pub(crate) flags: GitFlags,
+}
+
+pub(crate) fn output(request: &Request) -> Result<DefOutput> {
+    let name = match (request.name.as_ref(), request.from_identify) {
         (Some(name), _) => Ok::<String, anyhow::Error>(name.clone()),
         (None, false) => bail!("definition requires a name or --from-identify context"),
         (None, true) => {
@@ -52,21 +61,21 @@ pub(crate) fn output(command: &DefCommand) -> Result<DefOutput> {
         .next()
         .filter(|part| !part.is_empty())
         .unwrap_or(&name);
-    let readseek_dir = crate::engine::repo::find_readseek_dir(&command.target);
+    let readseek_dir = crate::engine::repo::find_readseek_dir(&request.target);
     let readseek_dir = readseek_dir.as_deref();
     let paths = match readseek_dir {
         Some(dir) => match crate::engine::repo::load_index(dir, &name)? {
             Some(entries) if !entries.is_empty() => {
                 entries.into_iter().map(|entry| entry.path).collect()
             }
-            _ => def_candidate_paths(command, search_name)?,
+            _ => def_candidate_paths(&request.target, request.flags, search_name)?,
         },
-        None => def_candidate_paths(command, search_name)?,
+        None => def_candidate_paths(&request.target, request.flags, search_name)?,
     };
 
     let results = paths
         .par_iter()
-        .map(|path| locations_in_path(path, &name, search_name, command.language, readseek_dir))
+        .map(|path| locations_in_path(path, &name, search_name, request.language, readseek_dir))
         .collect::<Result<Vec<_>>>()?;
 
     let mut seen = BTreeSet::new();

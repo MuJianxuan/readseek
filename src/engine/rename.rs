@@ -14,37 +14,49 @@
 //! resolver. `--apply` then writes every file all-or-nothing.
 
 use crate::engine::binding::{self, OccurrenceKind};
-use crate::cli::RenameCommand;
 use crate::engine::flags::GitFlags;
+use crate::engine::lang::Language;
 use crate::engine::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
 use crate::engine::source::{SourceFile, read_source_containing, source_from_text};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// Inputs for [`output`]: the cursor location, the new name, and expansion scope.
+pub(crate) struct Request {
+    pub(crate) target: PathBuf,
+    pub(crate) line: usize,
+    pub(crate) column: Option<usize>,
+    pub(crate) to: String,
+    pub(crate) workspace: Option<PathBuf>,
+    pub(crate) apply: bool,
+    pub(crate) language: Option<Language>,
+    pub(crate) flags: GitFlags,
+}
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
-    let line = command.line;
-    let column = command.column.unwrap_or(1);
+pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
+    let line = request.line;
+    let column = request.column.unwrap_or(1);
     if line == 0 || column == 0 {
         bail!("line and column must be greater than zero");
     }
-    if command.to.is_empty() {
+    if request.to.is_empty() {
         bail!("new name must not be empty");
     }
-    if !is_plain_identifier(&command.to) {
+    if !is_plain_identifier(&request.to) {
         bail!("new name must be a plain identifier");
     }
-    if !command.target.is_file() {
+    if !request.target.is_file() {
         bail!("rename requires a single regular file target");
     }
 
     let bytes =
-        fs::read(&command.target).with_context(|| format!("read {}", command.target.display()))?;
+        fs::read(&request.target).with_context(|| format!("read {}", request.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
-    let source = source_from_text(&command.target, text, command.language, false, None)?;
+    let source = source_from_text(&request.target, text, request.language, false, None)?;
 
     if !binding::supported(source.detection.language) {
         // No binding analysis for this language: report a no-op rather than a
@@ -55,7 +67,7 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
             engine: source.detection.engine,
             file_hash: source.file_hash.clone(),
             old_name: String::new(),
-            new_name: command.to.clone(),
+            new_name: request.to.clone(),
             applied: false,
             unsupported: true,
             conflicts: Vec::new(),
@@ -71,9 +83,9 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
     // workspace mode the cursor file falls back to the same name-based plan used
     // for the other files; without a workspace it stays an error as before.
     let (old_name, conflicts, edits) = if let Some((binding, raw_conflicts)) =
-        binding::resolve_with_conflicts(&source, cursor_byte, Some(&command.to))
+        binding::resolve_with_conflicts(&source, cursor_byte, Some(&request.to))
     {
-        if binding.name == command.to {
+        if binding.name == request.to {
             bail!("new name is identical to the current name");
         }
         let conflicts = raw_conflicts
@@ -102,34 +114,34 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
             .collect();
         (binding.name, conflicts, edits)
     } else {
-        if command.workspace.is_none() {
+        if request.workspace.is_none() {
             bail!(
                 "no resolvable binding at {}:{line}:{column}",
-                command.target.display()
+                request.target.display()
             );
         }
         let name = binding::identifier_at(&source, cursor_byte).with_context(|| {
             format!(
                 "no identifier at {}:{line}:{column}",
-                command.target.display()
+                request.target.display()
             )
         })?;
-        if name == command.to {
+        if name == request.to {
             bail!("new name is identical to the current name");
         }
-        let plan = build_other(&source, &name, &command.to).with_context(|| {
+        let plan = build_other(&source, &name, &request.to).with_context(|| {
             format!(
                 "`{name}` has no renamable occurrences in {}",
-                command.target.display()
+                request.target.display()
             )
         })?;
         (name, plan.conflicts, plan.edits)
     };
 
-    let others = workspace_others(command, &old_name)?;
+    let others = workspace_others(request, &old_name)?;
 
-    let applied = if command.apply {
-        apply_all(command, &old_name, &edits, &conflicts, &others)?;
+    let applied = if request.apply {
+        apply_all(request, &old_name, &edits, &conflicts, &others)?;
         true
     } else {
         false
@@ -141,7 +153,7 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
         engine: source.detection.engine,
         file_hash: source.file_hash.clone(),
         old_name,
-        new_name: command.to.clone(),
+        new_name: request.to.clone(),
         applied,
         unsupported: false,
         conflicts,
@@ -155,24 +167,19 @@ pub(crate) fn output(command: &RenameCommand) -> Result<RenameOutput> {
 /// The cursor file is excluded; remaining files are resolved per file via
 /// [`binding::cross_file_matches`] (free uses only) and fall back to a plain
 /// name scan for languages without binding support.
-fn workspace_others(command: &RenameCommand, old_name: &str) -> Result<Vec<RenameFileOutput>> {
-    let Some(workspace) = command.workspace.as_ref() else {
+fn workspace_others(request: &Request, old_name: &str) -> Result<Vec<RenameFileOutput>> {
+    let Some(workspace) = request.workspace.as_ref() else {
         return Ok(Vec::new());
     };
-    let flags = GitFlags {
-        cached: command.cached,
-        others: command.others,
-        ignored: command.ignored,
-    };
-    let paths = command_paths(workspace, flags)?;
-    let origin = command.target.canonicalize().ok();
+    let paths = command_paths(workspace, request.flags)?;
+    let origin = request.target.canonicalize().ok();
 
     let mut others: Vec<RenameFileOutput> = paths
         .par_iter()
-        .filter(|path| !is_origin(path, &command.target, origin.as_deref()))
+        .filter(|path| !is_origin(path, &request.target, origin.as_deref()))
         .filter_map(|path| {
-            let source = read_source_containing(path, old_name, command.language)?;
-            build_other(&source, old_name, &command.to)
+            let source = read_source_containing(path, old_name, request.language)?;
+            build_other(&source, old_name, &request.to)
         })
         .collect();
     others.sort_by(|a, b| a.file.cmp(&b.file));
@@ -269,7 +276,7 @@ fn rename_edit(
 /// was computed aborts the whole rename rather than leaving a partial result.
 /// If a write fails mid-way, already-written files are restored.
 fn apply_all(
-    command: &RenameCommand,
+    request: &Request,
     old_name: &str,
     edits: &[RenameEdit],
     conflicts: &[RenameConflict],
@@ -282,7 +289,7 @@ fn apply_all(
         );
     }
 
-    let mut plans: Vec<(&Path, &[RenameEdit])> = vec![(command.target.as_path(), edits)];
+    let mut plans: Vec<(&Path, &[RenameEdit])> = vec![(request.target.as_path(), edits)];
     for other in others {
         plans.push((other.file.as_path(), &other.edits));
     }
@@ -295,7 +302,7 @@ fn apply_all(
         }
         let current =
             fs::read_to_string(path).with_context(|| format!("re-read {}", path.display()))?;
-        let current = source_from_text(path, current, command.language, false, None)?;
+        let current = source_from_text(path, current, request.language, false, None)?;
         for edit in edits {
             let line = current.line(edit.line).with_context(|| {
                 format!("line {} no longer exists in {}", edit.line, path.display())
@@ -308,7 +315,7 @@ fn apply_all(
                 );
             }
         }
-        let new_text = rewrite(&current.text, edits, old_name, &command.to)?;
+        let new_text = rewrite(&current.text, edits, old_name, &request.to)?;
         writes.push((path, current.text, new_text));
     }
 

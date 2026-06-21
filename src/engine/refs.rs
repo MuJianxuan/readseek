@@ -1,4 +1,3 @@
-use crate::cli::RefsCommand;
 use crate::engine::flags::GitFlags;
 use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::output::is_identifier_byte;
@@ -11,38 +10,42 @@ use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tree_sitter::{Node, Parser};
 
-pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
-    let name = &command.name;
+/// Inputs for [`output`]: the identifier to find and the search scope.
+pub(crate) struct Request {
+    pub(crate) target: PathBuf,
+    pub(crate) name: String,
+    pub(crate) scope: bool,
+    pub(crate) line: Option<usize>,
+    pub(crate) column: Option<usize>,
+    pub(crate) language: Option<Language>,
+    pub(crate) flags: GitFlags,
+}
+
+pub(crate) fn output(request: &Request) -> Result<RefsOutput> {
+    let name = &request.name;
     if name.is_empty() {
         bail!("reference name must not be empty");
     }
     if !name.bytes().all(is_identifier_byte) {
         bail!("reference name must be an ASCII identifier");
     }
-    if command.scope {
-        return scoped_output(command);
+    if request.scope {
+        return scoped_output(request);
     }
-    if command.line.is_some() || command.column.is_some() {
+    if request.line.is_some() || request.column.is_some() {
         bail!("--line and --column require --scope");
     }
-    let readseek_dir = crate::engine::repo::find_readseek_dir(&command.target);
-    let paths = command_paths(
-        &command.target,
-        GitFlags {
-            cached: command.cached,
-            others: command.others,
-            ignored: command.ignored,
-        },
-    )?;
+    let readseek_dir = crate::engine::repo::find_readseek_dir(&request.target);
+    let paths = command_paths(&request.target, request.flags)?;
 
     let references: Vec<RefLocation> = paths
         .par_iter()
         .map_init(Parser::new, |parser, path| {
-            let Some(source) = read_source_containing(path, name, command.language) else {
+            let Some(source) = read_source_containing(path, name, request.language) else {
                 return vec![];
             };
             let needs_parser = matches!(
@@ -59,28 +62,28 @@ pub(crate) fn output(command: &RefsCommand) -> Result<RefsOutput> {
 }
 
 /// Resolve a single binding within one file and classify its occurrences.
-fn scoped_output(command: &RefsCommand) -> Result<RefsOutput> {
-    let line = command.line.context("--scope requires --line")?;
-    let column = command.column.unwrap_or(1);
-    if !command.target.is_file() {
+fn scoped_output(request: &Request) -> Result<RefsOutput> {
+    let line = request.line.context("--scope requires --line")?;
+    let column = request.column.unwrap_or(1);
+    if !request.target.is_file() {
         bail!("--scope requires a single regular file target");
     }
     let bytes =
-        fs::read(&command.target).with_context(|| format!("read {}", command.target.display()))?;
+        fs::read(&request.target).with_context(|| format!("read {}", request.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
-    let source = source_from_text(&command.target, text, command.language, false, None)?;
+    let source = source_from_text(&request.target, text, request.language, false, None)?;
     let cursor_byte = source.cursor_byte(line, column)?;
     let binding = crate::engine::binding::resolve(&source, cursor_byte).with_context(|| {
         format!(
             "no resolvable binding at {}:{line}:{column}",
-            command.target.display()
+            request.target.display()
         )
     })?;
-    if binding.name != command.name {
+    if binding.name != request.name {
         bail!(
             "binding at cursor is `{}`, not `{}`",
             binding.name,
-            command.name
+            request.name
         );
     }
 

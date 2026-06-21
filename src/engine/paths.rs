@@ -1,4 +1,3 @@
-use crate::cli::DefCommand;
 use crate::engine::flags::GitFlags;
 use crate::engine::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
@@ -34,17 +33,16 @@ pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBu
     Ok(paths)
 }
 
-pub(crate) fn def_candidate_paths(command: &DefCommand, search_name: &str) -> Result<Vec<PathBuf>> {
-    let flags = GitFlags {
-        cached: command.cached,
-        others: command.others,
-        ignored: command.ignored,
-    };
-    if let Some(paths) = git_candidate_paths(&command.target, flags, search_name)? {
+pub(crate) fn def_candidate_paths(
+    target: &Path,
+    flags: GitFlags,
+    search_name: &str,
+) -> Result<Vec<PathBuf>> {
+    if let Some(paths) = git_candidate_paths(target, flags, search_name)? {
         return Ok(paths);
     }
 
-    command_paths(&command.target, flags)
+    command_paths(target, flags)
 }
 
 struct GitScope {

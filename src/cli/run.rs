@@ -37,20 +37,60 @@ pub(crate) fn run() -> Result<()> {
         crate::cli::Command::Symbol(command) => run_symbol(&command)?,
         crate::cli::Command::Identify(command) => run_identify(&command)?,
         crate::cli::Command::Def(command) => {
-            let output = def::output(&command)?;
+            let request = def::Request {
+                target: command.target,
+                name: command.name,
+                from_identify: command.from_identify,
+                language: command.language,
+                flags: GitFlags {
+                    cached: command.cached,
+                    others: command.others,
+                    ignored: command.ignored,
+                },
+            };
+            let output = def::output(&request)?;
             match command.format {
                 crate::engine::output::Format::Plain => to_json(&def::compact(&output))?,
                 crate::engine::output::Format::Json => to_json(&output)?,
             }
         }
         crate::cli::Command::Refs(command) => {
-            let output = refs::output(&command)?;
+            let request = refs::Request {
+                target: command.target,
+                name: command.name,
+                scope: command.scope,
+                line: command.line,
+                column: command.column,
+                language: command.language,
+                flags: GitFlags {
+                    cached: command.cached,
+                    others: command.others,
+                    ignored: command.ignored,
+                },
+            };
+            let output = refs::output(&request)?;
             match command.format {
                 crate::engine::output::Format::Plain => to_json(&refs::compact(&output))?,
                 crate::engine::output::Format::Json => to_json(&output)?,
             }
         }
-        crate::cli::Command::Rename(command) => to_json(&rename::output(&command)?)?,
+        crate::cli::Command::Rename(command) => {
+            let request = rename::Request {
+                target: command.target,
+                line: command.line,
+                column: command.column,
+                to: command.to,
+                workspace: command.workspace,
+                apply: command.apply,
+                language: command.language,
+                flags: GitFlags {
+                    cached: command.cached,
+                    others: command.others,
+                    ignored: command.ignored,
+                },
+            };
+            to_json(&rename::output(&request)?)?
+        }
         crate::cli::Command::Search(command) => run_search(&command)?,
         crate::cli::Command::Init(command) => {
             run_init(&command)?;
