@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "readseek"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "arborium-meson",
