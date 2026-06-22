@@ -79,9 +79,9 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     let cursor_byte = source.cursor_byte(line, column)?;
 
     // The cursor file is binding-accurate when its symbol resolves to a local
-    // declaration. Top-level symbols (functions, types) do not resolve, so in
-    // workspace mode the cursor file falls back to the same name-based plan used
-    // for the other files; without a workspace it stays an error as before.
+    // declaration. Symbols without a lexical binding (macros, top-level functions
+    // and types) fall back to the same name-based plan used for the other files,
+    // so they rename in a single file as well as across a workspace.
     let (old_name, conflicts, edits) = if let Some((binding, raw_conflicts)) =
         binding::resolve_with_conflicts(&source, cursor_byte, Some(&request.to))
     {
@@ -114,12 +114,6 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
             .collect();
         (binding.name, conflicts, edits)
     } else {
-        if request.workspace.is_none() {
-            bail!(
-                "no resolvable binding at {}:{line}:{column}",
-                request.target.display()
-            );
-        }
         let name = binding::identifier_at(&source, cursor_byte).with_context(|| {
             format!(
                 "no identifier at {}:{line}:{column}",
