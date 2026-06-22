@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
 use crate::engine::output::{Diagnostic, DiagnosticKind, is_identifier_byte};
 use crate::engine::source::{SourceFile, SourceLine, SourceMap, Symbol};
@@ -707,6 +708,6 @@ fn descendant_identifier(node: Node<'_>, source: &str) -> Option<String> {
     None
 }
 
-fn line_hash(lines: &[SourceLine], line: usize) -> Option<String> {
+fn line_hash(lines: &[SourceLine], line: usize) -> Option<LineHash> {
     lines.get(line.checked_sub(1)?).map(SourceLine::hash)
 }

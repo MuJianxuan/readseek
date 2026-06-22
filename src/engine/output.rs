@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use crate::engine::hash::LineHash;
 use crate::engine::lang::{BinaryMode, EngineField, Language};
 use crate::engine::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
@@ -103,7 +104,7 @@ pub(crate) struct IdentifyOutput {
     header: SourceHeader,
     line: usize,
     column: usize,
-    line_hash: String,
+    line_hash: LineHash,
     hashlines: Vec<HashLine>,
     identifier: Option<IdentifierOutput>,
     symbol: Option<Symbol>,
@@ -131,7 +132,7 @@ pub(crate) struct DefLocation {
     pub(crate) file_hash: String,
     pub(crate) symbol: Symbol,
     #[serde(skip_serializing)]
-    pub(crate) line_hash: String,
+    pub(crate) line_hash: LineHash,
     #[serde(skip_serializing)]
     pub(crate) text: String,
 }
@@ -149,7 +150,7 @@ pub(crate) struct RefLocation {
     pub(crate) file_hash: Arc<str>,
     pub(crate) line: usize,
     pub(crate) column: usize,
-    pub(crate) line_hash: String,
+    pub(crate) line_hash: LineHash,
     pub(crate) text: String,
     pub(crate) symbol: Option<Symbol>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,7 +167,7 @@ pub(crate) struct CompactLocation {
     pub(crate) file: Arc<PathBuf>,
     pub(crate) line: usize,
     pub(crate) column: usize,
-    pub(crate) line_hash: String,
+    pub(crate) line_hash: LineHash,
     pub(crate) text: String,
     pub(crate) kind: Option<String>,
     pub(crate) name: Option<String>,
@@ -210,7 +211,7 @@ pub(crate) struct RenameEdit {
     pub(crate) start_byte: usize,
     pub(crate) end_byte: usize,
     pub(crate) occurrence: crate::engine::binding::OccurrenceKind,
-    pub(crate) line_hash: String,
+    pub(crate) line_hash: LineHash,
     pub(crate) text: String,
 }
 
@@ -239,8 +240,8 @@ pub(crate) struct SearchFileOutput {
 pub(crate) struct SearchMatch {
     pub(crate) start_line: usize,
     pub(crate) end_line: usize,
-    pub(crate) start_hash: String,
-    pub(crate) end_hash: String,
+    pub(crate) start_hash: LineHash,
+    pub(crate) end_hash: LineHash,
     pub(crate) hashlines: Vec<HashLine>,
     pub(crate) captures: Vec<SearchCapture>,
 }
@@ -250,20 +251,25 @@ pub(crate) struct SearchCapture {
     pub(crate) name: String,
     pub(crate) start_line: usize,
     pub(crate) end_line: usize,
-    pub(crate) start_hash: String,
-    pub(crate) end_hash: String,
+    pub(crate) start_hash: LineHash,
+    pub(crate) end_hash: LineHash,
     pub(crate) hashlines: Vec<HashLine>,
 }
 
 pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Option<usize>> {
     match target.address.as_ref() {
         Some(TargetAddress::Line(line)) => Ok(Some(*line)),
-        Some(TargetAddress::Hash(hash)) => source
-            .lines
-            .iter()
-            .find_map(|line| (line.hash() == *hash).then_some(line.number))
-            .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
-            .map(Some),
+        Some(TargetAddress::Hash(hash)) => {
+            let target = hash
+                .parse::<LineHash>()
+                .with_context(|| format!("invalid target hash {hash}"))?;
+            source
+                .lines
+                .iter()
+                .find_map(|line| (line.hash() == target).then_some(line.number))
+                .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
+                .map(Some)
+        }
         None => Ok(None),
     }
 }
@@ -375,7 +381,10 @@ pub(crate) enum SymbolAddress<'a> {
     Line(usize),
 }
 
-pub(crate) fn symbol_output(source: &SourceFile, address: SymbolAddress<'_>) -> Result<SymbolOutput> {
+pub(crate) fn symbol_output(
+    source: &SourceFile,
+    address: SymbolAddress<'_>,
+) -> Result<SymbolOutput> {
     let source_map = source_map(source)?;
     let symbol = match address {
         SymbolAddress::Name(address) => {

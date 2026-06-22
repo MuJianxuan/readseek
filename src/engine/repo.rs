@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::flags::GitFlags;
-use crate::engine::hash::HASHLINE_MODULUS;
+use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::source::{SourceFile, SourceMap, Symbol};
 use crate::engine::symbols;
@@ -328,8 +328,8 @@ fn parse_sym_entry(
         qualified_name: qualified_name.to_owned(),
         start_line: entry.start_line.get() as usize,
         end_line: entry.end_line.get() as usize,
-        start_hash: format!("{:03x}", entry.start_hash.get()),
-        end_hash: format!("{:03x}", entry.end_hash.get()),
+        start_hash: LineHash::new(entry.start_hash.get())?,
+        end_hash: LineHash::new(entry.end_hash.get())?,
         start_byte: entry.start_byte.get() as usize,
         end_byte: entry.end_byte.get() as usize,
         name_byte: entry.name_byte.get() as usize,
@@ -382,25 +382,6 @@ pub(crate) fn store_map(
         let qname_off = u32::try_from(strtab.len())?;
         strtab.extend_from_slice(symbol.qualified_name.as_bytes());
 
-        let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
-            .with_context(|| format!("invalid start hash for symbol `{}`", symbol.name))?;
-        if u32::from(start_hash) >= HASHLINE_MODULUS {
-            bail!(
-                "hashline {:#x} out of range for symbol `{}`",
-                start_hash,
-                symbol.name
-            );
-        }
-        let end_hash = u16::from_str_radix(&symbol.end_hash, 16)
-            .with_context(|| format!("invalid end hash for symbol `{}`", symbol.name))?;
-        if u32::from(end_hash) >= HASHLINE_MODULUS {
-            bail!(
-                "hashline {:#x} out of range for symbol `{}`",
-                end_hash,
-                symbol.name
-            );
-        }
-
         entries.push(SymEntry {
             kind_off: U32::new(kind_off),
             name_off: U32::new(name_off),
@@ -412,8 +393,8 @@ pub(crate) fn store_map(
             name_byte: U32::new(u32::try_from(symbol.name_byte)?),
             kind_len: U16::new(kind_len),
             name_len: U16::new(name_len),
-            start_hash: U16::new(start_hash),
-            end_hash: U16::new(end_hash),
+            start_hash: U16::new(symbol.start_hash.as_u16()),
+            end_hash: U16::new(symbol.end_hash.as_u16()),
             _reserved: [0u8; 2],
         });
     }

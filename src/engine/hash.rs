@@ -1,20 +1,68 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use std::fmt;
+use std::str::FromStr;
+
+use anyhow::{Context, Result, bail};
+use serde::{Serialize, Serializer};
+
 pub(crate) const HASHLINE_MODULUS: u32 = 0x1000;
+
+/// A locality-preserving line hash: a value in `[0, HASHLINE_MODULUS)` rendered
+/// as a three-digit hex string.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LineHash(u16);
+
+impl LineHash {
+    /// Wrap a raw value, rejecting anything at or above [`HASHLINE_MODULUS`].
+    pub(crate) fn new(value: u16) -> Result<Self> {
+        if u32::from(value) >= HASHLINE_MODULUS {
+            bail!("line hash {value:#x} is out of range");
+        }
+        Ok(Self(value))
+    }
+
+    /// The raw value, always in `[0, HASHLINE_MODULUS)`.
+    pub(crate) fn as_u16(self) -> u16 {
+        self.0
+    }
+}
+
+impl fmt::Display for LineHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:03x}", self.0)
+    }
+}
+
+impl FromStr for LineHash {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let raw = u16::from_str_radix(value, 16)
+            .with_context(|| format!("invalid line hash `{value}`"))?;
+        Self::new(raw)
+    }
+}
+
+impl Serialize for LineHash {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
 
 /// Compute a stable locality-preserving hash for a source line.
 ///
 /// The line text is whitespace-normalized before hashing so that minor
-/// whitespace changes do not invalidate the hash.  The result is a 3-digit
-/// hex string in `[000, fff]`.
-pub(crate) fn hash_line(_line: usize, text: &str) -> String {
+/// whitespace changes do not invalidate the hash.
+pub(crate) fn hash_line(_line: usize, text: &str) -> LineHash {
     let text = text.strip_suffix('\r').unwrap_or(text);
     let mut hasher = xxhash_rust::xxh32::Xxh32::new(0);
     for token in text.split_whitespace() {
         hasher.update(token.as_bytes());
     }
-    format!("{:03x}", hasher.digest() % HASHLINE_MODULUS)
+    let digest = hasher.digest() % HASHLINE_MODULUS;
+    LineHash(u16::try_from(digest).unwrap_or_default())
 }
 
 /// Compute a BLAKE3 content hash for the full source text.

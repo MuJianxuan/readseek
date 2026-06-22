@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::engine::hash::{hash_line, hash_text};
+use crate::engine::hash::{LineHash, hash_line, hash_text};
 use crate::engine::lang::{
     BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text,
@@ -27,7 +27,7 @@ pub(crate) struct Detection {
 #[derive(Debug, Serialize)]
 pub(crate) struct HashLine {
     pub(crate) line: usize,
-    pub(crate) hash: String,
+    pub(crate) hash: LineHash,
     pub(crate) text: String,
 }
 
@@ -38,8 +38,8 @@ pub(crate) struct Symbol {
     pub(crate) qualified_name: String,
     pub(crate) start_line: usize,
     pub(crate) end_line: usize,
-    pub(crate) start_hash: String,
-    pub(crate) end_hash: String,
+    pub(crate) start_hash: LineHash,
+    pub(crate) end_hash: LineHash,
     pub(crate) start_byte: usize,
     pub(crate) end_byte: usize,
     pub(crate) name_byte: usize,
@@ -104,7 +104,7 @@ pub(crate) struct SourceLine {
 }
 
 impl SourceLine {
-    pub(crate) fn hash(&self) -> String {
+    pub(crate) fn hash(&self) -> LineHash {
         hash_line(self.number, &self.text)
     }
 }
@@ -302,7 +302,7 @@ pub(crate) fn find_symbol(source_map: &SourceMap, line: usize) -> Option<Symbol>
         .map(|i| symbols[i].clone())
 }
 
-pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<String> {
+pub(crate) fn line_hash(source: &SourceFile, line: usize) -> Result<LineHash> {
     source
         .line(line)
         .map(SourceLine::hash)

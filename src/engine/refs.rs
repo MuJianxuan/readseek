@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::flags::GitFlags;
+use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::output::is_identifier_byte;
 use crate::engine::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
@@ -131,7 +132,7 @@ pub(crate) fn compact(output: &RefsOutput) -> CompactOutput {
                     file: reference.file.clone(),
                     line: reference.line,
                     column: reference.column,
-                    line_hash: reference.line_hash.clone(),
+                    line_hash: reference.line_hash,
                     text: reference.text.clone(),
                     kind: symbol.map(|symbol| symbol.kind.clone()),
                     name: symbol.map(|symbol| symbol.name.clone()),
@@ -183,7 +184,7 @@ fn scan_source(
 
     let mut references = Vec::with_capacity(compact.len());
     let mut last_line = 0;
-    let mut cached_line_hash = String::new();
+    let mut cached_line_hash = LineHash::default();
     let mut cached_text = String::new();
     let mut cached_symbol: Option<Symbol> = None;
 
@@ -205,7 +206,7 @@ fn scan_source(
             file_hash: Arc::clone(&file_hash),
             line: line_number,
             column,
-            line_hash: cached_line_hash.clone(),
+            line_hash: cached_line_hash,
             text: cached_text.clone(),
             symbol: cached_symbol.clone(),
             occurrence: None,
