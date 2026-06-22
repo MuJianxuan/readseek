@@ -219,7 +219,7 @@ fn scan_ignored_ranges(source: &SourceFile, parser: &mut Parser) -> Vec<(usize, 
     if !matches!(source.detection.language, Language::C | Language::Cpp) {
         return Vec::new();
     }
-    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Vec::new();
     }
     let Some(language) = symbols::tree_sitter_language(source.detection.language) else {

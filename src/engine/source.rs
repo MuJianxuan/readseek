@@ -3,9 +3,9 @@
 
 use crate::engine::hash::{LineHash, hash_line, hash_text};
 use crate::engine::lang::{
-    BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
-    extract_plain_text, language_spec, normalize_source_text,
-};
+    AnalysisEngine, BinaryMode, DocumentKind, Language, detect_by_path, detect_language,
+    extract_plain_text, language_spec, normalize_source_text, serialize_engine,
+    };
 use crate::engine::paths::bytes_contain_identifier;
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Detection {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) supported: bool,
     pub(crate) binary: bool,
     pub(crate) mime: Option<String>,
@@ -188,7 +189,7 @@ pub(crate) fn source_from_text(
         detect_language(path, &text)?
     };
     let language = language.unwrap_or(detected_language);
-    let engine = EngineField(language_spec(language).and_then(|spec| spec.engine));
+    let engine = language_spec(language).and_then(|spec| spec.engine);
     let kind = if language == Language::Unknown {
         DocumentKind::Text
     } else {

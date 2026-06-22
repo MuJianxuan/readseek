@@ -15,7 +15,7 @@ pub(crate) fn parse_source_map(source: &SourceFile) -> Result<SourceMap> {
         return Ok(SourceMap { symbols });
     }
 
-    match source.detection.engine.0 {
+    match source.detection.engine {
         Some(AnalysisEngine::TreeSitter) => parse_tree_sitter_source_map(source),
         _ => Ok(SourceMap { symbols }),
     }
@@ -60,7 +60,7 @@ pub(crate) fn parse_diagnostics(source: &SourceFile) -> Result<Vec<Diagnostic>> 
     if source.kind != DocumentKind::Source {
         return Ok(Vec::new());
     }
-    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Ok(Vec::new());
     }
     let Some(language) = tree_sitter_language(source.detection.language) else {
@@ -273,7 +273,7 @@ pub(crate) struct Token {
 /// Returns `None` when the language has no parser, the parse fails, or the
 /// covering leaf is not an identifier. Callers fall back to a byte scan.
 pub(crate) fn token_at(source: &SourceFile, byte: usize) -> Option<Token> {
-    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return None;
     }
     let language = tree_sitter_language(source.detection.language)?;

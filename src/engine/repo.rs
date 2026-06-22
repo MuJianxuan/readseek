@@ -359,7 +359,7 @@ pub(crate) fn store_map(
     source_map: &SourceMap,
 ) -> Result<()> {
     let language = source.detection.language;
-    let engine_tag = source.detection.engine.0.map_or(ENGINE_TAG_NONE, u8::from);
+    let engine_tag = source.detection.engine.map_or(ENGINE_TAG_NONE, u8::from);
 
     let raw_hash = hex_hash_to_raw(file_hash)?;
     let sym_count = u32::try_from(source_map.symbols.len())

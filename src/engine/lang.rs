@@ -92,16 +92,14 @@ impl From<AnalysisEngine> for u8 {
         engine as u8
     }
 }
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct EngineField(pub(crate) Option<AnalysisEngine>);
-
-impl Serialize for EngineField {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.0 {
-            Some(e) => e.serialize(serializer),
-            None => serializer.serialize_str("none"),
-        }
+#[allow(clippy::ref_option, clippy::trivially_copy_pass_by_ref)]
+pub(crate) fn serialize_engine<S: Serializer>(
+    engine: &Option<AnalysisEngine>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match engine {
+        Some(e) => e.serialize(serializer),
+        None => serializer.serialize_str("none"),
     }
 }
 

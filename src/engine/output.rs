@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::hash::LineHash;
-use crate::engine::lang::{BinaryMode, EngineField, Language};
+use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
 use crate::engine::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
     source_map,
@@ -34,7 +34,8 @@ impl argh::FromArgValue for Format {
 pub(crate) struct SourceHeader {
     file: PathBuf,
     language: Language,
-    engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
 }
@@ -128,7 +129,8 @@ pub(crate) struct DefOutput {
 pub(crate) struct DefLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) symbol: Symbol,
     #[serde(skip_serializing)]
@@ -146,7 +148,8 @@ pub(crate) struct RefsOutput {
 pub(crate) struct RefLocation {
     pub(crate) file: Arc<PathBuf>,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: Arc<str>,
     pub(crate) line: usize,
     pub(crate) column: usize,
@@ -178,7 +181,8 @@ pub(crate) struct CompactLocation {
 pub(crate) struct RenameOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) old_name: String,
     pub(crate) new_name: String,
@@ -197,7 +201,8 @@ pub(crate) struct RenameOutput {
 pub(crate) struct RenameFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) conflicts: Vec<RenameConflict>,
     pub(crate) edits: Vec<RenameEdit>,
@@ -231,7 +236,8 @@ pub(crate) struct SearchOutput {
 pub(crate) struct SearchFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    pub(crate) engine: EngineField,
+    #[serde(serialize_with = "serialize_engine")]
+    pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) matches: Vec<SearchMatch>,
 }

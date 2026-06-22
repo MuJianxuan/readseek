@@ -47,7 +47,7 @@ pub(crate) fn search_file(
         return Ok(None);
     };
     let detected_language = source.detection.language;
-    if source.detection.engine.0 != Some(AnalysisEngine::TreeSitter) {
+    if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Ok(None);
     }
     let Some(language) = symbols::tree_sitter_language(detected_language) else {
