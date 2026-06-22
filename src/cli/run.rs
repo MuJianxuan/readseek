@@ -160,8 +160,12 @@ fn run_check(command: &cli::CheckCommand) -> Result<String> {
 fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
     let (target, source) = load_source(command, BinaryMode::Reject)?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
-    let address = command.name.as_deref();
-    let output = output::symbol_output(&source, address, target_line)?;
+    let address = match (command.name.as_deref(), target_line) {
+        (Some(name), _) => output::SymbolAddress::Name(name),
+        (None, Some(line)) => output::SymbolAddress::Line(line),
+        (None, None) => anyhow::bail!("symbol requires qualified name or target line/hash"),
+    };
+    let output = output::symbol_output(&source, address)?;
     to_json(&output)
 }
 

@@ -366,39 +366,39 @@ pub(crate) fn check_output(source: &SourceFile) -> Result<CheckOutput> {
     })
 }
 
-pub(crate) fn symbol_output(
-    source: &SourceFile,
-    address: Option<&str>,
-    target_line: Option<usize>,
-) -> Result<SymbolOutput> {
-    if let Some(address) = address {
-        let source_map = source_map(source)?;
-        let mut matches = source_map
-            .symbols
-            .iter()
-            .filter(|symbol| symbol.qualified_name == address || symbol.name == address);
+/// How [`symbol_output`] locates the symbol to report.
+#[derive(Clone, Copy)]
+pub(crate) enum SymbolAddress<'a> {
+    /// A qualified or unqualified symbol name.
+    Name(&'a str),
+    /// A one-based line the symbol must enclose.
+    Line(usize),
+}
 
-        let symbol = matches
-            .next()
-            .with_context(|| format!("no symbol `{address}`"))?;
-
-        if matches.next().is_some() {
-            bail!("ambiguous symbol `{address}`");
-        }
-
-        let symbol = symbol.clone();
-
-        return Ok(SymbolOutput {
-            header: source.into(),
-            hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
-            symbol,
-        });
-    }
-
-    let line = target_line.context("symbol requires qualified name or target line/hash")?;
+pub(crate) fn symbol_output(source: &SourceFile, address: SymbolAddress<'_>) -> Result<SymbolOutput> {
     let source_map = source_map(source)?;
-    let symbol =
-        find_symbol(&source_map, line).with_context(|| format!("no symbol at line {line}"))?;
+    let symbol = match address {
+        SymbolAddress::Name(address) => {
+            let mut matches = source_map
+                .symbols
+                .iter()
+                .filter(|symbol| symbol.qualified_name == address || symbol.name == address);
+
+            let symbol = matches
+                .next()
+                .with_context(|| format!("no symbol `{address}`"))?;
+
+            if matches.next().is_some() {
+                bail!("ambiguous symbol `{address}`");
+            }
+
+            symbol.clone()
+        }
+        SymbolAddress::Line(line) => {
+            find_symbol(&source_map, line).with_context(|| format!("no symbol at line {line}"))?
+        }
+    };
+
     Ok(SymbolOutput {
         header: source.into(),
         hashlines: range_hashlines(source, symbol.start_line, symbol.end_line),
