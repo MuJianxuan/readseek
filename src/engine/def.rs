@@ -30,20 +30,26 @@ struct SymbolInput {
     qualified_name: String,
 }
 
+/// How [`output`] obtains the symbol name to resolve.
+pub(crate) enum NameSource {
+    /// A name supplied directly on the command line.
+    Literal(String),
+    /// The name read from `identify` output on stdin.
+    FromIdentify,
+}
+
 /// Inputs for [`output`]: the symbol to resolve and where to search for it.
 pub(crate) struct Request {
     pub(crate) target: PathBuf,
-    pub(crate) name: Option<String>,
-    pub(crate) from_identify: bool,
+    pub(crate) name: NameSource,
     pub(crate) language: Option<Language>,
     pub(crate) flags: GitFlags,
 }
 
 pub(crate) fn output(request: &Request) -> Result<DefOutput> {
-    let name = match (request.name.as_ref(), request.from_identify) {
-        (Some(name), _) => Ok::<String, anyhow::Error>(name.clone()),
-        (None, false) => bail!("definition requires a name or --from-identify context"),
-        (None, true) => {
+    let name = match &request.name {
+        NameSource::Literal(name) => name.clone(),
+        NameSource::FromIdentify => {
             let mut text = String::new();
             io::stdin()
                 .read_to_string(&mut text)
@@ -51,14 +57,14 @@ pub(crate) fn output(request: &Request) -> Result<DefOutput> {
             let input: IdentifyInput =
                 serde_json::from_str(&text).context("parse identify context")?;
             if let Some(identifier) = input.identifier {
-                Ok(identifier.text)
+                identifier.text
             } else if let Some(symbol) = input.symbol {
-                Ok(symbol.qualified_name)
+                symbol.qualified_name
             } else {
                 bail!("identify context has no symbol or identifier")
             }
         }
-    }?;
+    };
     let search_name = name
         .rsplit('.')
         .next()

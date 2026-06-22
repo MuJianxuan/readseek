@@ -42,10 +42,16 @@ pub(crate) fn run() -> Result<()> {
         crate::cli::Command::Identify(command) => run_identify(&command)?,
         crate::cli::Command::Def(command) => {
             let flags = command.git_flags();
+            let name = match (command.name, command.from_identify) {
+                (Some(name), _) => def::NameSource::Literal(name),
+                (None, true) => def::NameSource::FromIdentify,
+                (None, false) => {
+                    anyhow::bail!("definition requires a name or --from-identify context")
+                }
+            };
             let request = def::Request {
                 target: command.target,
-                name: command.name,
-                from_identify: command.from_identify,
+                name,
                 language: command.language,
                 flags,
             };
