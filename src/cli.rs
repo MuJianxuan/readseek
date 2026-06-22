@@ -201,7 +201,11 @@ pub(crate) struct DefCommand {
     pub(crate) from_identify: bool,
 
     /// output format
-    #[argh(option, long = "format", default = "crate::engine::output::Format::Json")]
+    #[argh(
+        option,
+        long = "format",
+        default = "crate::engine::output::Format::Json"
+    )]
     pub(crate) format: crate::engine::output::Format,
 
     /// language override
@@ -236,7 +240,11 @@ pub(crate) struct RefsCommand {
     pub(crate) name: String,
 
     /// output format
-    #[argh(option, long = "format", default = "crate::engine::output::Format::Json")]
+    #[argh(
+        option,
+        long = "format",
+        default = "crate::engine::output::Format::Json"
+    )]
     pub(crate) format: crate::engine::output::Format,
 
     /// restrict results to the binding under --line/--column (single file)

@@ -327,11 +327,12 @@ fn resolve_node(
     let mut left_innermost_scope = false;
     while let Some(current) = scope {
         let is_scope = current.parent().is_none() || table.scope_kinds.contains(&current.kind());
-        let hidden_class = left_innermost_scope && table.class_scope_kinds.contains(&current.kind());
+        let hidden_class =
+            left_innermost_scope && table.class_scope_kinds.contains(&current.kind());
         if !hidden_class {
-            let scoped = declarations
-                .iter()
-                .filter(|declaration| declaration.name == name && declaration.scope == current.id());
+            let scoped = declarations.iter().filter(|declaration| {
+                declaration.name == name && declaration.scope == current.id()
+            });
             let resolved = match table.resolution {
                 Resolution::Lexical => scoped
                     .filter(|declaration| declaration.ident.start_byte() <= use_start)
@@ -741,8 +742,12 @@ fn python_in_param_default(node: Node<'_>) -> bool {
                     .child_by_field_name("value")
                     .is_some_and(|value| value.start_byte() <= start && start < value.end_byte());
             }
-            "function_definition" | "lambda" | "list_comprehension" | "set_comprehension"
-            | "dictionary_comprehension" | "generator_expression" => return false,
+            "function_definition"
+            | "lambda"
+            | "list_comprehension"
+            | "set_comprehension"
+            | "dictionary_comprehension"
+            | "generator_expression" => return false,
             _ => {}
         }
         current = parent.parent();
@@ -773,8 +778,12 @@ fn python_in_leading_iterable(node: Node<'_>) -> bool {
                     .find(|child| child.kind() == "for_in_clause")
                     .is_some_and(|first| first.id() == parent.id());
             }
-            "function_definition" | "lambda" | "list_comprehension" | "set_comprehension"
-            | "dictionary_comprehension" | "generator_expression" => return false,
+            "function_definition"
+            | "lambda"
+            | "list_comprehension"
+            | "set_comprehension"
+            | "dictionary_comprehension"
+            | "generator_expression" => return false,
             _ => {}
         }
         current = parent.parent();
@@ -808,8 +817,12 @@ fn python_param_ident<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) {
 fn python_target_idents<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) {
     match node.kind() {
         "identifier" => out.push(node),
-        "pattern_list" | "tuple_pattern" | "list_pattern" | "as_pattern_target"
-        | "list_splat_pattern" | "dictionary_splat_pattern" => {
+        "pattern_list"
+        | "tuple_pattern"
+        | "list_pattern"
+        | "as_pattern_target"
+        | "list_splat_pattern"
+        | "dictionary_splat_pattern" => {
             let mut cursor = node.walk();
             for child in node.named_children(&mut cursor) {
                 python_target_idents(child, out);
