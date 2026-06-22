@@ -7,7 +7,6 @@ use serde::Serialize;
 use std::path::Path;
 use tree_sitter::Parser;
 
-
 use crate::cli;
 use crate::cli::GitSelection;
 use crate::engine::flags::GitFlags;
@@ -123,12 +122,22 @@ fn load_source(
 }
 
 fn run_detect(command: &cli::DetectCommand) -> Result<String> {
-    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
+    let (_, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Reject,
+    )?;
     to_json(&source.detection)
 }
 
 fn run_read(command: &cli::ReadCommand) -> Result<String> {
-    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Lossy)?;
+    let (target, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Lossy,
+    )?;
     let target_line = output::resolve_target(&source, &target)?;
     let start = match (command.start, target_line) {
         (Some(start), Some(line)) if start != line => {
@@ -160,17 +169,32 @@ fn run_read(command: &cli::ReadCommand) -> Result<String> {
 }
 
 fn run_map(command: &cli::MapCommand) -> Result<String> {
-    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
+    let (_, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Reject,
+    )?;
     to_json(&output::map_output(&source)?)
 }
 
 fn run_check(command: &cli::CheckCommand) -> Result<String> {
-    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
+    let (_, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Reject,
+    )?;
     to_json(&output::check_output(&source)?)
 }
 
 fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
-    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
+    let (target, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Reject,
+    )?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let address = match (command.name.as_deref(), target_line) {
         (Some(name), _) => output::SymbolAddress::Name(name),
@@ -182,7 +206,12 @@ fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
 }
 
 fn run_identify(command: &cli::IdentifyCommand) -> Result<String> {
-    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
+    let (target, source) = load_source(
+        command.target.as_deref(),
+        command.stdin.as_deref(),
+        command.language,
+        BinaryMode::Reject,
+    )?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let output = output::identify_output(&source, target_line, command.column)?;
     to_json(&output)

@@ -5,7 +5,7 @@ use crate::engine::hash::{LineHash, hash_line, hash_text};
 use crate::engine::lang::{
     AnalysisEngine, BinaryMode, DocumentKind, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text, serialize_engine,
-    };
+};
 use crate::engine::paths::bytes_contain_identifier;
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};

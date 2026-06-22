@@ -456,7 +456,6 @@ pub(crate) fn identify_output(
     })
 }
 
-
 /// Fallback identifier extraction for languages without a tree-sitter parser.
 ///
 /// Walks ASCII identifier bytes around the cursor on a single line. `line_start`
@@ -471,7 +470,10 @@ fn identify_byte_scan(
         return None;
     }
     let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
-    if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') && index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
+    if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+        && index > 0
+        && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_')
+    {
         index -= 1;
     }
     if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') {

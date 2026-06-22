@@ -382,7 +382,6 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
         .ok_or_else(|| format!("unknown language `{value}`"))
 }
 
-
 pub(crate) fn parse_target(value: &str) -> Result<Target> {
     if value.is_empty() {
         bail!("target must not be empty");
@@ -421,7 +420,6 @@ pub(crate) fn parse_target(value: &str) -> Result<Target> {
 fn is_line_hash(value: &str) -> bool {
     value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
-
 
 pub(crate) trait GitSelection {
     fn git_flags(&self) -> GitFlags;

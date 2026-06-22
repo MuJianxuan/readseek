@@ -253,7 +253,9 @@ fn name_byte_in(node: Node<'_>, source: &str, name: &str) -> usize {
     for offset in memchr::memmem::find_iter(bytes, needle) {
         let before = offset.checked_sub(1).map(|i| bytes[i]);
         let after = bytes.get(offset + needle.len()).copied();
-        if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') || after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            || after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
             continue;
         }
         return start + offset;
@@ -557,7 +559,8 @@ fn contains_word(text: &str, word: &str) -> bool {
     memchr::memmem::find_iter(bytes, needle).any(|offset| {
         let before = offset.checked_sub(1).map(|i| bytes[i]);
         let after = bytes.get(offset + needle.len()).copied();
-        !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+        !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
     })
 }
 
