@@ -105,7 +105,7 @@ pub(crate) struct SourceLine {
 
 impl SourceLine {
     pub(crate) fn hash(&self) -> LineHash {
-        hash_line(self.number, &self.text)
+        hash_line(&self.text)
     }
 }
 

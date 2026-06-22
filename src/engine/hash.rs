@@ -55,7 +55,7 @@ impl Serialize for LineHash {
 ///
 /// The line text is whitespace-normalized before hashing so that minor
 /// whitespace changes do not invalidate the hash.
-pub(crate) fn hash_line(_line: usize, text: &str) -> LineHash {
+pub(crate) fn hash_line(text: &str) -> LineHash {
     let text = text.strip_suffix('\r').unwrap_or(text);
     let mut hasher = xxhash_rust::xxh32::Xxh32::new(0);
     for token in text.split_whitespace() {
