@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
@@ -11,7 +11,7 @@ use tree_sitter::Parser;
 use crate::cli;
 use crate::cli::GitSelection;
 use crate::engine::flags::GitFlags;
-use crate::engine::lang::BinaryMode;
+use crate::engine::lang::{BinaryMode, Language};
 use crate::engine::output::SearchOutput;
 use crate::engine::paths::command_paths;
 use crate::engine::source::SourceFile;
@@ -101,21 +101,34 @@ pub(crate) fn run() -> Result<()> {
     write_output(&json, output_path.as_deref())
 }
 
-fn load_source(command: &impl cli::Input, binary_mode: BinaryMode) -> Result<(Target, SourceFile)> {
-    let input = command.input();
-    let target = input.to_target()?;
-    let source =
-        output::load_source_for_input(&target.path, input.stdin, input.language, binary_mode)?;
+fn load_source(
+    target_str: Option<&str>,
+    stdin: Option<&Path>,
+    language: Option<Language>,
+    binary_mode: BinaryMode,
+) -> Result<(Target, SourceFile)> {
+    let target = if let Some(path) = stdin {
+        if target_str.is_some() {
+            bail!("target cannot be combined with --stdin");
+        }
+        Target {
+            path: path.to_path_buf(),
+            address: None,
+        }
+    } else {
+        crate::cli::parse_target(target_str.context("target required")?)?
+    };
+    let source = output::load_source_for_input(&target.path, stdin, language, binary_mode)?;
     Ok((target, source))
 }
 
 fn run_detect(command: &cli::DetectCommand) -> Result<String> {
-    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
     to_json(&source.detection)
 }
 
 fn run_read(command: &cli::ReadCommand) -> Result<String> {
-    let (target, source) = load_source(command, BinaryMode::Lossy)?;
+    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Lossy)?;
     let target_line = output::resolve_target(&source, &target)?;
     let start = match (command.start, target_line) {
         (Some(start), Some(line)) if start != line => {
@@ -147,17 +160,17 @@ fn run_read(command: &cli::ReadCommand) -> Result<String> {
 }
 
 fn run_map(command: &cli::MapCommand) -> Result<String> {
-    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
     to_json(&output::map_output(&source)?)
 }
 
 fn run_check(command: &cli::CheckCommand) -> Result<String> {
-    let (_, source) = load_source(command, BinaryMode::Reject)?;
+    let (_, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
     to_json(&output::check_output(&source)?)
 }
 
 fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
-    let (target, source) = load_source(command, BinaryMode::Reject)?;
+    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let address = match (command.name.as_deref(), target_line) {
         (Some(name), _) => output::SymbolAddress::Name(name),
@@ -169,7 +182,7 @@ fn run_symbol(command: &cli::SymbolCommand) -> Result<String> {
 }
 
 fn run_identify(command: &cli::IdentifyCommand) -> Result<String> {
-    let (target, source) = load_source(command, BinaryMode::Reject)?;
+    let (target, source) = load_source(command.target.as_deref(), command.stdin.as_deref(), command.language, BinaryMode::Reject)?;
     let target_line = output::resolve_explicit_target(&source, &target, command.line)?;
     let output = output::identify_output(&source, target_line, command.column)?;
     to_json(&output)

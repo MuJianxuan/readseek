@@ -6,7 +6,7 @@ use crate::engine::lang::{LANGUAGE_SPECS, Language};
 use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(crate) mod run;
 
@@ -382,24 +382,8 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
         .ok_or_else(|| format!("unknown language `{value}`"))
 }
 
-fn parse_input_target_with(
-    target: Option<&str>,
-    stdin: Option<&Path>,
-    parse: fn(&str) -> Result<Target>,
-) -> Result<Target> {
-    if let Some(path) = stdin {
-        if target.is_some() {
-            bail!("target cannot be combined with --stdin");
-        }
-        return Ok(Target {
-            path: path.to_path_buf(),
-            address: None,
-        });
-    }
-    parse(target.context("target required")?)
-}
 
-fn parse_target(value: &str) -> Result<Target> {
+pub(crate) fn parse_target(value: &str) -> Result<Target> {
     if value.is_empty() {
         bail!("target must not be empty");
     }
@@ -438,81 +422,6 @@ fn is_line_hash(value: &str) -> bool {
     value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
-pub(crate) struct InputArgs<'a> {
-    pub(crate) target: Option<&'a str>,
-    pub(crate) stdin: Option<&'a Path>,
-    pub(crate) language: Option<Language>,
-}
-
-impl InputArgs<'_> {
-    pub(crate) fn to_target(&self) -> Result<Target> {
-        parse_input_target_with(self.target, self.stdin, parse_target)
-    }
-}
-
-pub(crate) trait Input {
-    fn input(&self) -> InputArgs<'_>;
-}
-
-impl Input for DetectCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
-
-impl Input for ReadCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
-
-impl Input for MapCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
-
-impl Input for CheckCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
-
-impl Input for SymbolCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
-
-impl Input for IdentifyCommand {
-    fn input(&self) -> InputArgs<'_> {
-        InputArgs {
-            target: self.target.as_deref(),
-            stdin: self.stdin.as_deref(),
-            language: self.language,
-        }
-    }
-}
 
 pub(crate) trait GitSelection {
     fn git_flags(&self) -> GitFlags;
