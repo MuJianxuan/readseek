@@ -182,6 +182,7 @@ fn macro_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
                 .text
                 .find(name)
                 .map_or(line_start, |offset| line_start + offset);
+            let line_hash = line.hash();
             DefLocation {
                 file: source.path.clone(),
                 language: source.detection.language,
@@ -193,13 +194,13 @@ fn macro_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
                     qualified_name: name.to_owned(),
                     start_line: line.number,
                     end_line: line.number,
-                    start_hash: line.hash(),
-                    end_hash: line.hash(),
+                    start_hash: line_hash.clone(),
+                    end_hash: line_hash.clone(),
                     start_byte: line_start,
                     end_byte: line_start + line.text.len(),
                     name_byte,
                 },
-                line_hash: line.hash(),
+                line_hash,
                 text: line.text.clone(),
             }
         })

@@ -19,5 +19,5 @@ pub(crate) fn hash_line(_line: usize, text: &str) -> String {
 
 /// Compute a BLAKE3 content hash for the full source text.
 pub(crate) fn hash_text(text: &str) -> String {
-    blake3::hash(text.as_bytes()).to_hex().to_string()
+    blake3::hash(text.as_bytes()).to_string()
 }

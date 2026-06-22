@@ -218,20 +218,19 @@ fn find_conflicts(
     declarations: &[Declaration<'_>],
     table: &BindingTable,
 ) -> Vec<Conflict> {
-    let mut conflicts = Vec::new();
-    for occurrence in occurrences {
-        let byte = occurrence.start_byte;
-        let Some(node) = root.descendant_for_byte_range(byte, byte) else {
-            continue;
-        };
-        if resolve_node(node, new_name, declarations, table).is_some() {
-            conflicts.push(Conflict {
-                byte,
-                reason: format!("`{new_name}` already resolves to a binding here"),
-            });
-        }
-    }
-    conflicts
+    occurrences
+        .iter()
+        .filter_map(|occurrence| {
+            let byte = occurrence.start_byte;
+            let node = root.descendant_for_byte_range(byte, byte)?;
+            resolve_node(node, new_name, declarations, table)
+                .is_some()
+                .then(|| Conflict {
+                    byte,
+                    reason: format!("`{new_name}` already resolves to a binding here"),
+                })
+        })
+        .collect()
 }
 
 /// A declared name together with the identifier node and the scope it lives in.
@@ -571,16 +570,12 @@ fn collect_pattern_idents<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) 
 /// distinct node kinds and are intentionally not treated as variable bindings.
 fn c_declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node<'tree>> {
     let mut out = Vec::new();
-    match node.kind() {
-        "declaration" | "parameter_declaration" => {
-            let mut cursor = node.walk();
-            for child in node.children_by_field_name("declarator", &mut cursor) {
-                if let Some(ident) = c_declarator_ident(child) {
-                    out.push(ident);
-                }
-            }
-        }
-        _ => {}
+    if matches!(node.kind(), "declaration" | "parameter_declaration") {
+        let mut cursor = node.walk();
+        out.extend(
+            node.children_by_field_name("declarator", &mut cursor)
+                .filter_map(c_declarator_ident),
+        );
     }
     out
 }

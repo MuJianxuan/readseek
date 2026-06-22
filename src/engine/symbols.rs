@@ -406,8 +406,7 @@ fn markdown_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
                 .next()
                 .map(str::trim)
                 .filter(|name| !name.is_empty())
-                .map(ToOwned::to_owned)
-                .map(|name| ("heading".to_owned(), name))
+                .map(|name| ("heading".to_owned(), name.to_owned()))
         }
         _ => None,
     }
@@ -553,24 +552,12 @@ fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
 
 fn contains_word(text: &str, word: &str) -> bool {
     let bytes = text.as_bytes();
-    let word = word.as_bytes();
-    let Some(last_start) = bytes.len().checked_sub(word.len()) else {
-        return false;
-    };
-
-    for index in 0..=last_start {
-        if &bytes[index..index + word.len()] != word {
-            continue;
-        }
-        let before = index.checked_sub(1).map(|before_index| bytes[before_index]);
-        let after = bytes.get(index + word.len()).copied();
-        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
-            continue;
-        }
-        return true;
-    }
-
-    false
+    let needle = word.as_bytes();
+    memchr::memmem::find_iter(bytes, needle).any(|offset| {
+        let before = offset.checked_sub(1).map(|i| bytes[i]);
+        let after = bytes.get(offset + needle.len()).copied();
+        !before.is_some_and(is_identifier_byte) && !after.is_some_and(is_identifier_byte)
+    })
 }
 
 fn last_identifier(text: &str) -> Option<String> {

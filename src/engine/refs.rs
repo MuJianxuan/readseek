@@ -93,28 +93,29 @@ fn scoped_output(request: &Request) -> Result<RefsOutput> {
     let source_map = source_map_with_dir(&source, None).ok();
     let file = Arc::new(source.path.clone());
     let file_hash: Arc<str> = Arc::from(source.file_hash.as_str());
-    let mut references = Vec::with_capacity(binding.occurrences.len());
-    for occurrence in &binding.occurrences {
-        if occurrence.kind == crate::engine::binding::OccurrenceKind::Shadowed {
-            continue;
-        }
-        let line_idx = source.line_index(occurrence.start_byte);
-        let source_line = &source.lines[line_idx];
-        references.push(RefLocation {
-            file: Arc::clone(&file),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            file_hash: Arc::clone(&file_hash),
-            line: source_line.number,
-            column: occurrence.start_byte - source.line_starts[line_idx] + 1,
-            line_hash: source_line.hash(),
-            text: source_line.text.clone(),
-            symbol: source_map
-                .as_ref()
-                .and_then(|sm| find_symbol(sm, source_line.number)),
-            occurrence: Some(occurrence.kind),
-        });
-    }
+    let references = binding
+        .occurrences
+        .iter()
+        .filter(|occurrence| occurrence.kind != crate::engine::binding::OccurrenceKind::Shadowed)
+        .map(|occurrence| {
+            let line_idx = source.line_index(occurrence.start_byte);
+            let source_line = &source.lines[line_idx];
+            RefLocation {
+                file: Arc::clone(&file),
+                language: source.detection.language,
+                engine: source.detection.engine,
+                file_hash: Arc::clone(&file_hash),
+                line: source_line.number,
+                column: occurrence.start_byte - source.line_starts[line_idx] + 1,
+                line_hash: source_line.hash(),
+                text: source_line.text.clone(),
+                symbol: source_map
+                    .as_ref()
+                    .and_then(|sm| find_symbol(sm, source_line.number)),
+                occurrence: Some(occurrence.kind),
+            }
+        })
+        .collect();
 
     Ok(RefsOutput { references })
 }

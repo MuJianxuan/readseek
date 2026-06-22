@@ -271,10 +271,9 @@ pub(crate) fn load_map(
     let sym_bytes = &data[HEADER_SIZE..strtab_start];
     let strtab = &data[strtab_start..strtab_end];
 
-    let mut symbols = Vec::with_capacity(sym_count);
-    for i in 0..sym_count {
-        symbols.push(parse_sym_entry(sym_bytes, strtab, i, sym_count, &path)?);
-    }
+    let symbols = (0..sym_count)
+        .map(|i| parse_sym_entry(sym_bytes, strtab, i, sym_count, &path))
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(Some((SourceMap { symbols }, language, engine)))
 }
@@ -385,7 +384,7 @@ pub(crate) fn store_map(
 
         let start_hash = u16::from_str_radix(&symbol.start_hash, 16)
             .with_context(|| format!("invalid start hash for symbol `{}`", symbol.name))?;
-        if start_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
+        if u32::from(start_hash) >= HASHLINE_MODULUS {
             bail!(
                 "hashline {:#x} out of range for symbol `{}`",
                 start_hash,
@@ -394,7 +393,7 @@ pub(crate) fn store_map(
         }
         let end_hash = u16::from_str_radix(&symbol.end_hash, 16)
             .with_context(|| format!("invalid end hash for symbol `{}`", symbol.name))?;
-        if end_hash >= u16::try_from(HASHLINE_MODULUS).unwrap() {
+        if u32::from(end_hash) >= HASHLINE_MODULUS {
             bail!(
                 "hashline {:#x} out of range for symbol `{}`",
                 end_hash,
@@ -591,7 +590,7 @@ fn build_index_shards(
     }
     for inner in shards.values_mut() {
         for entries in inner.values_mut() {
-            entries.sort_by(|left, right| {
+            entries.sort_unstable_by(|left, right| {
                 left.qualified_name
                     .cmp(&right.qualified_name)
                     .then_with(|| left.path.cmp(&right.path))
@@ -663,7 +662,7 @@ fn remove_stale_maps(readseek_dir: &Path, active_hashes: &HashSet<String>) -> Re
                     let parent = file_entry
                         .path()
                         .parent()
-                        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+                        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
                     if let Some(prefix) = parent {
                         let hash_hex = format!("{prefix}{hash_fragment}");
                         if hash_hex.len() == BLAKE3_RAW_LEN * 2

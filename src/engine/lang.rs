@@ -567,20 +567,21 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
 
 pub(crate) fn detect_by_path(path: &Path) -> Option<Language> {
     let file_name = path.file_name()?.to_str()?;
-    if let Some(language) = LANGUAGE_SPECS.iter().find_map(|spec| {
-        spec.file_names
-            .contains(&file_name)
-            .then_some(spec.language)
-    }) {
-        return Some(language);
-    }
-
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    LANGUAGE_SPECS.iter().find_map(|spec| {
-        spec.extensions
-            .contains(&extension.as_str())
-            .then_some(spec.language)
-    })
+    LANGUAGE_SPECS
+        .iter()
+        .find_map(|spec| {
+            spec.file_names
+                .contains(&file_name)
+                .then_some(spec.language)
+        })
+        .or_else(|| {
+            let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+            LANGUAGE_SPECS.iter().find_map(|spec| {
+                spec.extensions
+                    .contains(&extension.as_str())
+                    .then_some(spec.language)
+            })
+        })
 }
 
 pub(crate) fn language_spec(language: Language) -> Option<&'static LanguageSpec> {

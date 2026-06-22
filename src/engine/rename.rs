@@ -230,11 +230,9 @@ fn build_other(source: &SourceFile, old_name: &str, new_name: &str) -> Option<Re
 fn name_scan(source: &SourceFile, name: &str) -> Vec<(usize, usize)> {
     let text = source.text.as_bytes();
     let needle = name.as_bytes();
-    let mut spans = Vec::new();
-    for index in identifier_spans(text, needle) {
-        spans.push((index, index + needle.len()));
-    }
-    spans
+    identifier_spans(text, needle)
+        .map(|index| (index, index + needle.len()))
+        .collect()
 }
 
 /// Whether `path` denotes the cursor file and so must be skipped during expansion.
@@ -289,10 +287,13 @@ fn apply_all(
         );
     }
 
-    let mut plans: Vec<(&Path, &[RenameEdit])> = vec![(request.target.as_path(), edits)];
-    for other in others {
-        plans.push((other.file.as_path(), &other.edits));
-    }
+    let plans: Vec<(&Path, &[RenameEdit])> = std::iter::once((request.target.as_path(), edits))
+        .chain(
+            others
+                .iter()
+                .map(|other| (other.file.as_path(), other.edits.as_slice())),
+        )
+        .collect();
 
     // Verify every file and compute its new text before touching any of them.
     let mut writes: Vec<(&Path, String, String)> = Vec::new();

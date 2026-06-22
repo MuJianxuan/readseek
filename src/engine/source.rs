@@ -196,19 +196,16 @@ pub(crate) fn source_from_text(
     };
     let file_hash = hash_text(&text);
     let mut line_starts = Vec::new();
+    let mut lines = Vec::new();
     let mut offset = 0;
-    let lines = text
-        .split_terminator('\n')
-        .enumerate()
-        .map(|(index, part)| {
-            line_starts.push(offset);
-            offset += part.len() + 1;
-            SourceLine {
-                number: index + 1,
-                text: part.to_owned(),
-            }
-        })
-        .collect();
+    for (index, part) in text.split_terminator('\n').enumerate() {
+        line_starts.push(offset);
+        offset += part.len() + 1;
+        lines.push(SourceLine {
+            number: index + 1,
+            text: part.to_owned(),
+        });
+    }
 
     Ok(SourceFile {
         path: path.to_path_buf(),
@@ -249,12 +246,11 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
 }
 
 fn is_binary_document(bytes: &[u8], mime: Option<&str>) -> bool {
+    const BINARY_PREFIXES: &[&str] = &["application/", "audio/", "font/", "image/", "video/"];
     mime.is_some_and(|mime| {
-        mime.starts_with("application/")
-            || mime.starts_with("audio/")
-            || mime.starts_with("font/")
-            || mime.starts_with("image/")
-            || mime.starts_with("video/")
+        BINARY_PREFIXES
+            .iter()
+            .any(|prefix| mime.starts_with(prefix))
     }) || bytes.contains(&0)
 }
 
