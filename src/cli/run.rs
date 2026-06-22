@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
+use tree_sitter::Parser;
 
 
 use crate::cli;
@@ -186,9 +187,8 @@ fn run_search(command: &cli::SearchCommand) -> Result<String> {
 
     let results: Vec<_> = paths
         .par_iter()
-        .map(|path| {
-            let mut parser = tree_sitter::Parser::new();
-            crate::engine::search::search_file(path, command.language, &pattern, &mut parser)
+        .map_init(Parser::new, |parser, path| {
+            crate::engine::search::search_file(path, command.language, &pattern, parser)
                 .map(|result| result.filter(|result| !result.matches.is_empty()))
         })
         .collect::<Result<Vec<_>>>()?
