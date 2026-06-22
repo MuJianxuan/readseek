@@ -4,7 +4,6 @@
 use crate::engine::flags::GitFlags;
 use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, Language};
-use crate::engine::output::is_identifier_byte;
 use crate::engine::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
 use crate::engine::source::{
@@ -34,7 +33,7 @@ pub(crate) fn output(request: &Request) -> Result<RefsOutput> {
     if name.is_empty() {
         bail!("reference name must not be empty");
     }
-    if !name.bytes().all(is_identifier_byte) {
+    if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         bail!("reference name must be an ASCII identifier");
     }
     if request.scope {

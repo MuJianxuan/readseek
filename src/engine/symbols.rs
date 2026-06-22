@@ -3,7 +3,7 @@
 
 use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
-use crate::engine::output::{Diagnostic, DiagnosticKind, is_identifier_byte};
+use crate::engine::output::{Diagnostic, DiagnosticKind};
 use crate::engine::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
@@ -253,7 +253,7 @@ fn name_byte_in(node: Node<'_>, source: &str, name: &str) -> usize {
     for offset in memchr::memmem::find_iter(bytes, needle) {
         let before = offset.checked_sub(1).map(|i| bytes[i]);
         let after = bytes.get(offset + needle.len()).copied();
-        if before.is_some_and(is_identifier_byte) || after.is_some_and(is_identifier_byte) {
+        if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') || after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
             continue;
         }
         return start + offset;
@@ -557,7 +557,7 @@ fn contains_word(text: &str, word: &str) -> bool {
     memchr::memmem::find_iter(bytes, needle).any(|offset| {
         let before = offset.checked_sub(1).map(|i| bytes[i]);
         let after = bytes.get(offset + needle.len()).copied();
-        !before.is_some_and(is_identifier_byte) && !after.is_some_and(is_identifier_byte)
+        !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
     })
 }
 
@@ -566,12 +566,12 @@ fn last_identifier(text: &str) -> Option<String> {
     let mut index = bytes.len();
     while index > 0 {
         index -= 1;
-        if !is_identifier_byte(bytes[index]) {
+        if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') {
             continue;
         }
 
         let end = index + 1;
-        while index > 0 && is_identifier_byte(bytes[index - 1]) {
+        while index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
             index -= 1;
         }
         if bytes[index].is_ascii_digit() {

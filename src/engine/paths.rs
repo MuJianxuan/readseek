@@ -2,7 +2,6 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::flags::GitFlags;
-use crate::engine::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
 use std::fs;
@@ -174,8 +173,8 @@ pub(crate) fn identifier_spans<'a>(
         let before = byte_index.checked_sub(1).map(|i| text[i]);
         let after = text.get(byte_index + identifier.len()).copied();
         !identifier.is_empty()
-            && !before.is_some_and(is_identifier_byte)
-            && !after.is_some_and(is_identifier_byte)
+            && !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
     })
 }
 

@@ -450,9 +450,6 @@ pub(crate) fn identify_output(
     })
 }
 
-pub(crate) fn is_identifier_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
 
 /// Fallback identifier extraction for languages without a tree-sitter parser.
 ///
@@ -468,18 +465,18 @@ fn identify_byte_scan(
         return None;
     }
     let mut index = column.saturating_sub(1).min(bytes.len().saturating_sub(1));
-    if !is_identifier_byte(bytes[index]) && index > 0 && is_identifier_byte(bytes[index - 1]) {
+    if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') && index > 0 && (bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_') {
         index -= 1;
     }
-    if !is_identifier_byte(bytes[index]) {
+    if !(bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_') {
         return None;
     }
     let mut start = index;
-    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
         start -= 1;
     }
     let mut end = index + 1;
-    while end < bytes.len() && is_identifier_byte(bytes[end]) {
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
         end += 1;
     }
     Some(IdentifierOutput {
