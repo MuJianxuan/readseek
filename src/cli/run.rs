@@ -6,8 +6,6 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
 
-// SPDX-License-Identifier: LGPL-2.1-or-later
-// Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::cli;
 use crate::cli::GitSelection;
