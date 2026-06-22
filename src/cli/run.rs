@@ -6,7 +6,11 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
 
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
 use crate::cli;
+use crate::cli::GitSelection;
 use crate::engine::flags::GitFlags;
 use crate::engine::lang::BinaryMode;
 use crate::engine::output::SearchOutput;
@@ -37,16 +41,13 @@ pub(crate) fn run() -> Result<()> {
         crate::cli::Command::Symbol(command) => run_symbol(&command)?,
         crate::cli::Command::Identify(command) => run_identify(&command)?,
         crate::cli::Command::Def(command) => {
+            let flags = command.git_flags();
             let request = def::Request {
                 target: command.target,
                 name: command.name,
                 from_identify: command.from_identify,
                 language: command.language,
-                flags: GitFlags {
-                    cached: command.cached,
-                    others: command.others,
-                    ignored: command.ignored,
-                },
+                flags,
             };
             let output = def::output(&request)?;
             match command.format {
@@ -55,6 +56,7 @@ pub(crate) fn run() -> Result<()> {
             }
         }
         crate::cli::Command::Refs(command) => {
+            let flags = command.git_flags();
             let request = refs::Request {
                 target: command.target,
                 name: command.name,
@@ -62,11 +64,7 @@ pub(crate) fn run() -> Result<()> {
                 line: command.line,
                 column: command.column,
                 language: command.language,
-                flags: GitFlags {
-                    cached: command.cached,
-                    others: command.others,
-                    ignored: command.ignored,
-                },
+                flags,
             };
             let output = refs::output(&request)?;
             match command.format {
@@ -75,6 +73,7 @@ pub(crate) fn run() -> Result<()> {
             }
         }
         crate::cli::Command::Rename(command) => {
+            let flags = command.git_flags();
             let request = rename::Request {
                 target: command.target,
                 line: command.line,
@@ -83,11 +82,7 @@ pub(crate) fn run() -> Result<()> {
                 workspace: command.workspace,
                 apply: command.apply,
                 language: command.language,
-                flags: GitFlags {
-                    cached: command.cached,
-                    others: command.others,
-                    ignored: command.ignored,
-                },
+                flags,
             };
             to_json(&rename::output(&request)?)?
         }
@@ -172,14 +167,7 @@ fn run_identify(command: &cli::IdentifyCommand) -> Result<String> {
 }
 
 fn run_search(command: &cli::SearchCommand) -> Result<String> {
-    let paths = command_paths(
-        &command.target,
-        GitFlags {
-            cached: command.cached,
-            others: command.others,
-            ignored: command.ignored,
-        },
-    )?;
+    let paths = command_paths(&command.target, command.git_flags())?;
     let mut pattern = crate::engine::search::compile_search(&command.pattern);
     if let Some(language) = command
         .language

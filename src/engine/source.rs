@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
 use crate::engine::hash::{hash_line, hash_text};
 use crate::engine::lang::{
     BinaryMode, DocumentKind, EngineField, Language, detect_by_path, detect_language,
@@ -298,7 +301,7 @@ pub(crate) fn find_symbol(source_map: &SourceMap, line: usize) -> Option<Symbol>
     let idx = symbols.partition_point(|s| s.start_line <= line);
     (0..idx)
         .rev()
-        .take_while(|&i| symbols[i].end_line >= line)
+        .filter(|&i| symbols[i].end_line >= line)
         .min_by_key(|&i| symbols[i].end_line - symbols[i].start_line)
         .map(|i| symbols[i].clone())
 }

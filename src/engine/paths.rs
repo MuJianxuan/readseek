@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
 use crate::engine::flags::GitFlags;
 use crate::engine::output::is_identifier_byte;
 use anyhow::{Context, Result, bail};
@@ -17,7 +20,7 @@ pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBu
         );
     }
 
-    if let Some(paths) = git_search_paths(target, flags)? {
+    if let Some(paths) = git_paths(target, flags, None)? {
         return Ok(paths);
     }
 
@@ -38,7 +41,8 @@ pub(crate) fn def_candidate_paths(
     flags: GitFlags,
     search_name: &str,
 ) -> Result<Vec<PathBuf>> {
-    if let Some(paths) = git_candidate_paths(target, flags, search_name)? {
+    let filter = (!search_name.is_empty()).then_some(search_name.as_bytes());
+    if let Some(paths) = git_paths(target, flags, filter)? {
         return Ok(paths);
     }
 
@@ -82,10 +86,15 @@ fn resolve_git_scope(target: &Path, flags: GitFlags) -> Result<Option<GitScope>>
     }))
 }
 
-fn git_candidate_paths(
+/// Collect the in-scope cached and untracked paths of the Git repository at
+/// `target`, or `None` when `target` is not inside one.
+///
+/// When `name_filter` is `Some`, only files whose bytes contain the identifier
+/// are kept; `None` keeps every selected path.
+fn git_paths(
     target: &Path,
     flags: GitFlags,
-    search_name: &str,
+    name_filter: Option<&[u8]>,
 ) -> Result<Option<Vec<PathBuf>>> {
     let Some(scope) = resolve_git_scope(target, flags)? else {
         return Ok(None);
@@ -102,17 +111,12 @@ fn git_candidate_paths(
             if !path_is_in_scope(&relative, &scope.scope) {
                 continue;
             }
-
-            if search_name.is_empty() {
-                paths.insert(scope.output_root.join(&relative));
-                continue;
-            }
-            let Ok(content) = fs::read(scope.workdir.join(&relative)) else {
-                continue;
-            };
-            if bytes_contain_identifier(&content, search_name.as_bytes()) {
-                paths.insert(scope.output_root.join(relative));
-            }
+            insert_if_matches(
+                &scope.workdir.join(&relative),
+                scope.output_root.join(&relative),
+                name_filter,
+                &mut paths,
+            );
         }
     }
     if others {
@@ -125,22 +129,32 @@ fn git_candidate_paths(
             flags.ignored,
             &mut other_paths,
         )?;
-
-        if search_name.is_empty() {
-            paths.extend(other_paths);
-        } else {
-            for path in other_paths {
-                let Ok(content) = fs::read(&path) else {
-                    continue;
-                };
-                if bytes_contain_identifier(&content, search_name.as_bytes()) {
-                    paths.insert(path);
-                }
-            }
+        for path in other_paths {
+            insert_if_matches(&path, path.clone(), name_filter, &mut paths);
         }
     }
 
     Ok(Some(paths.into_iter().collect()))
+}
+
+/// Insert `output_path` unless a `name_filter` is given and `read_path` does not
+/// contain the identifier; an unreadable `read_path` is skipped.
+fn insert_if_matches(
+    read_path: &Path,
+    output_path: PathBuf,
+    name_filter: Option<&[u8]>,
+    paths: &mut BTreeSet<PathBuf>,
+) {
+    let Some(name) = name_filter else {
+        paths.insert(output_path);
+        return;
+    };
+    let Ok(content) = fs::read(read_path) else {
+        return;
+    };
+    if bytes_contain_identifier(&content, name) {
+        paths.insert(output_path);
+    }
 }
 
 pub(crate) fn bytes_contain_identifier(text: &[u8], identifier: &[u8]) -> bool {
@@ -165,37 +179,6 @@ pub(crate) fn identifier_spans<'a>(
     })
 }
 
-fn git_search_paths(target: &Path, flags: GitFlags) -> Result<Option<Vec<PathBuf>>> {
-    let Some(scope) = resolve_git_scope(target, flags)? else {
-        return Ok(None);
-    };
-    let default_selection = !flags.has_any();
-    let cached = flags.cached || default_selection;
-    let others = flags.others || default_selection;
-
-    let mut paths = BTreeSet::new();
-    if cached {
-        collect_cached_paths(
-            &scope.repository,
-            &scope.output_root,
-            &scope.scope,
-            &mut paths,
-        )?;
-    }
-    if others {
-        collect_other_paths(
-            &scope.repository,
-            &scope.workdir,
-            &scope.output_root,
-            &scope.scope,
-            flags.ignored,
-            &mut paths,
-        )?;
-    }
-
-    Ok(Some(paths.into_iter().collect()))
-}
-
 fn output_root_for_scope(target: &Path, scope: &Path) -> Result<PathBuf> {
     let mut output_root = target.to_path_buf();
     for _ in scope.components() {
@@ -204,23 +187,6 @@ fn output_root_for_scope(target: &Path, scope: &Path) -> Result<PathBuf> {
         }
     }
     Ok(output_root)
-}
-
-fn collect_cached_paths(
-    repository: &git2::Repository,
-    output_root: &Path,
-    scope: &Path,
-    paths: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
-    let index = repository.index().context("read Git index")?;
-    for entry in index.iter() {
-        let relative = git_path(&entry.path)?;
-        if path_is_in_scope(&relative, scope) {
-            paths.insert(output_root.join(relative));
-        }
-    }
-
-    Ok(())
 }
 
 fn collect_other_paths(

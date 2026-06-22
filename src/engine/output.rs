@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
 use crate::engine::lang::{BinaryMode, EngineField, Language};
 use crate::engine::source::{
     HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,

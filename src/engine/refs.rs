@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
 use crate::engine::flags::GitFlags;
 use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::output::is_identifier_byte;

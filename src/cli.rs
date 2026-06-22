@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use crate::engine::flags::GitFlags;
 use crate::engine::lang::{LANGUAGE_SPECS, Language};
 use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
@@ -453,27 +454,106 @@ pub(crate) trait Input {
     fn input(&self) -> InputArgs<'_>;
 }
 
-macro_rules! impl_input {
-    ($($command:ty),+ $(,)?) => {
-        $(
-            impl Input for $command {
-                fn input(&self) -> InputArgs<'_> {
-                    InputArgs {
-                        target: self.target.as_deref(),
-                        stdin: self.stdin.as_deref(),
-                        language: self.language,
-                    }
-                }
-            }
-        )+
-    };
+impl Input for DetectCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
 }
 
-impl_input!(
-    DetectCommand,
-    ReadCommand,
-    MapCommand,
-    CheckCommand,
-    SymbolCommand,
-    IdentifyCommand,
-);
+impl Input for ReadCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
+}
+
+impl Input for MapCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
+}
+
+impl Input for CheckCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
+}
+
+impl Input for SymbolCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
+}
+
+impl Input for IdentifyCommand {
+    fn input(&self) -> InputArgs<'_> {
+        InputArgs {
+            target: self.target.as_deref(),
+            stdin: self.stdin.as_deref(),
+            language: self.language,
+        }
+    }
+}
+
+pub(crate) trait GitSelection {
+    fn git_flags(&self) -> GitFlags;
+}
+
+impl GitSelection for DefCommand {
+    fn git_flags(&self) -> GitFlags {
+        GitFlags {
+            cached: self.cached,
+            others: self.others,
+            ignored: self.ignored,
+        }
+    }
+}
+
+impl GitSelection for RefsCommand {
+    fn git_flags(&self) -> GitFlags {
+        GitFlags {
+            cached: self.cached,
+            others: self.others,
+            ignored: self.ignored,
+        }
+    }
+}
+
+impl GitSelection for RenameCommand {
+    fn git_flags(&self) -> GitFlags {
+        GitFlags {
+            cached: self.cached,
+            others: self.others,
+            ignored: self.ignored,
+        }
+    }
+}
+
+impl GitSelection for SearchCommand {
+    fn git_flags(&self) -> GitFlags {
+        GitFlags {
+            cached: self.cached,
+            others: self.others,
+            ignored: self.ignored,
+        }
+    }
+}
