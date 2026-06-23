@@ -47,18 +47,6 @@ Use `def --from-identify` to pipe `identify` JSON into definition lookup:
 readseek identify src/main.rs:42 --column 8 | readseek def --from-identify src --format plain
 ```
 
-## 0.4 CLI notes
-
-- `read --start` is the range-start option. The old `--offset` spelling is not
-  part of the 0.4 API.
-- `def --from-identify` reads `identify` JSON from standard input. The old
-  `def --stdin` spelling is not part of the 0.4 API.
-- Cursor columns are one-based byte columns. `identify`, `refs --scope`, and
-  `rename` reject line/column values outside the selected line instead of
-  silently clamping them.
-- `--readseek-dir <dir>` pins the `.readseek` cache directory and must appear
-  before the subcommand.
-
 ## Cache
 
 `readseek init [path]` creates a `.readseek/` directory containing map cache files
