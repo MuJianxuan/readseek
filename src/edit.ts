@@ -277,6 +277,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 	const replaceSymbolRanges: { start: number; end: number }[] = [];
 	const rsProbeResults: { type: "ok"; content: string; replacement: string; warnings: string[]; range: { start: number; end: number } }[] = [];
 	for (const rs of replaceSymbolEdits) {
+		throwIfAborted(signal);
 		const probe = await replaceSymbol({
 			filePath: absolutePath,
 			content: originalNormalized,
