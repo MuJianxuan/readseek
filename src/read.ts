@@ -174,7 +174,8 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	}
 	const hasBinaryContent = looksLikeBinary(rawBuffer);
 	throwIfAborted(signal);
-	const normalized = normalizeToLF(stripBom(rawBuffer.toString("utf-8")).text);
+	const rawText = rawBuffer.toString("utf-8");
+	const normalized = normalizeToLF(stripBom(rawText).text);
 	const allLines = splitReadseekLines(normalized);
 	const total = allLines.length;
 	const structuredWarnings: ReadseekWarning[] = [];
@@ -370,7 +371,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		structuredWarnings.push(buildReadseekWarning("binary-content", warning));
 	}
 
-	if (hasBareCarriageReturn(rawBuffer.toString("utf-8"))) {
+	if (hasBareCarriageReturn(rawText)) {
 		const warning = "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]";
 		structuredWarnings.push(buildReadseekWarning("bare-cr", warning));
 	}
