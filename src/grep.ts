@@ -315,6 +315,24 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 	let parsedCount = 0;
 	let candidateUnparsedCount = 0;
 	const candidateLinePattern = /^.+(?::|-)\d+(?::|-)\s/;
+	// Pre-read all matched files with bounded concurrency so the processing
+	// loop below hits the cache on every getFileLines call instead of
+	// serialising disk I/O.
+	if (!p.summary) {
+		const pathsToRead = new Set<string>();
+		for (const line of textBlock.text.split("\n")) {
+			throwIfAborted(signal);
+			const parsed = parseGrepOutputLine(line);
+			if (parsed && Number.isFinite(parsed.lineNumber) && parsed.lineNumber >= 1) {
+				pathsToRead.add(toAbsolutePath(parsed.displayPath));
+			}
+		}
+		const CONCURRENCY = 8;
+		const pathList = [...pathsToRead];
+		for (let i = 0; i < pathList.length; i += CONCURRENCY) {
+			await Promise.all(pathList.slice(i, i + CONCURRENCY).map((p) => getFileLines(p)));
+		}
+	}
 
 	const addSummaryMatch = (displayPath: string, absolutePath: string) => {
 		let group = groupsByPath.get(displayPath);
