@@ -120,3 +120,7 @@ name=rename typescript skips member and key | path=member.ts | content=function 
 name=rename typescript destructuring shorthand | path=destr.ts | content=function f(o: any) {\n  const { count } = o;\n  const total = count + 1;\n  return { count, total };\n}\n | args=rename %s --line 2 --column 11 --to n --language typescript | old_name=count | edits.len=3 | edits.0.line=2 | edits.1.line=3 | edits.2.line=4
 name=rename typescript capture conflict | path=conflict.ts | content=function h() {\n  const a = 1;\n  const b = 2;\n  return a + b;\n}\n | args=rename %s --line 2 --column 9 --to b --language typescript | conflicts.len=1 | conflicts.0.line=4 | edits.len=2
 name=rename typescript top-level function | path=top.ts | content=function helper() {\n  return 1;\n}\nfunction main() {\n  return helper() + helper();\n}\n | args=rename %s --line 1 --column 10 --to helper2 --language typescript | old_name=helper | edits.len=3 | edits.0.line=1 | edits.1.line=5 | edits.2.line=5
+
+name=rename vimscript function | path=plugin.vim | content=function! Greet() abort\n  echo "hello"\nendfunction\ncall Greet()\n | args=rename %s --line 1 --column 11 --to Hello --language vimscript | old_name=Greet | new_name=Hello | unsupported=false | edits.len=2
+
+name=rename vimscript let variable | path=var.vim | content=let l:count = 0\nlet l:total = count + 1\ncall Feed(count)\n | args=rename %s --line 1 --column 7 --to n --language vimscript | old_name=count | unsupported=false | edits.len=3

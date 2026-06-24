@@ -58,24 +58,6 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
     let source = source_from_text(&request.target, text, request.language, false, None)?;
 
-    if !binding::supported(source.detection.language) {
-        // No binding analysis for this language: report a no-op rather than a
-        // failure so callers can warn instead of surfacing an error.
-        return Ok(RenameOutput {
-            file: source.path.clone(),
-            language: source.detection.language,
-            engine: source.detection.engine,
-            file_hash: source.file_hash.clone(),
-            old_name: String::new(),
-            new_name: request.to.clone(),
-            applied: false,
-            unsupported: true,
-            conflicts: Vec::new(),
-            edits: Vec::new(),
-            others: Vec::new(),
-        });
-    }
-
     let cursor_byte = source.cursor_byte(line, column)?;
 
     // The cursor file is binding-accurate when its symbol resolves to a local

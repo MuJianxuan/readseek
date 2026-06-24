@@ -51,13 +51,6 @@ pub(crate) struct Conflict {
     pub(crate) reason: String,
 }
 
-/// Whether binding resolution is implemented for `language`. Lets callers
-/// distinguish an unsupported language from a genuine resolution failure
-/// without exposing the private binding-table type.
-pub(crate) fn supported(language: Language) -> bool {
-    binding_table(language).is_some()
-}
-
 /// Parse `source` and return its binding table and syntax tree, or `None` when
 /// the language has no binding support or the parse fails.
 fn parse_source(source: &SourceFile) -> Option<(&'static BindingTable, Tree)> {
@@ -126,13 +119,16 @@ pub(crate) fn resolve_with_conflicts(
 /// declaration, so it also names top-level symbols (functions, types) the
 /// resolver does not track but a cross-file rename still targets.
 pub(crate) fn identifier_at(source: &SourceFile, byte: usize) -> Option<String> {
-    let (table, tree) = parse_source(source)?;
-    let root = tree.root_node();
-    let lookup = byte.min(source.text.len().saturating_sub(1));
-    let leaf = identifier_leaf(root.descendant_for_byte_range(lookup, lookup)?, table)?;
-    leaf.utf8_text(source.text.as_bytes())
-        .ok()
-        .map(str::to_owned)
+    if let Some((table, tree)) = parse_source(source) {
+        let root = tree.root_node();
+        let lookup = byte.min(source.text.len().saturating_sub(1));
+        let leaf = identifier_leaf(root.descendant_for_byte_range(lookup, lookup)?, table)?;
+        return leaf
+            .utf8_text(source.text.as_bytes())
+            .ok()
+            .map(str::to_owned);
+    }
+    crate::engine::symbols::token_at(source, byte).map(|token| token.text)
 }
 
 /// Name occurrences a cross-file rename should touch within one file.
