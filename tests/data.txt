@@ -124,3 +124,5 @@ name=rename typescript top-level function | path=top.ts | content=function helpe
 name=rename vimscript function | path=plugin.vim | content=function! Greet() abort\n  echo "hello"\nendfunction\ncall Greet()\n | args=rename %s --line 1 --column 11 --to Hello --language vimscript | old_name=Greet | new_name=Hello | unsupported=false | edits.len=2
 
 name=rename vimscript let variable | path=var.vim | content=let l:count = 0\nlet l:total = count + 1\ncall Feed(count)\n | args=rename %s --line 1 --column 7 --to n --language vimscript | old_name=count | unsupported=false | edits.len=3
+
+name=rename vimscript nested shadow | path=shadow.vim | content=let val = 1\nfunction! Test() abort\n  let val = 2\n  echo val\nendfunction\necho val\n | args=rename %s --line 1 --column 5 --to x --language vimscript | old_name=val | unsupported=false | edits.len=2 | edits.0.occurrence=definition | edits.0.line=1 | edits.0.start_column=5 | edits.1.occurrence=reference | edits.1.line=6 | edits.1.start_column=6

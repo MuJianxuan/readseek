@@ -548,6 +548,24 @@ static BINDING_TABLES: &[BindingTable] = &[
         escapes_scope: ts_is_hoisted_name,
         binds_past: never_binds_past,
     },
+    BindingTable {
+        languages: &[Language::Vimscript],
+        scope_kinds: &[
+            "function_definition",
+            "lambda_expression",
+            "if_statement",
+            "while_loop",
+            "for_loop",
+            "try_statement",
+        ],
+        class_scope_kinds: &[],
+        identifier_kinds: &["identifier", "name"],
+        declared_idents: vimscript_declared_idents,
+        resolution: Resolution::Lexical,
+        is_reference: vimscript_is_reference,
+        escapes_scope: vimscript_escapes_scope,
+        binds_past: never_binds_past,
+    },
 ];
 
 /// Collect identifiers that `node` introduces as bindings in Rust.
@@ -965,5 +983,116 @@ fn ts_is_hoisted_name(node: Node<'_>) -> bool {
                 | "function_expression"
                 | "class_declaration"
         ) && parent.child_by_field_name("name") == Some(node)
+    })
+}
+
+/// Collect identifiers that `node` introduces as a binding in Vimscript.
+///
+/// Covers `let`/`const` declarations (including scoped identifiers and list
+/// destructuring), `for` loop variables, function parameters (simple, default,
+/// and spread), and the names of `function` declarations (which bind in the
+/// enclosing scope). Lambda parameters are not tracked because tree-sitter-vim
+/// does not separate them from body references.
+fn vimscript_declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node<'tree>> {
+    let mut out = Vec::new();
+    match node.kind() {
+        "let_statement" | "const_statement" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                match child.kind() {
+                    "identifier" | "name" => out.push(child),
+                    "scoped_identifier" => {
+                        if let Some(ident) = vimscript_scoped_ident(child) {
+                            out.push(ident);
+                        }
+                    }
+                    "list_assignment" => vimscript_list_target_idents(child, &mut out),
+                    _ => {}
+                }
+            }
+        }
+        "for_loop" => {
+            if let Some(variable) = node.child_by_field_name("variable") {
+                match variable.kind() {
+                    "identifier" | "name" => out.push(variable),
+                    "scoped_identifier" => {
+                        if let Some(ident) = vimscript_scoped_ident(variable) {
+                            out.push(ident);
+                        }
+                    }
+                    "list_assignment" => vimscript_list_target_idents(variable, &mut out),
+                    _ => {}
+                }
+            }
+        }
+        "parameters" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                match child.kind() {
+                    "identifier" => out.push(child),
+                    "default_parameter" => {
+                        if let Some(name) = child.child_by_field_name("name") {
+                            out.push(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "function_declaration" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                if name.kind() == "identifier" || name.kind() == "name" {
+                    out.push(name);
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Descend a Vimscript `scoped_identifier` (e.g. `l:count`) to its name.
+fn vimscript_scoped_ident<'tree>(node: Node<'tree>) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == "identifier")
+}
+
+/// Collect the identifiers bound by a Vimscript `list_assignment` (`[a, b]`).
+fn vimscript_list_target_idents<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "identifier" | "name" => out.push(child),
+            "scoped_identifier" => {
+                if let Some(ident) = vimscript_scoped_ident(child) {
+                    out.push(ident);
+                }
+            }
+            "list_assignment" => vimscript_list_target_idents(child, out),
+            _ => {}
+        }
+    }
+}
+
+/// Whether a Vimscript `identifier` or `name` leaf is a renameable reference.
+///
+/// Excludes the `field` child of a `field_expression` (`dict.field`), which names
+/// a dictionary key rather than a variable binding.
+fn vimscript_is_reference(node: Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return true;
+    };
+    if parent.kind() == "field_expression" && parent.child_by_field_name("field") == Some(node) {
+        return false;
+    }
+    true
+}
+
+/// Whether an identifier names a `function_declaration`, which binds in the
+/// enclosing scope rather than inside the function body.
+fn vimscript_escapes_scope(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "function_declaration" && parent.child_by_field_name("name") == Some(node)
     })
 }
