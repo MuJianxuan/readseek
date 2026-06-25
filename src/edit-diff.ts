@@ -40,7 +40,6 @@ export function hasBareCarriageReturn(content: string): boolean {
 	return content.replace(/\r\n/g, "").includes("\r");
 }
 
-
 const SINGLE_QUOTES_RE = /[\u2018\u2019\u201A\u201B]/g;
 const DOUBLE_QUOTES_RE = /[\u201C\u201D\u201E\u201F]/g;
 const UNICODE_SPACES_RE = /[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g;
