@@ -131,7 +131,6 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
         old_name,
         new_name: request.to.clone(),
         applied,
-        unsupported: false,
         conflicts,
         edits,
         others,

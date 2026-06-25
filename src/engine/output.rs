@@ -187,7 +187,6 @@ pub(crate) struct RenameOutput {
     pub(crate) old_name: String,
     pub(crate) new_name: String,
     pub(crate) applied: bool,
-    pub(crate) unsupported: bool,
     pub(crate) conflicts: Vec<RenameConflict>,
     pub(crate) edits: Vec<RenameEdit>,
     /// Additional files edited when `--workspace` expands the rename. The
