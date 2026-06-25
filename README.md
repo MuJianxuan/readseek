@@ -53,7 +53,3 @@ information.
 
 The upstream `@jarkkojs/readseek` packages are licensed separately as
 `Apache-2.0 AND LGPL-2.1-or-later`.
-
-`readseek` is originally derived from the source code of
-[`pi-hashline-readmap`](https://github.com/coctostan/pi-hashline-readmap).
-The relevant copyrights have been retained in [LICENSE](LICENSE).
