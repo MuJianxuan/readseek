@@ -116,13 +116,19 @@ fn locations_in_path(
     let Some(source) = read_source_containing(path, search_name, language) else {
         return Ok(Vec::new());
     };
-    let mut definitions = macro_locations(&source, search_name);
+    let qualified = name != search_name;
+    let mut definitions = if qualified {
+        Vec::new()
+    } else {
+        macro_locations(&source, search_name)
+    };
 
     let Ok(source_map) = source_map_with_dir(&source, readseek_dir) else {
         return Ok(definitions);
     };
     for symbol in source_map.symbols {
-        if symbol.qualified_name != name && symbol.name != search_name && symbol.name != name {
+        let matched = symbol.qualified_name == name || (!qualified && symbol.name == search_name);
+        if !matched {
             continue;
         }
         let line = source
