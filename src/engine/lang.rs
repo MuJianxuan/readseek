@@ -6,7 +6,7 @@ use serde::{Serialize, Serializer};
 use std::path::Path;
 use std::sync::OnceLock;
 use strum_macros::{Display, EnumString, FromRepr};
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Display, EnumString, Eq, FromRepr, PartialEq)]
@@ -521,19 +521,19 @@ impl Serialize for Language {
     }
 }
 
-pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Option<String>)> {
+pub(crate) fn detect_language(path: &Path, text: &str) -> (Language, Option<String>) {
     if let Some(language) = detect_by_path(path) {
-        return Ok((language, None));
+        return (language, None);
     }
 
     // Shebang detection
     if let Some(line) = text.lines().next() {
         if line.starts_with("#!") {
             if line.contains("python") {
-                return Ok((Language::Python, None));
+                return (Language::Python, None);
             }
             if line.contains("node") {
-                return Ok((Language::JavaScript, None));
+                return (Language::JavaScript, None);
             }
         }
     }
@@ -542,15 +542,13 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
         static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
         SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
     };
-    let syntax = syntax_set
-        .find_syntax_for_file(path)
-        .with_context(|| format!("detect syntax for {}", path.display()))?;
+    let syntax = detect_syntax(syntax_set, path, text);
 
     let Some(syntax) = syntax else {
-        return Ok((Language::Unknown, None));
+        return (Language::Unknown, None);
     };
 
-    Ok((
+    (
         LANGUAGE_SPECS
             .iter()
             .find_map(|spec| {
@@ -560,7 +558,26 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> Result<(Language, Opti
             })
             .unwrap_or(Language::Unknown),
         Some(syntax.name.clone()),
-    ))
+    )
+}
+
+fn detect_syntax<'a>(
+    syntax_set: &'a SyntaxSet,
+    path: &Path,
+    text: &str,
+) -> Option<&'a SyntaxReference> {
+    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+        if let Some(syntax) = syntax_set.find_syntax_by_extension(name) {
+            return Some(syntax);
+        }
+    }
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
+        if let Some(syntax) = syntax_set.find_syntax_by_extension(ext) {
+            return Some(syntax);
+        }
+    }
+    let first_line = text.lines().next().unwrap_or("");
+    syntax_set.find_syntax_by_first_line(first_line)
 }
 
 pub(crate) fn detect_by_path(path: &Path) -> Option<Language> {

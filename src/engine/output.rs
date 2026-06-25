@@ -305,7 +305,13 @@ pub(crate) fn load_source_for_input(
         io::stdin()
             .read_to_string(&mut text)
             .context("read stdin")?;
-        return source_from_text(stdin_path, text, override_language, false, None);
+        return Ok(source_from_text(
+            stdin_path,
+            text,
+            override_language,
+            false,
+            None,
+        ));
     }
     load_source(path, override_language, binary_mode)
 }

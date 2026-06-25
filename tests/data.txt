@@ -4,6 +4,8 @@
 
 name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | language=rust | supported=true | binary=false
 name=file stdin path | stdin=class BufferGreeter {}\n | args=detect --stdin buffer.ts | file=buffer.ts | language=typescript | binary=false
+name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect --stdin buffer | file=buffer | language=bash | supported=true | binary=false
+name=detect stdin extensionless with override | stdin=fn main() {}\n | args=detect --stdin buffer --language rust | file=buffer | language=rust | supported=true | binary=false
 name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | language=html | supported=true
 name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | language=xml | supported=true
 name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | language=json | supported=true

@@ -74,7 +74,7 @@ fn scoped_output(request: &Request) -> Result<RefsOutput> {
     let bytes =
         fs::read(&request.target).with_context(|| format!("read {}", request.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
-    let source = source_from_text(&request.target, text, request.language, false, None)?;
+    let source = source_from_text(&request.target, text, request.language, false, None);
     let cursor_byte = source.cursor_byte(line, column)?;
     let binding = crate::engine::binding::resolve(&source, cursor_byte).with_context(|| {
         format!(

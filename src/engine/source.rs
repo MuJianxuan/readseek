@@ -131,13 +131,13 @@ pub(crate) fn load_source(
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
     let document = load_document(path, binary_mode)?;
-    source_from_text(
+    Ok(source_from_text(
         path,
         document.text,
         language,
         document.binary,
         document.mime,
-    )
+    ))
 }
 
 /// Load `path` as a source file, but only when it contains `name` as a whole
@@ -156,7 +156,7 @@ pub(crate) fn read_source_containing(
         return None;
     }
     let text = String::from_utf8(bytes).ok()?;
-    source_from_text(path, text, language, false, None).ok()
+    Some(source_from_text(path, text, language, false, None))
 }
 
 pub(crate) fn load_indexable_source(
@@ -171,7 +171,7 @@ pub(crate) fn load_indexable_source(
     let Ok(text) = String::from_utf8(bytes) else {
         return Ok(None);
     };
-    source_from_text(path, text, language, false, mime).map(Some)
+    Ok(Some(source_from_text(path, text, language, false, mime)))
 }
 
 pub(crate) fn source_from_text(
@@ -180,13 +180,13 @@ pub(crate) fn source_from_text(
     language: Option<Language>,
     binary: bool,
     mime: Option<String>,
-) -> Result<SourceFile> {
+) -> SourceFile {
     let text = normalize_source_text(text);
     let path_language = detect_by_path(path);
     let (detected_language, syntax) = if binary && language.is_none() && path_language.is_none() {
         (Language::Unknown, None)
     } else {
-        detect_language(path, &text)?
+        detect_language(path, &text)
     };
     let language = language.unwrap_or(detected_language);
     let engine = language_spec(language).and_then(|spec| spec.engine);
@@ -208,7 +208,7 @@ pub(crate) fn source_from_text(
         });
     }
 
-    Ok(SourceFile {
+    SourceFile {
         path: path.to_path_buf(),
         text,
         kind,
@@ -224,7 +224,7 @@ pub(crate) fn source_from_text(
         lines,
         line_starts,
         file_hash,
-    })
+    }
 }
 
 fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument> {
