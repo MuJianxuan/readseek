@@ -573,10 +573,11 @@ pub(crate) fn detect_by_path(path: &Path) -> Option<Language> {
                 .then_some(spec.language)
         })
         .or_else(|| {
-            let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+            let extension = path.extension()?.to_str()?;
             LANGUAGE_SPECS.iter().find_map(|spec| {
                 spec.extensions
-                    .contains(&extension.as_str())
+                    .iter()
+                    .any(|&ext| ext.eq_ignore_ascii_case(extension))
                     .then_some(spec.language)
             })
         })
