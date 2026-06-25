@@ -93,7 +93,6 @@ export interface WriteResult extends WriteDiffFields {
   };
 }
 
-
 async function readPreviousTextForDiff(filePath: string): Promise<string> {
   try {
     if (!existsSync(filePath)) return "";
@@ -242,7 +241,6 @@ export async function executeWrite(opts: {
     err.__phase = "write";
     throw err;
   }
-
 
   // Binary detection
   if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
