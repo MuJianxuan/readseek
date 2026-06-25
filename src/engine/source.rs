@@ -71,6 +71,9 @@ impl SourceFile {
 
     /// One-based `(line, column)` of `byte`, with `column` measured in bytes.
     pub(crate) fn line_column(&self, byte: usize) -> (usize, usize) {
+        if self.line_starts.is_empty() {
+            return (1, 1);
+        }
         let index = self.line_index(byte);
         let number = self.lines.get(index).map_or(1, |line| line.number);
         (number, byte - self.line_starts[index] + 1)
