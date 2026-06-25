@@ -62,21 +62,20 @@ pub(crate) fn search_file(
 
     let owned_pattern_tree;
     let pattern_tree_ref = if let Some(pre_parsed) = &pattern.tree {
-        if pattern_tree_has_error(pre_parsed) {
-            bail!("pattern is not valid {} syntax", detected_language.id());
-        }
         pre_parsed
     } else {
         owned_pattern_tree = parser
             .parse(&pattern.text, None)
             .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
-        if pattern_tree_has_error(&owned_pattern_tree) {
-            bail!("pattern is not valid {} syntax", detected_language.id());
-        }
         &owned_pattern_tree
     };
-    if pattern_tree_ref.root_node().named_child_count() == 0 {
-        bail!("pattern is not valid {} syntax", detected_language.id());
+    if pattern_tree_has_error(pattern_tree_ref)
+        || pattern_tree_ref.root_node().named_child_count() == 0
+    {
+        if override_language.is_some() {
+            bail!("pattern is not valid {} syntax", detected_language.id());
+        }
+        return Ok(None);
     }
     let pattern_root = if pattern_tree_ref.root_node().named_child_count() == 1 {
         pattern_tree_ref.root_node().named_child(0)
