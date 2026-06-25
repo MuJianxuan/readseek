@@ -413,7 +413,14 @@ pub(crate) fn store_map(
         checksum: U32::new(0),
     };
 
-    let total_size = HEADER_SIZE + entries.len() * SYM_ENTRY_SIZE + strtab.len();
+    let sym_total = entries
+        .len()
+        .checked_mul(SYM_ENTRY_SIZE)
+        .context("symbol table size overflow")?;
+    let total_size = HEADER_SIZE
+        .checked_add(sym_total)
+        .and_then(|size| size.checked_add(strtab.len()))
+        .context("map size overflow")?;
     let mut buf = Vec::with_capacity(total_size);
     buf.extend_from_slice(header.as_bytes());
     for entry in &entries {
