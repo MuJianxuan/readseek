@@ -169,13 +169,37 @@ pub(crate) fn identifier_spans<'a>(
     text: &'a [u8],
     identifier: &'a [u8],
 ) -> impl Iterator<Item = usize> + 'a {
-    memchr::memmem::find_iter(text, identifier).filter(|&byte_index| {
-        let before = byte_index.checked_sub(1).map(|i| text[i]);
-        let after = text.get(byte_index + identifier.len()).copied();
-        !identifier.is_empty()
-            && !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-            && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-    })
+    IdentifierSpans {
+        text,
+        identifier,
+        inner: memchr::memmem::find_iter(text, identifier),
+    }
+}
+
+struct IdentifierSpans<'a> {
+    text: &'a [u8],
+    identifier: &'a [u8],
+    inner: memchr::memmem::FindIter<'a, 'a>,
+}
+
+impl Iterator for IdentifierSpans<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.identifier.is_empty() {
+            return None;
+        }
+        loop {
+            let byte_index = self.inner.next()?;
+            let before = byte_index.checked_sub(1).map(|i| self.text[i]);
+            let after = self.text.get(byte_index + self.identifier.len()).copied();
+            if !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+                && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                return Some(byte_index);
+            }
+        }
+    }
 }
 
 fn output_root_for_scope(target: &Path, scope: &Path) -> Result<PathBuf> {
