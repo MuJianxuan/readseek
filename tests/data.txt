@@ -97,6 +97,8 @@ name=refs invalid identifier | path=refs-invalid.rs | content=fn main() {}\n | a
 name=refs scope column out of range | path=refs-column.rs | content=fn main() {\n    let value = 1;\n}\n | args=refs %s value --scope --line 1 --column 15 --language rust | status=1 | stderr=exceeds maximum column
 name=refs python scope binding | path=refs-scope.py | content=def g(items):\n    total = 0\n    for n in items:\n        total += n\n    return total\n | args=refs %s total --scope --line 2 --column 5 --language python | references.len=3 | references.0.line=2 | references.0.occurrence=definition | references.2.line=5
 
+name=refs vimscript scope binding | path=refs-scope.vim | content=let val = 1\nfunction! Test() abort\n  let val = 2\n  echo val\nendfunction\necho val\n | args=refs %s val --scope --line 1 --column 5 --language vimscript | references.len=2 | references.0.line=1 | references.0.occurrence=definition | references.1.line=6 | references.1.occurrence=reference
+
 # rename
 
 name=rename local binding | path=rename.rs | content=fn main() {\n    let value = 1;\n    println!("{}", value);\n}\n | args=rename %s --line 2 --column 9 --to renamed --language rust | old_name=value | new_name=renamed | applied=false | unsupported=false | conflicts.len=0 | edits.len=2 | edits.0.occurrence=definition | edits.0.start_column=9 | edits.1.occurrence=reference | edits.1.line=3
