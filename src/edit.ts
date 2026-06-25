@@ -1,4 +1,4 @@
-import { readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
+import { readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
 
 import { createPatch } from "diff";
 import { withFileMutationQueue, type ExtensionAPI, type EditToolDetails, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
