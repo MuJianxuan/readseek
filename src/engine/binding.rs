@@ -1052,7 +1052,7 @@ fn vimscript_declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node<
 }
 
 /// Descend a Vimscript `scoped_identifier` (e.g. `l:count`) to its name.
-fn vimscript_scoped_ident<'tree>(node: Node<'tree>) -> Option<Node<'tree>> {
+fn vimscript_scoped_ident(node: Node<'_>) -> Option<Node<'_>> {
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .find(|child| child.kind() == "identifier")
