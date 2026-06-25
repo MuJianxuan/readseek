@@ -589,17 +589,17 @@ pub(crate) fn language_spec(language: Language) -> Option<&'static LanguageSpec>
 
 pub(crate) fn extract_plain_text(
     path: &Path,
-    bytes: &[u8],
+    bytes: Vec<u8>,
     binary_mode: BinaryMode,
 ) -> Result<String> {
-    let text = if binary_mode == BinaryMode::Lossy {
-        String::from_utf8_lossy(bytes).into_owned()
-    } else {
-        String::from_utf8(bytes.to_vec())
-            .with_context(|| format!("{} is not UTF-8 text", path.display()))?
-    };
-
-    Ok(text)
+    match binary_mode {
+        BinaryMode::Lossy => match String::from_utf8(bytes) {
+            Ok(text) => Ok(text),
+            Err(error) => Ok(String::from_utf8_lossy(error.as_bytes()).into_owned()),
+        },
+        BinaryMode::Reject => String::from_utf8(bytes)
+            .with_context(|| format!("{} is not UTF-8 text", path.display())),
+    }
 }
 
 pub(crate) fn normalize_source_text(mut text: String) -> String {

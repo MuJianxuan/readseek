@@ -240,7 +240,7 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         );
     }
 
-    let text = extract_plain_text(path, &bytes, binary_mode)
+    let text = extract_plain_text(path, bytes, binary_mode)
         .with_context(|| format!("extract from {}", path.display()))?;
 
     Ok(LoadedDocument { text, binary, mime })
