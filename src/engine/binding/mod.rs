@@ -420,8 +420,6 @@ enum Resolution {
 
 /// Per-language description of scopes and the identifiers that introduce bindings.
 struct BindingTable {
-    /// Languages this table applies to.
-    languages: &'static [Language],
     /// Node kinds that open a new lexical scope.
     scope_kinds: &'static [&'static str],
     /// Scope kinds whose declarations are visible only to their own direct body,
@@ -461,115 +459,113 @@ fn never_binds_past(_node: Node<'_>, _scope_kind: &str) -> bool {
 }
 
 fn binding_table(language: Language) -> Option<&'static BindingTable> {
-    BINDING_TABLES
-        .iter()
-        .find(|table| table.languages.contains(&language))
+    match language {
+        Language::Rust => Some(&RUST_TABLE),
+        Language::C | Language::Cpp => Some(&CPP_TABLE),
+        Language::Python => Some(&PYTHON_TABLE),
+        Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
+            Some(&TYPESCRIPT_TABLE)
+        }
+        Language::Vimscript => Some(&VIMSCRIPT_TABLE),
+        _ => None,
+    }
 }
 
-/// All per-language binding tables, stored in read-only data.
-static BINDING_TABLES: &[BindingTable] = &[
-    BindingTable {
-        languages: &[Language::Rust],
-        scope_kinds: &[
-            "block",
-            "function_item",
-            "closure_expression",
-            "match_arm",
-            "for_expression",
-            "while_let_expression",
-            "if_let_expression",
-        ],
-        class_scope_kinds: &[],
-        identifier_kinds: &["identifier"],
-        declared_idents: rust::declared_idents,
-        resolution: Resolution::Lexical,
-        is_reference: any_reference,
-        escapes_scope: never_escapes,
-        binds_past: never_binds_past,
-    },
-    BindingTable {
-        languages: &[Language::C, Language::Cpp],
-        scope_kinds: &[
-            "compound_statement",
-            "function_definition",
-            "for_statement",
-            "for_range_loop",
-            "lambda_expression",
-        ],
-        class_scope_kinds: &[],
-        identifier_kinds: &["identifier"],
-        declared_idents: cpp::declared_idents,
-        resolution: Resolution::Lexical,
-        is_reference: any_reference,
-        escapes_scope: never_escapes,
-        binds_past: never_binds_past,
-    },
-    BindingTable {
-        languages: &[Language::Python],
-        scope_kinds: &[
-            "function_definition",
-            "lambda",
-            "class_definition",
-            "list_comprehension",
-            "set_comprehension",
-            "dictionary_comprehension",
-            "generator_expression",
-        ],
-        class_scope_kinds: &["class_definition"],
-        identifier_kinds: &["identifier"],
-        declared_idents: python::declared_idents,
-        resolution: Resolution::Hoisted,
-        is_reference: python::is_reference,
-        escapes_scope: python::escapes_scope,
-        binds_past: python::binds_past,
-    },
-    BindingTable {
-        languages: &[
-            Language::TypeScript,
-            Language::Tsx,
-            Language::JavaScript,
-            Language::Jsx,
-        ],
-        scope_kinds: &[
-            "statement_block",
-            "function_declaration",
-            "function_expression",
-            "generator_function_declaration",
-            "arrow_function",
-            "method_definition",
-            "class_declaration",
-            "for_statement",
-            "for_in_statement",
-            "catch_clause",
-        ],
-        class_scope_kinds: &["class_declaration"],
-        identifier_kinds: &[
-            "identifier",
-            "shorthand_property_identifier",
-            "shorthand_property_identifier_pattern",
-        ],
-        declared_idents: typescript::declared_idents,
-        resolution: Resolution::Lexical,
-        is_reference: typescript::is_reference,
-        escapes_scope: typescript::is_hoisted_name,
-        binds_past: never_binds_past,
-    },
-    BindingTable {
-        languages: &[Language::Vimscript],
-        scope_kinds: &[
-            "function_definition",
-            "lambda_expression",
-            "if_statement",
-            "while_loop",
-            "for_loop",
-            "try_statement",
-        ],
-        class_scope_kinds: &[],
-        identifier_kinds: &["identifier", "name"],
-        declared_idents: vimscript::declared_idents,
-        resolution: Resolution::Lexical,
-        is_reference: vimscript::is_reference,
-        escapes_scope: vimscript::escapes_scope,
-        binds_past: never_binds_past,
-    },
-];
+static RUST_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "block",
+        "function_item",
+        "closure_expression",
+        "match_arm",
+        "for_expression",
+        "while_let_expression",
+        "if_let_expression",
+    ],
+    class_scope_kinds: &[],
+    identifier_kinds: &["identifier"],
+    declared_idents: rust::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: any_reference,
+    escapes_scope: never_escapes,
+    binds_past: never_binds_past,
+};
+
+static CPP_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "compound_statement",
+        "function_definition",
+        "for_statement",
+        "for_range_loop",
+        "lambda_expression",
+    ],
+    class_scope_kinds: &[],
+    identifier_kinds: &["identifier"],
+    declared_idents: cpp::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: any_reference,
+    escapes_scope: never_escapes,
+    binds_past: never_binds_past,
+};
+
+static PYTHON_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "function_definition",
+        "lambda",
+        "class_definition",
+        "list_comprehension",
+        "set_comprehension",
+        "dictionary_comprehension",
+        "generator_expression",
+    ],
+    class_scope_kinds: &["class_definition"],
+    identifier_kinds: &["identifier"],
+    declared_idents: python::declared_idents,
+    resolution: Resolution::Hoisted,
+    is_reference: python::is_reference,
+    escapes_scope: python::escapes_scope,
+    binds_past: python::binds_past,
+};
+
+static TYPESCRIPT_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "statement_block",
+        "function_declaration",
+        "function_expression",
+        "generator_function_declaration",
+        "arrow_function",
+        "method_definition",
+        "class_declaration",
+        "for_statement",
+        "for_in_statement",
+        "catch_clause",
+    ],
+    class_scope_kinds: &["class_declaration"],
+    identifier_kinds: &[
+        "identifier",
+        "shorthand_property_identifier",
+        "shorthand_property_identifier_pattern",
+    ],
+    declared_idents: typescript::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: typescript::is_reference,
+    escapes_scope: typescript::is_hoisted_name,
+    binds_past: never_binds_past,
+};
+
+static VIMSCRIPT_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "function_definition",
+        "lambda_expression",
+        "if_statement",
+        "while_loop",
+        "for_loop",
+        "try_statement",
+    ],
+    class_scope_kinds: &[],
+    identifier_kinds: &["identifier", "name"],
+    declared_idents: vimscript::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: vimscript::is_reference,
+    escapes_scope: vimscript::escapes_scope,
+    binds_past: never_binds_past,
+};
