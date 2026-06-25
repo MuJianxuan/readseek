@@ -187,9 +187,6 @@ fn symbol_for_node(
     parent: Option<&str>,
     lines: &[SourceLine],
 ) -> Option<Symbol> {
-    if !language_spec(language).is_some_and(|s| s.has_symbols) {
-        return None;
-    }
     let (kind, name) = match language {
         Language::Rust => rust_symbol(node, source),
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
