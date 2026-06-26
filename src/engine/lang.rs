@@ -503,6 +503,7 @@ pub(crate) const LANGUAGE_SPECS: &[LanguageSpec] = &[
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryMode {
     Reject,
+    Detect,
     Lossy,
 }
 
@@ -614,7 +615,7 @@ pub(crate) fn extract_plain_text(
             Ok(text) => Ok(text),
             Err(error) => Ok(String::from_utf8_lossy(error.as_bytes()).into_owned()),
         },
-        BinaryMode::Reject => String::from_utf8(bytes)
+        BinaryMode::Reject | BinaryMode::Detect => String::from_utf8(bytes)
             .with_context(|| format!("{} is not UTF-8 text", path.display())),
     }
 }

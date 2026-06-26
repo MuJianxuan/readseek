@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::flags::GitFlags;
+use crate::engine::image::ImageFormat;
 use crate::engine::lang::{LANGUAGE_SPECS, Language};
 use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
@@ -36,6 +37,7 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     Detect(DetectCommand),
     Read(ReadCommand),
+    Image(ImageCommand),
     Map(MapCommand),
     Check(CheckCommand),
     Symbol(SymbolCommand),
@@ -93,6 +95,37 @@ pub(crate) struct ReadCommand {
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
+}
+
+/// emit an attachment-ready descriptor for an image file
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "image")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct ImageCommand {
+    /// path to an image file
+    #[argh(positional)]
+    pub(crate) target: PathBuf,
+
+    /// downscale so the longer side is at most this many pixels
+    #[argh(option)]
+    pub(crate) max_dim: Option<u32>,
+
+    /// downscale until the payload is at most this many bytes
+    #[argh(option)]
+    pub(crate) max_bytes: Option<usize>,
+
+    /// re-encode to this format (png or jpeg)
+    #[argh(option, from_str_fn(parse_image_format))]
+    pub(crate) format: Option<ImageFormat>,
+
+    /// extract text with OCR (requires a build with the ocr feature)
+    #[argh(switch)]
+    pub(crate) ocr: bool,
+
+    /// directory holding OCR models (text-detection.rten, text-recognition.rten)
+    #[cfg_attr(not(feature = "ocr"), allow(dead_code))]
+    #[argh(option)]
+    pub(crate) ocr_models: Option<PathBuf>,
 }
 
 /// map a file to symbols
@@ -380,6 +413,16 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
                 .then_some(spec.language)
         })
         .ok_or_else(|| format!("unknown language `{value}`"))
+}
+
+pub(crate) fn parse_image_format(value: &str) -> std::result::Result<ImageFormat, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "png" => Ok(ImageFormat::Png),
+        "jpeg" | "jpg" => Ok(ImageFormat::Jpeg),
+        other => Err(format!(
+            "unsupported --format `{other}`: expected png or jpeg"
+        )),
+    }
 }
 
 pub(crate) fn parse_target(value: &str) -> Result<Target> {

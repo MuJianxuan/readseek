@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::hash::{LineHash, hash_line, hash_text};
+use crate::engine::image::ImageInfo;
 use crate::engine::lang::{
     AnalysisEngine, BinaryMode, DocumentKind, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text, serialize_engine,
@@ -23,6 +24,7 @@ pub(crate) struct Detection {
     pub(crate) binary: bool,
     pub(crate) mime: Option<String>,
     pub(crate) syntax: Option<String>,
+    pub(crate) image: Option<ImageInfo>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,6 +101,7 @@ struct LoadedDocument {
     text: String,
     binary: bool,
     mime: Option<String>,
+    image: Option<ImageInfo>,
 }
 
 #[derive(Debug)]
@@ -134,13 +137,15 @@ pub(crate) fn load_source(
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
     let document = load_document(path, binary_mode)?;
-    Ok(source_from_text(
+    let mut source = source_from_text(
         path,
         document.text,
         language,
         document.binary,
         document.mime,
-    ))
+    );
+    source.detection.image = document.image;
+    Ok(source)
 }
 
 /// Load `path` as a source file, but only when it contains `name` as a whole
@@ -223,6 +228,7 @@ pub(crate) fn source_from_text(
             binary,
             mime,
             syntax,
+            image: None,
         },
         lines,
         line_starts,
@@ -234,6 +240,11 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
     let binary = is_binary_document(&bytes, mime.as_deref());
+    let image = if binary {
+        crate::engine::image::probe(&bytes)
+    } else {
+        None
+    };
 
     if binary && binary_mode == BinaryMode::Reject {
         bail!(
@@ -243,10 +254,19 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         );
     }
 
-    let text = extract_plain_text(path, bytes, binary_mode)
-        .with_context(|| format!("extract from {}", path.display()))?;
+    let text = if binary && binary_mode == BinaryMode::Detect {
+        String::new()
+    } else {
+        extract_plain_text(path, bytes, binary_mode)
+            .with_context(|| format!("extract from {}", path.display()))?
+    };
 
-    Ok(LoadedDocument { text, binary, mime })
+    Ok(LoadedDocument {
+        text,
+        binary,
+        mime,
+        image,
+    })
 }
 
 fn is_binary_document(bytes: &[u8], mime: Option<&str>) -> bool {
