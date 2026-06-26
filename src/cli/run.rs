@@ -3,7 +3,6 @@
 
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
-use serde::Serialize;
 use std::path::Path;
 use tree_sitter::Parser;
 
@@ -61,7 +60,7 @@ impl cli::DetectCommand {
         )?;
         let mut detection = source.detection;
         self.apply_ocr(&target, &mut detection);
-        to_json(&detection)
+        Ok(serde_json::to_string(&detection)?)
     }
 
     fn apply_ocr(&self, target: &Target, detection: &mut crate::engine::source::Detection) {
@@ -117,7 +116,7 @@ impl cli::ReadCommand {
             self.end
         };
         let output = output::read_output(&source, start, end)?;
-        to_json(&output)
+        Ok(serde_json::to_string(&output)?)
     }
 }
 
@@ -129,7 +128,7 @@ impl cli::MapCommand {
             self.language,
             BinaryMode::Reject,
         )?;
-        to_json(&output::map_output(&source)?)
+        Ok(serde_json::to_string(&output::map_output(&source)?)?)
     }
 }
 
@@ -141,7 +140,7 @@ impl cli::CheckCommand {
             self.language,
             BinaryMode::Reject,
         )?;
-        to_json(&output::check_output(&source)?)
+        Ok(serde_json::to_string(&output::check_output(&source)?)?)
     }
 }
 
@@ -160,7 +159,7 @@ impl cli::SymbolCommand {
             (None, None) => bail!("symbol requires qualified name or target line/hash"),
         };
         let output = output::symbol_output(&source, address)?;
-        to_json(&output)
+        Ok(serde_json::to_string(&output)?)
     }
 }
 
@@ -174,7 +173,7 @@ impl cli::IdentifyCommand {
         )?;
         let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
         let output = output::identify_output(&source, target_line, self.column)?;
-        to_json(&output)
+        Ok(serde_json::to_string(&output)?)
     }
 }
 
@@ -194,8 +193,8 @@ impl cli::DefCommand {
         };
         let output = def::output(&request)?;
         match self.format {
-            output::Format::Plain => to_json(&def::compact(&output)),
-            output::Format::Json => to_json(&output),
+            output::Format::Plain => Ok(serde_json::to_string(&def::compact(&output))?),
+            output::Format::Json => Ok(serde_json::to_string(&output)?),
         }
     }
 }
@@ -214,8 +213,8 @@ impl cli::RefsCommand {
         };
         let output = refs::output(&request)?;
         match self.format {
-            output::Format::Plain => to_json(&refs::compact(&output)),
-            output::Format::Json => to_json(&output),
+            output::Format::Plain => Ok(serde_json::to_string(&refs::compact(&output))?),
+            output::Format::Json => Ok(serde_json::to_string(&output)?),
         }
     }
 }
@@ -233,7 +232,7 @@ impl cli::RenameCommand {
             language: self.language,
             flags,
         };
-        to_json(&rename::output(&request)?)
+        Ok(serde_json::to_string(&rename::output(&request)?)?)
     }
 }
 
@@ -259,7 +258,7 @@ impl cli::SearchCommand {
             .flatten()
             .collect();
 
-        to_json(&SearchOutput { results })
+        Ok(serde_json::to_string(&SearchOutput { results })?)
     }
 }
 
@@ -309,10 +308,6 @@ fn load_source(
     };
     let source = output::load_source_for_input(&target.path, stdin, language, binary_mode)?;
     Ok((target, source))
-}
-
-fn to_json(value: &impl Serialize) -> Result<String> {
-    Ok(serde_json::to_string_pretty(value)?)
 }
 
 fn write_output(json: &str, path: Option<&Path>) -> Result<()> {

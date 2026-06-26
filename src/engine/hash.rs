@@ -65,12 +65,7 @@ pub(crate) fn hash_line(text: &str) -> LineHash {
     LineHash(u16::try_from(digest).unwrap_or_default())
 }
 
-/// Compute a BLAKE3 content hash for raw bytes, rendered as hex.
-pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_string()
-}
-
 /// Compute a BLAKE3 content hash for the full source text.
 pub(crate) fn hash_text(text: &str) -> String {
-    hash_bytes(text.as_bytes())
+    blake3::hash(text.as_bytes()).to_string()
 }

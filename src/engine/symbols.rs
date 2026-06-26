@@ -440,7 +440,7 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "namespace_definition" => named_symbol(node, source, "name", "namespace"),
         "declaration" | "type_definition" => {
             let text = node.utf8_text(source.as_bytes()).ok()?;
-            if contains_word(text, "typedef") {
+            if bytes_contain_identifier(text.as_bytes(), b"typedef") {
                 node.child_by_field_name("declarator")
                     .and_then(|declarator| declarator_identifier(declarator, source))
                     .or_else(|| last_identifier(text))
@@ -538,10 +538,6 @@ fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
     }
 
     None
-}
-
-fn contains_word(text: &str, word: &str) -> bool {
-    bytes_contain_identifier(text.as_bytes(), word.as_bytes())
 }
 
 fn last_identifier(text: &str) -> Option<String> {

@@ -69,7 +69,7 @@ pub(crate) fn search_file(
             .ok_or_else(|| anyhow::anyhow!("tree-sitter pattern parse failed"))?;
         &owned_pattern_tree
     };
-    if pattern_tree_has_error(pattern_tree_ref)
+    if node_has_error(pattern_tree_ref.root_node())
         || pattern_tree_ref.root_node().named_child_count() == 0
     {
         if override_language.is_some() {
@@ -200,7 +200,7 @@ fn nodes_match<'a>(
     if let Some(meta) = pattern_meta(pattern, pattern_node) {
         if meta.kind == PatternMetaKind::Single {
             let (start_line, end_line) = symbols::node_line_range(source_node);
-            let Some(text) = node_text(source_node, &source.text) else {
+            let Some(text) = source_node.utf8_text(source.text.as_bytes()).ok() else {
                 return false;
             };
             return bind_capture(captures, &meta.name, text, start_line, end_line);
@@ -215,7 +215,8 @@ fn nodes_match<'a>(
     let pattern_children = named_children(pattern_node);
     let source_children = named_children(source_node);
     if pattern_children.is_empty() {
-        return node_text(pattern_node, &pattern.text) == node_text(source_node, &source.text);
+        return pattern_node.utf8_text(pattern.text.as_bytes()).ok()
+            == source_node.utf8_text(source.text.as_bytes()).ok();
     }
 
     child_nodes_match(
@@ -337,16 +338,8 @@ fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
 }
 
 fn pattern_meta<'a>(pattern: &'a SearchPattern, node: Node<'_>) -> Option<&'a PatternMeta> {
-    let text = node_text(node, &pattern.text)?;
+    let text = node.utf8_text(pattern.text.as_bytes()).ok()?;
     pattern.metas.iter().find(|meta| meta.placeholder == text)
-}
-
-fn node_text<'a>(node: Node<'_>, text: &'a str) -> Option<&'a str> {
-    node.utf8_text(text.as_bytes()).ok()
-}
-
-fn pattern_tree_has_error(tree: &Tree) -> bool {
-    node_has_error(tree.root_node())
 }
 
 fn node_has_error(node: Node<'_>) -> bool {
