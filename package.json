@@ -1,6 +1,6 @@
 {
   "name": "@jarkkojs/readseek",
-  "version": "0.4.15",
+  "version": "0.4.16",
   "description": "A structural read command",
   "license": "Apache-2.0 AND LGPL-2.1-or-later",
   "homepage": "https://github.com/jarkkojs/readseek#readme",
@@ -21,9 +21,9 @@
     "LICENSE-LGPL-2.1"
   ],
   "optionalDependencies": {
-    "@jarkkojs/readseek-darwin-arm64": "0.4.15",
-    "@jarkkojs/readseek-linux-x64": "0.4.15",
-    "@jarkkojs/readseek-win32-x64": "0.4.15"
+    "@jarkkojs/readseek-darwin-arm64": "0.4.16",
+    "@jarkkojs/readseek-linux-x64": "0.4.16",
+    "@jarkkojs/readseek-win32-x64": "0.4.16"
   },
   "publishConfig": {
     "access": "public"
