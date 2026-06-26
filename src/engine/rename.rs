@@ -299,6 +299,7 @@ fn apply_all(
     let mut written: Vec<(&Path, &str)> = Vec::new();
     for (path, original, new_text) in &writes {
         if let Err(error) = fs::write(path, new_text) {
+            let _ = fs::write(path, original);
             for (done_path, done_original) in &written {
                 let _ = fs::write(done_path, done_original);
             }
