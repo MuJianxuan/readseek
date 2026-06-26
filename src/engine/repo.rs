@@ -527,14 +527,15 @@ fn process_update_path(readseek_dir: &Path, path: &Path) -> Result<Option<Update
         return Ok(None);
     }
 
-    let (source_map, created) =
-        if let Some((source_map, _, _)) = load_map(readseek_dir, &source.file_hash)? {
-            (source_map, false)
-        } else {
-            let source_map = symbols::parse_source_map(&source)?;
-            store_map(readseek_dir, &source.file_hash, &source, &source_map)?;
-            (source_map, true)
-        };
+    let cached = load_map(readseek_dir, &source.file_hash)?
+        .filter(|(_, language, _)| *language == source.detection.language);
+    let (source_map, created) = if let Some((source_map, _, _)) = cached {
+        (source_map, false)
+    } else {
+        let source_map = symbols::parse_source_map(&source)?;
+        store_map(readseek_dir, &source.file_hash, &source, &source_map)?;
+        (source_map, true)
+    };
 
     let entries = source_map
         .symbols
