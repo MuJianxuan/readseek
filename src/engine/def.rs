@@ -5,7 +5,7 @@ use crate::engine::flags::GitFlags;
 use crate::engine::lang::Language;
 use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
 use crate::engine::paths::def_candidate_paths;
-use crate::engine::source::{SourceFile, Symbol, read_source_containing, source_map_with_dir};
+use crate::engine::source::{read_source_containing, source_map_with_dir};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -117,11 +117,7 @@ fn locations_in_path(
         return Ok(Vec::new());
     };
     let qualified = name != search_name;
-    let mut definitions = if qualified {
-        Vec::new()
-    } else {
-        macro_locations(&source, search_name)
-    };
+    let mut definitions = Vec::new();
 
     let Ok(source_map) = source_map_with_dir(&source, readseek_dir) else {
         return Ok(definitions);
@@ -165,56 +161,4 @@ pub(crate) fn compact(output: &DefOutput) -> CompactOutput {
             })
             .collect(),
     }
-}
-
-fn macro_locations(source: &SourceFile, name: &str) -> Vec<DefLocation> {
-    if !matches!(source.detection.language, Language::C | Language::Cpp) {
-        return Vec::new();
-    }
-
-    source
-        .lines
-        .iter()
-        .filter(|line| {
-            let Some(rest) = line.text.trim_start().strip_prefix("#define") else {
-                return false;
-            };
-            if !rest.starts_with(char::is_whitespace) {
-                return false;
-            }
-            let rest = rest.trim_start();
-            let name_len = rest
-                .find(|ch: char| !matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
-                .unwrap_or(rest.len());
-            name_len > 0 && &rest[..name_len] == name
-        })
-        .map(|line| {
-            let line_start = source.line_starts[line.number - 1];
-            let name_byte = line
-                .text
-                .find(name)
-                .map_or(line_start, |offset| line_start + offset);
-            let line_hash = line.hash();
-            DefLocation {
-                file: source.path.clone(),
-                language: source.detection.language,
-                engine: source.detection.engine,
-                file_hash: source.file_hash.clone(),
-                symbol: Symbol {
-                    kind: "macro".to_owned(),
-                    name: name.to_owned(),
-                    qualified_name: name.to_owned(),
-                    start_line: line.number,
-                    end_line: line.number,
-                    start_hash: line_hash,
-                    end_hash: line_hash,
-                    start_byte: line_start,
-                    end_byte: line_start + line.text.len(),
-                    name_byte,
-                },
-                line_hash,
-                text: line.text.clone(),
-            }
-        })
-        .collect()
 }
