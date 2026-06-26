@@ -2,10 +2,6 @@
  * Constants for thresholds.
  */
 export const THRESHOLDS = {
-  /** Maximum lines before truncation */
-  MAX_LINES: 2000,
-  /** Maximum bytes before truncation */
-  MAX_BYTES: 50 * 1024,
   /** Maximum map size in bytes */
   MAX_MAP_BYTES: 25 * 1024,
   /** Target size for full detail */

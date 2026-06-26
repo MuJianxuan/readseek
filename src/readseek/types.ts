@@ -47,13 +47,3 @@ export interface FileMap {
   /** Truncation metadata (present when symbols are truncated) */
   truncatedInfo?: TruncatedInfo;
 }
-
-/**
- * Language information.
- */
-export interface LanguageInfo {
-  /** Language identifier */
-  id: string;
-  /** Display name */
-  name: string;
-}
