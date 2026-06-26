@@ -22,7 +22,7 @@ const MAPS_DIR: &str = "maps";
 const DEF_INDEX_DIR: &str = "def-index";
 const SHARD_COUNT: u32 = 256;
 const MAGIC: [u8; 4] = *b"RSMP";
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 const HEADER_SIZE: usize = size_of::<Header>();
 const SYM_ENTRY_SIZE: usize = size_of::<SymEntry>();
@@ -62,9 +62,9 @@ struct SymEntry {
     name_byte: U32<LittleEndian>,
     kind_len: U16<LittleEndian>,
     name_len: U16<LittleEndian>,
+    qname_len: U16<LittleEndian>,
     start_hash: U16<LittleEndian>,
     end_hash: U16<LittleEndian>,
-    _reserved: [u8; 2],
 }
 
 const _: () = assert!(size_of::<Header>() == 64, "Header must be exactly 64 bytes");
@@ -272,19 +272,13 @@ pub(crate) fn load_map(
     let strtab = &data[strtab_start..strtab_end];
 
     let symbols = (0..sym_count)
-        .map(|i| parse_sym_entry(sym_bytes, strtab, i, sym_count, &path))
+        .map(|i| parse_sym_entry(sym_bytes, strtab, i, &path))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(Some((SourceMap { symbols }, language, engine)))
 }
 
-fn parse_sym_entry(
-    sym_bytes: &[u8],
-    strtab: &[u8],
-    i: usize,
-    sym_count: usize,
-    path: &Path,
-) -> Result<Symbol> {
+fn parse_sym_entry(sym_bytes: &[u8], strtab: &[u8], i: usize, path: &Path) -> Result<Symbol> {
     let start = i
         .checked_mul(SYM_ENTRY_SIZE)
         .context("symbol index overflow")?;
@@ -298,30 +292,7 @@ fn parse_sym_entry(
         .map_err(|e| anyhow::anyhow!("parse sym entry {i} of {}: {e}", path.display()))?;
     let kind = read_str(strtab, entry.kind_off.get(), entry.kind_len.get())?;
     let name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
-    let qname_end = if i + 1 < sym_count {
-        let next_start = (i + 1)
-            .checked_mul(SYM_ENTRY_SIZE)
-            .context("next symbol index overflow")?;
-        let next_end = next_start
-            .checked_add(SYM_ENTRY_SIZE)
-            .context("next symbol entry range overflow")?;
-        let next_bytes = sym_bytes.get(next_start..next_end).with_context(|| {
-            format!("symbol entry {} out of bounds in {}", i + 1, path.display())
-        })?;
-        let next = SymEntry::ref_from_bytes(next_bytes)
-            .map_err(|e| anyhow::anyhow!("parse sym entry {} of {}: {e}", i + 1, path.display()))?;
-        next.kind_off.get()
-    } else {
-        u32::try_from(strtab.len()).context("string table too large")?
-    };
-    let qname_len = qname_end
-        .checked_sub(entry.qname_off.get())
-        .context("qualified name offset is out of order")?;
-    let qualified_name = read_str(
-        strtab,
-        entry.qname_off.get(),
-        u16::try_from(qname_len).context("qualified name too long")?,
-    )?;
+    let qualified_name = read_str(strtab, entry.qname_off.get(), entry.qname_len.get())?;
     Ok(Symbol {
         kind: kind.to_owned(),
         name: name.to_owned(),
@@ -380,6 +351,8 @@ pub(crate) fn store_map(
         strtab.extend_from_slice(symbol.name.as_bytes());
 
         let qname_off = u32::try_from(strtab.len())?;
+        let qname_len = u16::try_from(symbol.qualified_name.len())
+            .with_context(|| format!("qualified name too long: {}", symbol.qualified_name.len()))?;
         strtab.extend_from_slice(symbol.qualified_name.as_bytes());
 
         entries.push(SymEntry {
@@ -393,9 +366,9 @@ pub(crate) fn store_map(
             name_byte: U32::new(u32::try_from(symbol.name_byte)?),
             kind_len: U16::new(kind_len),
             name_len: U16::new(name_len),
+            qname_len: U16::new(qname_len),
             start_hash: U16::new(symbol.start_hash.as_u16()),
             end_hash: U16::new(symbol.end_hash.as_u16()),
-            _reserved: [0u8; 2],
         });
     }
 
