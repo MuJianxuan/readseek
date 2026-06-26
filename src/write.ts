@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 
 import { resolveToCwd } from "./path-utils.js";
 import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
-import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
+import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, buildToolErrorResult, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { getOrGenerateMap } from "./map-cache.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
@@ -173,26 +173,11 @@ function mapFsWriteError(err: any, path: string): MappedFsError {
 
 function buildWriteFsErrorResult(err: any, absolutePath: string) {
   const mapped = mapFsWriteError(err, absolutePath);
-  return {
-    content: [{ type: "text" as const, text: mapped.message }],
-    isError: true,
-    details: {
-      readseekValue: {
-        tool: "write" as const,
-        path: absolutePath,
-        lines: [] as ReadSeekLine[],
-        warnings: [] as ReadSeekWarning[],
-        ok: false,
-        error: buildReadSeekError(
-          mapped.code,
-          mapped.message,
-          undefined,
-          mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
-        ),
-      },
-      warnings: [] as string[],
-    },
-  };
+  return buildToolErrorResult("write", mapped.code, mapped.message, {
+    path: absolutePath,
+    extra: { lines: [], warnings: [] },
+    details: mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
+  });
 }
 
 export async function executeWrite(opts: {
