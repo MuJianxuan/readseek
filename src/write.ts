@@ -222,6 +222,21 @@ export async function executeWrite(opts: {
       },
     };
   }
+  if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
+    warnings.push("File content appears to be binary.");
+    readseekWarnings.push(buildReadseekWarning("binary-content", "File content appears to be binary."));
+    return {
+      text: `Cannot write ${filePath}\n⚠️ File content appears to be binary — refusing to write.`,
+      warnings,
+      readseekValue: {
+        tool: "write",
+        path: filePath,
+        lines: [],
+        warnings: readseekWarnings,
+      },
+    };
+  }
+
   const previousContent = await readPreviousTextForDiff(filePath);
   const existedBeforeWrite = await access(filePath).then(() => true, () => false);
 
@@ -238,22 +253,6 @@ export async function executeWrite(opts: {
   } catch (err: any) {
     err.__phase = "write";
     throw err;
-  }
-
-  // Binary detection
-  if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
-    warnings.push("File content appears to be binary.");
-    readseekWarnings.push(buildReadseekWarning("binary-content", "File content appears to be binary."));
-    return {
-      text: `Wrote ${filePath}\n⚠️ File content appears to be binary — hashlines not generated.`,
-      warnings,
-      readseekValue: {
-        tool: "write",
-        path: filePath,
-        lines: [],
-        warnings: readseekWarnings,
-      },
-    };
   }
 
   // Compute hashlines
