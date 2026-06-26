@@ -117,10 +117,7 @@ pub(crate) fn output(request: &Request) -> Result<DefOutput> {
 /// canonical path equals the target (a file) or is nested under it (a
 /// directory). Entries that no longer canonicalize are dropped, so a stale
 /// index cannot return a deleted file.
-fn paths_in_scope(
-    entries: Vec<crate::engine::repo::DefIndexEntry>,
-    target: &Path,
-) -> Vec<PathBuf> {
+fn paths_in_scope(entries: Vec<crate::engine::repo::DefIndexEntry>, target: &Path) -> Vec<PathBuf> {
     let Ok(target) = target.canonicalize() else {
         return Vec::new();
     };
