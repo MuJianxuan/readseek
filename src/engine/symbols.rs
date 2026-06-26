@@ -4,6 +4,7 @@
 use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
 use crate::engine::output::{Diagnostic, DiagnosticKind};
+use crate::engine::paths::{bytes_contain_identifier, identifier_spans};
 use crate::engine::source::{SourceFile, SourceLine, SourceMap, Symbol};
 use anyhow::{Result, anyhow};
 use tree_sitter::{Node, Parser};
@@ -242,22 +243,9 @@ fn symbol_for_node(
 fn name_byte_in(node: Node<'_>, source: &str, name: &str) -> usize {
     let start = node.start_byte();
     let span = source.get(start..node.end_byte()).unwrap_or("");
-    let bytes = span.as_bytes();
-    let needle = name.as_bytes();
-    if needle.is_empty() {
-        return start;
-    }
-    for offset in memchr::memmem::find_iter(bytes, needle) {
-        let before = offset.checked_sub(1).map(|i| bytes[i]);
-        let after = bytes.get(offset + needle.len()).copied();
-        if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-            || after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
-            continue;
-        }
-        return start + offset;
-    }
-    start
+    identifier_spans(span.as_bytes(), name.as_bytes())
+        .next()
+        .map_or(start, |offset| start + offset)
 }
 
 /// A token resolved at a byte position via tree-sitter.
@@ -553,14 +541,7 @@ fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
 }
 
 fn contains_word(text: &str, word: &str) -> bool {
-    let bytes = text.as_bytes();
-    let needle = word.as_bytes();
-    memchr::memmem::find_iter(bytes, needle).any(|offset| {
-        let before = offset.checked_sub(1).map(|i| bytes[i]);
-        let after = bytes.get(offset + needle.len()).copied();
-        !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-            && !after.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-    })
+    bytes_contain_identifier(text.as_bytes(), word.as_bytes())
 }
 
 fn last_identifier(text: &str) -> Option<String> {
