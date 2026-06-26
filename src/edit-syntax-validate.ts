@@ -1,4 +1,4 @@
-import { readseekCheck, type ReadseekCheckOutput, type ReadseekDiagnostic } from "./readseek-client.js";
+import { readseekCheck, type ReadSeekCheckOutput, type ReadSeekDiagnostic } from "./readseek-client.js";
 
 export interface ValidateInput {
   filePath: string;
@@ -12,7 +12,7 @@ export interface ValidateResult {
   newMissingCount: number;
 }
 
-function dedupeSortLines(diagnostics: ReadseekDiagnostic[]): string[] {
+function dedupeSortLines(diagnostics: ReadSeekDiagnostic[]): string[] {
   const seen = new Set<string>();
   const out: Array<{ key: string; start: number }> = [];
   for (const diagnostic of diagnostics) {
@@ -29,7 +29,7 @@ function dedupeSortLines(diagnostics: ReadseekDiagnostic[]): string[] {
   return out.map((o) => o.key);
 }
 
-const EMPTY: ReadseekCheckOutput = { errorCount: 0, missingCount: 0, diagnostics: [] };
+const EMPTY: ReadSeekCheckOutput = { errorCount: 0, missingCount: 0, diagnostics: [] };
 
 /**
  * Compare parse diagnostics between `before` and `after` and report any newly
@@ -42,8 +42,8 @@ const EMPTY: ReadseekCheckOutput = { errorCount: 0, missingCount: 0, diagnostics
 export async function validateSyntaxRegression(
   input: ValidateInput,
 ): Promise<ValidateResult | null> {
-  let before: ReadseekCheckOutput;
-  let after: ReadseekCheckOutput;
+  let before: ReadSeekCheckOutput;
+  let after: ReadSeekCheckOutput;
   try {
     before = input.before === undefined ? EMPTY : await readseekCheck(input.filePath, input.before);
     after = await readseekCheck(input.filePath, input.after);

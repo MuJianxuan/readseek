@@ -1,5 +1,5 @@
 import { countEditTypes, parseDiffStats } from "./edit-render-helpers.js";
-import { buildReadseekEditResult, type SemanticSummary } from "./readseek-value.js";
+import { buildReadSeekEditResult, type SemanticSummary } from "./readseek-value.js";
 
 import type { DiffData } from "./diff-data.js";
 export interface BuildEditOutputInput {
@@ -17,7 +17,7 @@ export interface BuildEditOutputInput {
 export interface EditOutputResult {
   text: string;
   patch: string;
-  readseekValue: ReturnType<typeof buildReadseekEditResult>;
+  readseekValue: ReturnType<typeof buildReadSeekEditResult>;
 }
 
 const EDIT_OPERATION_NAMES = ["set_line", "replace_lines", "insert_after", "replace"] as const;
@@ -105,7 +105,7 @@ export function buildEditOutput(input: BuildEditOutputInput): EditOutputResult {
   return {
     text,
     patch: input.patch ?? "",
-    readseekValue: buildReadseekEditResult({
+    readseekValue: buildReadSeekEditResult({
       path: input.path,
       summary,
       diff: input.diff,

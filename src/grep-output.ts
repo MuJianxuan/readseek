@@ -1,16 +1,16 @@
-import type { ReadseekLine, ReadseekWarning } from "./readseek-value.js";
+import type { ReadSeekLine, ReadSeekWarning } from "./readseek-value.js";
 import {
   formatSize,
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { resolveGrepOutputBudget } from "./grep-budget.js";
 
-export interface GrepOutputRecord extends ReadseekLine {
+export interface GrepOutputRecord extends ReadSeekLine {
   path: string;
   kind: "match" | "context";
 }
 
-export interface GrepOutputReadseekRecord {
+export interface GrepOutputReadSeekRecord {
   path: string;
   line: number;
   anchor: string;
@@ -18,7 +18,7 @@ export interface GrepOutputReadseekRecord {
 }
 
 export type GrepOutputEntry =
-  | { kind: "match" | "context"; line: ReadseekLine }
+  | { kind: "match" | "context"; line: ReadSeekLine }
   | { kind: "separator"; text: string };
 
 export interface GrepOutputScopeSymbol {
@@ -29,7 +29,7 @@ export interface GrepOutputScopeSymbol {
   parentName?: string;
 }
 
-export interface GrepScopeWarning extends ReadseekWarning {
+export interface GrepScopeWarning extends ReadSeekWarning {
   path?: string;
   line?: number;
 }
@@ -72,7 +72,7 @@ export interface GrepOutputResult {
     tool: "grep";
     summary: boolean;
     totalMatches: number;
-    records: GrepOutputReadseekRecord[];
+    records: GrepOutputReadSeekRecord[];
     scopes?: {
       mode: "symbol";
       groups: Array<{

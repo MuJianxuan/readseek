@@ -2,20 +2,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export interface ReadseekJsonSettings {
+export interface ReadSeekJsonSettings {
   grep?: { maxLines?: number; maxBytes?: number };
   edit?: { diffDisplay?: "collapsed" | "expanded" };
 }
 
-export interface ReadseekSettingsWarning {
+export interface ReadSeekSettingsWarning {
   source: string;
   message: string;
   path?: string;
 }
 
-export interface ReadseekSettingsResult {
-  settings: ReadseekJsonSettings;
-  warnings: ReadseekSettingsWarning[];
+export interface ReadSeekSettingsResult {
+  settings: ReadSeekJsonSettings;
+  warnings: ReadSeekSettingsWarning[];
 }
 
 
@@ -31,7 +31,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function invalid(source: string, path: string): ReadseekSettingsWarning {
+function invalid(source: string, path: string): ReadSeekSettingsWarning {
   return { source, path, message: `Invalid readseek setting at ${path}` };
 }
 
@@ -40,7 +40,7 @@ function readPositive(
   key: string,
   path: string,
   source: string,
-  warnings: ReadseekSettingsWarning[],
+  warnings: ReadSeekSettingsWarning[],
 ): number | undefined {
   if (!(key in raw)) return undefined;
   const val = raw[key];
@@ -50,13 +50,13 @@ function readPositive(
 }
 
 
-function validateSettings(raw: unknown, source: string): ReadseekSettingsResult {
-  const settings: ReadseekJsonSettings = {};
-  const warnings: ReadseekSettingsWarning[] = [];
+function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult {
+  const settings: ReadSeekJsonSettings = {};
+  const warnings: ReadSeekSettingsWarning[] = [];
   if (!isRecord(raw)) return { settings, warnings };
 
   if (isRecord(raw.grep)) {
-    const grep: NonNullable<ReadseekJsonSettings["grep"]> = {};
+    const grep: NonNullable<ReadSeekJsonSettings["grep"]> = {};
     const maxLines = readPositive(raw.grep, "maxLines", "grep.maxLines", source, warnings);
     if (maxLines !== undefined) grep.maxLines = maxLines;
     const maxBytes = readPositive(raw.grep, "maxBytes", "grep.maxBytes", source, warnings);
@@ -66,7 +66,7 @@ function validateSettings(raw: unknown, source: string): ReadseekSettingsResult 
 
 
   if (isRecord(raw.edit)) {
-    const edit: NonNullable<ReadseekJsonSettings["edit"]> = {};
+    const edit: NonNullable<ReadSeekJsonSettings["edit"]> = {};
     if ("diffDisplay" in raw.edit) {
       const value = raw.edit.diffDisplay;
       if (value === "collapsed" || value === "expanded") edit.diffDisplay = value;
@@ -78,7 +78,7 @@ function validateSettings(raw: unknown, source: string): ReadseekSettingsResult 
   return { settings, warnings };
 }
 
-function readSettingsFile(path: string): ReadseekSettingsResult {
+function readSettingsFile(path: string): ReadSeekSettingsResult {
   if (!existsSync(path)) return { settings: {}, warnings: [] };
 
   try {
@@ -90,8 +90,8 @@ function readSettingsFile(path: string): ReadseekSettingsResult {
   }
 }
 
-function mergeSettings(base: ReadseekJsonSettings, override: ReadseekJsonSettings): ReadseekJsonSettings {
-  const merged: ReadseekJsonSettings = {};
+function mergeSettings(base: ReadSeekJsonSettings, override: ReadSeekJsonSettings): ReadSeekJsonSettings {
+  const merged: ReadSeekJsonSettings = {};
   const grep = { ...(base.grep ?? {}), ...(override.grep ?? {}) };
   if (Object.keys(grep).length > 0) merged.grep = grep;
   const edit = { ...(base.edit ?? {}), ...(override.edit ?? {}) };
@@ -99,7 +99,7 @@ function mergeSettings(base: ReadseekJsonSettings, override: ReadseekJsonSetting
   return merged;
 }
 
-export function resolveReadseekJsonSettings(): ReadseekSettingsResult {
+export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
   const globalResult = readSettingsFile(defaultGlobalSettingsPath());
   const projectResult = readSettingsFile(defaultProjectSettingsPath());
   return {
@@ -114,7 +114,7 @@ export function resolveEditDiffDisplay(env: NodeJS.ProcessEnv = process.env): "c
     const normalized = raw.trim().toLowerCase();
     if (normalized === "expanded" || normalized === "collapsed") return normalized;
   }
-  const json = resolveReadseekJsonSettings().settings.edit?.diffDisplay;
+  const json = resolveReadSeekJsonSettings().settings.edit?.diffDisplay;
   if (json === "expanded" || json === "collapsed") return json;
   return "collapsed";
 }

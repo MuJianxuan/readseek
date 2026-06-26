@@ -7,7 +7,7 @@
 
 import xxhashWasm from "xxhash-wasm";
 import { throwIfAborted } from "./runtime.js";
-import type { ReadseekLine } from "./readseek-value.js";
+import type { ReadSeekLine } from "./readseek-value.js";
 import { CONFUSABLE_HYPHENS_RE } from "./confusable-hyphens.js";
 
 
@@ -25,9 +25,9 @@ interface HashMismatch {
 }
 
 export class HashlineMismatchError extends Error {
-	readonly updatedAnchors: ReadseekLine[];
+	readonly updatedAnchors: ReadSeekLine[];
 
-	constructor(message: string, updatedAnchors: ReadseekLine[]) {
+	constructor(message: string, updatedAnchors: ReadSeekLine[]) {
 		super(message);
 		this.name = "HashlineMismatchError";
 		this.updatedAnchors = updatedAnchors;
@@ -175,10 +175,10 @@ function formatMismatchError(
 	mismatches: HashMismatch[],
 	fileLines: string[],
 	relocationWindow: number,
-): { message: string; updatedAnchors: ReadseekLine[] } {
+): { message: string; updatedAnchors: ReadSeekLine[] } {
 	const mismatchSet = new Map<number, HashMismatch>();
 	for (const m of mismatches) mismatchSet.set(m.line, m);
-	const updatedAnchors: ReadseekLine[] = mismatches.map((m) => {
+	const updatedAnchors: ReadSeekLine[] = mismatches.map((m) => {
 		const raw = fileLines[m.line - 1] ?? "";
 		const hash = computeLineHash(raw);
 		return {

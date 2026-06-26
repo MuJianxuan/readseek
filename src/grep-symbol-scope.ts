@@ -1,4 +1,4 @@
-import { buildReadseekLine } from "./readseek-value.js";
+import { buildReadSeekLine } from "./readseek-value.js";
 import type { GrepOutputEntry, GrepOutputGroup, GrepOutputScopeSymbol, GrepScopeWarning } from "./grep-output.js";
 import type { FileMap, FileSymbol } from "./readseek/types.js";
 
@@ -49,7 +49,7 @@ function buildSymbolEntries(
   if (scopeContext === undefined) {
     const entries: GrepOutputEntry[] = [];
     for (let lineNumber = symbol.startLine; lineNumber <= symbol.endLine; lineNumber++) {
-      const built = buildReadseekLine(lineNumber, fileLines[lineNumber - 1] ?? "");
+      const built = buildReadSeekLine(lineNumber, fileLines[lineNumber - 1] ?? "");
       entries.push({ kind: matchLines.has(lineNumber) ? "match" : "context", line: built });
     }
     return entries;
@@ -73,7 +73,7 @@ function buildSymbolEntries(
     if (i > 0) entries.push({ kind: "separator", text: "--" });
     const range = merged[i];
     for (let ln = range.startLine; ln <= range.endLine; ln++) {
-      const built = buildReadseekLine(ln, fileLines[ln - 1] ?? "");
+      const built = buildReadSeekLine(ln, fileLines[ln - 1] ?? "");
       entries.push({ kind: matchLines.has(ln) ? "match" : "context", line: built });
     }
   }
@@ -86,7 +86,7 @@ function buildFallbackEntries(fileLines: string[], matchLines: number[], context
     const start = Math.max(1, matchLine - contextLines);
     const end = Math.min(fileLines.length, matchLine + contextLines);
     for (let lineNumber = start; lineNumber <= end; lineNumber++) {
-      const built = buildReadseekLine(lineNumber, fileLines[lineNumber - 1] ?? "");
+      const built = buildReadSeekLine(lineNumber, fileLines[lineNumber - 1] ?? "");
       const candidate: GrepOutputEntry = { kind: lineNumber === matchLine ? "match" : "context", line: built };
       const existing = lineMap.get(lineNumber);
       if (!existing || (existing.kind === "context" && candidate.kind === "match")) {

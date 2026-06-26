@@ -10,7 +10,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { normalizeToLF, stripBom, hasBareCarriageReturn } from "./edit-diff.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { ensureHashInit, escapeControlCharsForDisplay } from "./hashline.js";
-import { buildReadseekLine, buildToolErrorResult, type ReadseekLine } from "./readseek-value.js";
+import { buildReadSeekLine, buildToolErrorResult, type ReadSeekLine } from "./readseek-value.js";
 import { buildGrepOutput, type GrepOutputEntry, type GrepOutputGroup, type GrepOutputRecord, type GrepScopeWarning } from "./grep-output.js";
 
 import { getOrGenerateMap } from "./map-cache.js";
@@ -21,7 +21,7 @@ import { formatGrepCallText, formatGrepResultText } from "./grep-render-helpers.
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 const GREP_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/grep.md", import.meta.url),
@@ -344,7 +344,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		totalMatches++;
 	};
 
-	const addEntry = (displayPath: string, absolutePath: string, kind: "match" | "context", line: ReadseekLine) => {
+	const addEntry = (displayPath: string, absolutePath: string, kind: "match" | "context", line: ReadSeekLine) => {
 		let group = groupsByPath.get(displayPath);
 		if (!group) {
 			group = { displayPath, absolutePath, matchCount: 0, entries: [] };
@@ -400,7 +400,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 				let emitted = false;
 				for (let i = 0; i < fileLines.length; i++) {
 					if (!patternRe.test(fileLines[i])) continue;
-					addEntry(parsed.displayPath, absolute, "match", buildReadseekLine(i + 1, fileLines[i]));
+					addEntry(parsed.displayPath, absolute, "match", buildReadSeekLine(i + 1, fileLines[i]));
 					emitted = true;
 				}
 				if (emitted) continue;
@@ -409,7 +409,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		}
 		// Normal (non-bare-CR) path
 		const sourceLine = fileLines[parsed.lineNumber - 1] ?? parsed.text;
-		const built = buildReadseekLine(parsed.lineNumber, sourceLine);
+		const built = buildReadSeekLine(parsed.lineNumber, sourceLine);
 		addEntry(parsed.displayPath, absolute, parsed.kind, {
 			...built,
 			display: escapeControlCharsForDisplay(parsed.text),
@@ -529,7 +529,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 }
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
-	const tool = registerReadseekTool(pi, {
+	const tool = registerReadSeekTool(pi, {
 		policy: "read-only",
 		pythonName: "grep",
 		defaultExposure: "safe-by-default",

@@ -1,4 +1,4 @@
-import type { ReadseekWarning } from "./readseek-value.js";
+import type { ReadSeekWarning } from "./readseek-value.js";
 export interface ReadCallTextResult {
   path: string | null;
   suffix: string | undefined;
@@ -41,7 +41,7 @@ export interface ReadResultTextInput {
   truncation: { outputLines: number; totalLines: number; outputBytes: number; totalBytes: number } | null;
   symbol: { query: string; name: string; kind: string; parentName?: string; startLine: number; endLine: number } | null;
   map: { requested: boolean; appended: boolean };
-  warnings: ReadseekWarning[];
+  warnings: ReadSeekWarning[];
   isError?: boolean;
   errorText?: string;
 }

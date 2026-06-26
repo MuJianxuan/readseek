@@ -5,13 +5,13 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
-import { buildReadseekLineWithHash, buildToolErrorResult, type ReadseekLine } from "./readseek-value.js";
+import { buildReadSeekLineWithHash, buildToolErrorResult, type ReadSeekLine } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { classifyReadseekFailure, isReadseekAvailable, readseekSearch, type ReadseekHashline, type ReadseekSearchFileOutput } from "./readseek-client.js";
+import { classifyReadSeekFailure, isReadSeekAvailable, readseekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
 
@@ -53,7 +53,7 @@ const SG_PROMPT_METADATA = defineToolPromptMetadata({
 });
 
 export function isSgAvailable(): boolean {
-  return isReadseekAvailable();
+  return isReadSeekAvailable();
 }
 
 interface SgToolOptions {
@@ -70,19 +70,19 @@ export interface ExecuteSgOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
-function readseekLineFromSearch(line: ReadseekHashline): ReadseekLine {
-  return buildReadseekLineWithHash(line.line, line.hash, line.text);
+function readseekLineFromSearch(line: ReadSeekHashline): ReadSeekLine {
+  return buildReadSeekLineWithHash(line.line, line.hash, line.text);
 }
 
-function linesFromSearchResult(result: ReadseekSearchFileOutput, ranges: SgRange[]): ReadseekLine[] {
-  const lineMap = new Map<number, ReadseekLine>();
+function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SgRange[]): ReadSeekLine[] {
+  const lineMap = new Map<number, ReadSeekLine>();
   for (const match of result.matches) {
     for (const line of match.hashlines) {
       lineMap.set(line.line, readseekLineFromSearch(line));
     }
   }
 
-  const lines: ReadseekLine[] = [];
+  const lines: ReadSeekLine[] = [];
   const seen = new Set<number>();
   for (const range of ranges) {
     for (let line = range.startLine; line <= range.endLine; line++) {
@@ -140,7 +140,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       displayPath: string;
       path: string;
       ranges: SgRange[];
-      lines: ReadseekLine[];
+      lines: ReadSeekLine[];
       symbols?: SgEnclosingSymbol[];
     }> = [];
 
@@ -183,13 +183,13 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       },
     };
   } catch (err: any) {
-    const failure = classifyReadseekFailure(err);
+    const failure = classifyReadSeekFailure(err);
     return buildToolErrorResult("search", failure.code, failure.message, failure.hint ? { hint: failure.hint } : {});
   }
 }
 
 export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
-  const tool = registerReadseekTool(pi, {
+  const tool = registerReadSeekTool(pi, {
     policy: "read-only",
     pythonName: "search",
     defaultExposure: "opt-in",

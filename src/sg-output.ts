@@ -1,10 +1,10 @@
-import type { ReadseekLine, ReadseekRange } from "./readseek-value.js";
+import type { ReadSeekLine, ReadSeekRange } from "./readseek-value.js";
 
 export interface SgOutputFile {
   displayPath: string;
   path: string;
-  ranges: ReadseekRange[];
-  lines: ReadseekLine[];
+  ranges: ReadSeekRange[];
+  lines: ReadSeekLine[];
   symbols?: Array<{ name: string; kind?: string }>;
 }
 
@@ -19,8 +19,8 @@ export interface SgOutputResult {
     tool: "search";
     files: Array<{
       path: string;
-      ranges: ReadseekRange[];
-      lines: ReadseekLine[];
+      ranges: ReadSeekRange[];
+      lines: ReadSeekLine[];
     }>;
   };
 }

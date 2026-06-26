@@ -8,23 +8,23 @@ import { DetailLevel } from "./readseek/enums.js";
 import type { FileMap, FileSymbol } from "./readseek/types.js";
 import { SymbolKind } from "./readseek/enums.js";
 
-export interface ReadseekHashline {
+export interface ReadSeekHashline {
 	line: number;
 	hash: string;
 	text: string;
 }
 
-export interface ReadseekReadOutput {
+export interface ReadSeekReadOutput {
 	file: string;
 	language: string;
 	line_count: number;
 	file_hash: string;
 	start_line: number;
 	end_line: number;
-	hashlines: ReadseekHashline[];
+	hashlines: ReadSeekHashline[];
 }
 
-interface ReadseekSymbol {
+interface ReadSeekSymbol {
 	kind: string;
 	name: string;
 	qualified_name: string;
@@ -34,45 +34,45 @@ interface ReadseekSymbol {
 	end_hash: string;
 }
 
-interface ReadseekMapOutput {
+interface ReadSeekMapOutput {
 	file: string;
 	language: string;
 	line_count: number;
 	file_hash: string;
-	symbols: ReadseekSymbol[];
+	symbols: ReadSeekSymbol[];
 }
 
-export interface ReadseekSearchCapture {
+export interface ReadSeekSearchCapture {
 	name: string;
 	start_line: number;
 	end_line: number;
 	start_hash: string;
 	end_hash: string;
-	hashlines: ReadseekHashline[];
+	hashlines: ReadSeekHashline[];
 }
 
-export interface ReadseekSearchMatch {
+export interface ReadSeekSearchMatch {
 	pattern_index: number;
 	start_line: number;
 	end_line: number;
 	start_hash: string;
 	end_hash: string;
-	hashlines: ReadseekHashline[];
-	captures: ReadseekSearchCapture[];
+	hashlines: ReadSeekHashline[];
+	captures: ReadSeekSearchCapture[];
 }
 
-export interface ReadseekSearchFileOutput {
+export interface ReadSeekSearchFileOutput {
 	file: string;
 	language: string;
 	file_hash: string;
-	matches: ReadseekSearchMatch[];
+	matches: ReadSeekSearchMatch[];
 }
 
-interface ReadseekSearchOutput {
-	results: ReadseekSearchFileOutput[];
+interface ReadSeekSearchOutput {
+	results: ReadSeekSearchFileOutput[];
 }
 
-export interface ReadseekReference {
+export interface ReadSeekReference {
 	file: string;
 	line: number;
 	column: number;
@@ -81,11 +81,11 @@ export interface ReadseekReference {
 	enclosingSymbol?: string;
 }
 
-interface ReadseekRefsOutput {
-	references: ReadseekReference[];
+interface ReadSeekRefsOutput {
+	references: ReadSeekReference[];
 }
 
-export interface ReadseekRefsOptions {
+export interface ReadSeekRefsOptions {
 	scope?: boolean;
 	line?: number;
 	column?: number;
@@ -96,19 +96,19 @@ export interface ReadseekRefsOptions {
 	signal?: AbortSignal;
 }
 
-export interface ReadseekDiagnostic {
+export interface ReadSeekDiagnostic {
 	kind: "error" | "missing";
 	start_line: number;
 	end_line: number;
 }
 
-export interface ReadseekCheckOutput {
+export interface ReadSeekCheckOutput {
 	errorCount: number;
 	missingCount: number;
-	diagnostics: ReadseekDiagnostic[];
+	diagnostics: ReadSeekDiagnostic[];
 }
 
-export interface ReadseekSearchOptions {
+export interface ReadSeekSearchOptions {
 	language?: string;
 	cached?: boolean;
 	others?: boolean;
@@ -131,7 +131,7 @@ function parentQualifiedNameFor(qualifiedName: string): string {
 	return lastDot === -1 ? "" : qualifiedName.slice(0, lastDot);
 }
 
-function symbolsFromReadseek(symbols: ReadseekSymbol[]): FileSymbol[] {
+function symbolsFromReadSeek(symbols: ReadSeekSymbol[]): FileSymbol[] {
 	const symbolsByQualifiedName = new Map<string, FileSymbol[]>();
 	const entries: Array<{ parentQualifiedName: string; symbol: FileSymbol }> = [];
 
@@ -168,7 +168,7 @@ function symbolsFromReadseek(symbols: ReadseekSymbol[]): FileSymbol[] {
 
 const require = createRequire(import.meta.url);
 const READSEEK_REPO_PACKAGE_NAMES = new Set(["@jarkkojs/readseek", "readseek"]);
-let defaultReadseekDirInit: Promise<string | null> | undefined;
+let defaultReadSeekDirInit: Promise<string | null> | undefined;
 
 function readseekPackageDir(): string {
 	return path.dirname(require.resolve("@jarkkojs/readseek/package.json"));
@@ -194,7 +194,7 @@ export function readseekBinaryPath(): string {
 	return path.join(path.dirname(packageJson), "bin", process.platform === "win32" ? "readseek.exe" : "readseek");
 }
 
-export function isReadseekAvailable(): boolean {
+export function isReadSeekAvailable(): boolean {
 	try {
 		readseekBinaryPath();
 		return true;
@@ -203,7 +203,7 @@ export function isReadseekAvailable(): boolean {
 	}
 }
 
-export interface ReadseekFailure {
+export interface ReadSeekFailure {
 	code: "readseek-not-installed" | "readseek-execution-error";
 	message: string;
 	hint?: string;
@@ -214,7 +214,7 @@ export interface ReadseekFailure {
  * taxonomy: a missing binary or package (`readseek-not-installed`, with an
  * install hint) versus any other execution error.
  */
-export function classifyReadseekFailure(err: unknown): ReadseekFailure {
+export function classifyReadSeekFailure(err: unknown): ReadSeekFailure {
 	const message = String((err as { message?: unknown } | null)?.message || err);
 	const missing =
 		(err as { code?: unknown } | null)?.code === "ENOENT" ||
@@ -233,7 +233,7 @@ function directoryExists(dirPath: string): boolean {
 	}
 }
 
-function isOwnReadseekRepository(cwd = process.cwd()): boolean {
+function isOwnReadSeekRepository(cwd = process.cwd()): boolean {
 	let dir = path.resolve(cwd);
 	while (true) {
 		const packageJsonPath = path.join(dir, "package.json");
@@ -252,12 +252,12 @@ function isOwnReadseekRepository(cwd = process.cwd()): boolean {
 	}
 }
 
-function defaultReadseekDir(): string | null {
+function defaultReadSeekDir(): string | null {
 	const home = homedir();
 	return home ? path.join(home, ".pi", "readseek") : null;
 }
 
-async function spawnReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
+async function spawnReadSeekRaw(args: string[], options: RunReadSeekOptions = {}): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let settled = false;
 		const fail = (error: Error): void => {
@@ -318,38 +318,38 @@ async function spawnReadseekRaw(args: string[], options: RunReadseekOptions = {}
 	});
 }
 
-async function ensureDefaultReadseekDir(): Promise<string | null> {
-	const dir = defaultReadseekDir();
+async function ensureDefaultReadSeekDir(): Promise<string | null> {
+	const dir = defaultReadSeekDir();
 	if (!dir) return null;
 	if (directoryExists(dir)) return dir;
 
-	defaultReadseekDirInit ??= spawnReadseekRaw(["--readseek-dir", dir, "init"])
+	defaultReadSeekDirInit ??= spawnReadSeekRaw(["--readseek-dir", dir, "init"])
 		.then(() => (directoryExists(dir) ? dir : null))
 		.catch(() => null)
 		.finally(() => {
-			defaultReadseekDirInit = undefined;
+			defaultReadSeekDirInit = undefined;
 		});
-	return defaultReadseekDirInit;
+	return defaultReadSeekDirInit;
 }
 
 async function readseekInvocationArgs(args: string[]): Promise<string[]> {
-	if (isOwnReadseekRepository()) return args;
+	if (isOwnReadSeekRepository()) return args;
 
-	const readseekDir = await ensureDefaultReadseekDir();
+	const readseekDir = await ensureDefaultReadSeekDir();
 	return readseekDir ? ["--readseek-dir", readseekDir, ...args] : args;
 }
 
-interface RunReadseekOptions {
+interface RunReadSeekOptions {
 	signal?: AbortSignal;
 	stdin?: string;
 }
 
-async function runReadseekRaw(args: string[], options: RunReadseekOptions = {}): Promise<string> {
-	return spawnReadseekRaw(await readseekInvocationArgs(args), options);
+async function runReadSeekRaw(args: string[], options: RunReadSeekOptions = {}): Promise<string> {
+	return spawnReadSeekRaw(await readseekInvocationArgs(args), options);
 }
 
-async function runReadseek(args: string[], options: RunReadseekOptions = {}): Promise<unknown> {
-	const stdout = await runReadseekRaw(args, options);
+async function runReadSeek(args: string[], options: RunReadSeekOptions = {}): Promise<unknown> {
+	const stdout = await runReadSeekRaw(args, options);
 	return JSON.parse(stdout) as unknown;
 }
 
@@ -363,7 +363,7 @@ function requireString(value: unknown, field: string): string {
 	return value;
 }
 
-function parseReadOutput(value: unknown): ReadseekReadOutput {
+function parseReadOutput(value: unknown): ReadSeekReadOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek read output");
 	const output = value as Record<string, unknown>;
 	const hashlines = output.hashlines;
@@ -379,7 +379,7 @@ function parseReadOutput(value: unknown): ReadseekReadOutput {
 	};
 }
 
-function parseMapOutput(value: unknown): ReadseekMapOutput {
+function parseMapOutput(value: unknown): ReadSeekMapOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek map output");
 	const output = value as Record<string, unknown>;
 	const symbols = output.symbols;
@@ -405,7 +405,7 @@ function parseMapOutput(value: unknown): ReadseekMapOutput {
 	};
 }
 
-function parseHashline(value: unknown, field: string): ReadseekHashline {
+function parseHashline(value: unknown, field: string): ReadSeekHashline {
 	if (!value || typeof value !== "object") throw new Error(`invalid readseek ${field}`);
 	const item = value as Record<string, unknown>;
 	return {
@@ -415,12 +415,12 @@ function parseHashline(value: unknown, field: string): ReadseekHashline {
 	};
 }
 
-function parseSearchHashlines(value: unknown, field: string): ReadseekHashline[] {
+function parseSearchHashlines(value: unknown, field: string): ReadSeekHashline[] {
 	if (!Array.isArray(value)) throw new Error(`invalid readseek ${field}`);
 	return value.map((line) => parseHashline(line, field));
 }
 
-function parseSearchOutput(value: unknown): ReadseekSearchOutput {
+function parseSearchOutput(value: unknown): ReadSeekSearchOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek search output");
 	const output = value as Record<string, unknown>;
 	if (!Array.isArray(output.results)) throw new Error("invalid readseek search results");
@@ -463,14 +463,14 @@ function parseSearchOutput(value: unknown): ReadseekSearchOutput {
 	};
 }
 
-export async function readseekRead(filePath: string, startLine?: number, endLine?: number): Promise<ReadseekReadOutput> {
+export async function readseekRead(filePath: string, startLine?: number, endLine?: number): Promise<ReadSeekReadOutput> {
 	const args = ["read", filePath];
 	if (startLine !== undefined) args.push("--start", String(startLine));
 	if (endLine !== undefined) args.push("--end", String(endLine));
-	return parseReadOutput(await runReadseek(args));
+	return parseReadOutput(await runReadSeek(args));
 }
 
-function fileMapFromReadseekOutput(output: ReadseekMapOutput, filePath: string, totalBytes: number): FileMap | null {
+function fileMapFromReadSeekOutput(output: ReadSeekMapOutput, filePath: string, totalBytes: number): FileMap | null {
 	if (output.language === "unknown" && output.symbols.length === 0) return null;
 	return {
 		path: filePath,
@@ -479,7 +479,7 @@ function fileMapFromReadseekOutput(output: ReadseekMapOutput, filePath: string, 
 		language: normalizeLanguage(output.language),
 		detailLevel: DetailLevel.Full,
 		imports: [],
-		symbols: symbolsFromReadseek(output.symbols),
+		symbols: symbolsFromReadSeek(output.symbols),
 	};
 }
 
@@ -488,21 +488,21 @@ export async function readseekMap(
 	totalBytes: number,
 	options: { signal?: AbortSignal } = {},
 ): Promise<FileMap | null> {
-	const output = parseMapOutput(await runReadseek(["map", filePath], { signal: options.signal }));
-	return fileMapFromReadseekOutput(output, filePath, totalBytes);
+	const output = parseMapOutput(await runReadSeek(["map", filePath], { signal: options.signal }));
+	return fileMapFromReadSeekOutput(output, filePath, totalBytes);
 }
 
 export async function readseekSearch(
 	target: string,
 	pattern: string,
-	options: ReadseekSearchOptions = {},
-): Promise<ReadseekSearchFileOutput[]> {
+	options: ReadSeekSearchOptions = {},
+): Promise<ReadSeekSearchFileOutput[]> {
 	const args = ["search", target, pattern];
 	if (options.language) args.push("--language", options.language);
 	if (options.cached) args.push("--cached");
 	if (options.others) args.push("--others");
 	if (options.ignored) args.push("--ignored");
-	return parseSearchOutput(await runReadseek(args, { signal: options.signal })).results;
+	return parseSearchOutput(await runReadSeek(args, { signal: options.signal })).results;
 }
 
 export async function readseekMapContent(
@@ -511,9 +511,9 @@ export async function readseekMapContent(
 	options: { signal?: AbortSignal } = {},
 ): Promise<FileMap | null> {
 	const output = parseMapOutput(
-		await runReadseek(["map", "--stdin", filePath], { signal: options.signal, stdin: content }),
+		await runReadSeek(["map", "--stdin", filePath], { signal: options.signal, stdin: content }),
 	);
-	return fileMapFromReadseekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
+	return fileMapFromReadSeekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
 }
 
 function optionalString(value: unknown, field: string): string | undefined {
@@ -521,7 +521,7 @@ function optionalString(value: unknown, field: string): string | undefined {
 	return requireString(value, field);
 }
 
-function parseRefsOutput(value: unknown): ReadseekRefsOutput {
+function parseRefsOutput(value: unknown): ReadSeekRefsOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek refs output");
 	const output = value as Record<string, unknown>;
 	if (!Array.isArray(output.references)) throw new Error("invalid readseek references");
@@ -549,8 +549,8 @@ function parseRefsOutput(value: unknown): ReadseekRefsOutput {
 export async function readseekRefs(
 	target: string,
 	name: string,
-	options: ReadseekRefsOptions = {},
-): Promise<ReadseekReference[]> {
+	options: ReadSeekRefsOptions = {},
+): Promise<ReadSeekReference[]> {
 	const args = ["refs", target, name];
 	if (options.scope) args.push("--scope");
 	if (options.line !== undefined) args.push("--line", String(options.line));
@@ -559,15 +559,15 @@ export async function readseekRefs(
 	if (options.cached) args.push("--cached");
 	if (options.others) args.push("--others");
 	if (options.ignored) args.push("--ignored");
-	return parseRefsOutput(await runReadseek(args, { signal: options.signal })).references;
+	return parseRefsOutput(await runReadSeek(args, { signal: options.signal })).references;
 }
 
-function parseDiagnosticKind(value: unknown): ReadseekDiagnostic["kind"] {
+function parseDiagnosticKind(value: unknown): ReadSeekDiagnostic["kind"] {
 	if (value === "error" || value === "missing") return value;
 	throw new Error("invalid readseek diagnostic.kind");
 }
 
-function parseCheckOutput(value: unknown): ReadseekCheckOutput {
+function parseCheckOutput(value: unknown): ReadSeekCheckOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek check output");
 	const output = value as Record<string, unknown>;
 	if (!Array.isArray(output.diagnostics)) throw new Error("invalid readseek diagnostics");
@@ -590,8 +590,8 @@ export async function readseekCheck(
 	filePath: string,
 	content: string,
 	options: { signal?: AbortSignal } = {},
-): Promise<ReadseekCheckOutput> {
+): Promise<ReadSeekCheckOutput> {
 	return parseCheckOutput(
-		await runReadseek(["check", "--stdin", filePath], { signal: options.signal, stdin: content }),
+		await runReadSeek(["check", "--stdin", filePath], { signal: options.signal, stdin: content }),
 	);
 }

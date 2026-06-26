@@ -7,7 +7,7 @@ import { registerRefsTool } from "./src/refs.js";
 import { registerWriteTool } from "./src/write.js";
 import { SessionAnchors } from "./src/session-anchors.js";
 
-export default function piReadseekExtension(pi: ExtensionAPI): void {
+export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const sessionAnchors = new SessionAnchors();
 	const markAnchored = (absolutePath: string) => sessionAnchors.markAnchored(absolutePath);
 	const hasFreshAnchors = (absolutePath: string) => sessionAnchors.hasFreshAnchors(absolutePath);

@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 
 import { resolveToCwd } from "./path-utils.js";
 import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
-import { buildReadseekError, buildReadseekLine, buildReadseekWarning, type ReadseekLine, type ReadseekWarning } from "./readseek-value.js";
+import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { getOrGenerateMap } from "./map-cache.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
@@ -19,7 +19,7 @@ import { buildDiffData, type DiffData } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, renderErrorResult, renderToolLabel, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 const WRITE_PENDING_PREVIEW_STATE_KEY = "hashline-write-pending-preview";
 
@@ -84,8 +84,8 @@ export interface WriteResult extends WriteDiffFields {
   readseekValue: {
     tool: "write";
     path: string;
-    lines: ReadseekLine[];
-    warnings: ReadseekWarning[];
+    lines: ReadSeekLine[];
+    warnings: ReadSeekWarning[];
     diff?: string;
     diffData?: DiffData;
     map?: { appended: boolean };
@@ -180,10 +180,10 @@ function buildWriteFsErrorResult(err: any, absolutePath: string) {
       readseekValue: {
         tool: "write" as const,
         path: absolutePath,
-        lines: [] as ReadseekLine[],
-        warnings: [] as ReadseekWarning[],
+        lines: [] as ReadSeekLine[],
+        warnings: [] as ReadSeekWarning[],
         ok: false,
-        error: buildReadseekError(
+        error: buildReadSeekError(
           mapped.code,
           mapped.message,
           undefined,
@@ -205,12 +205,12 @@ export async function executeWrite(opts: {
 
   const { path: filePath, content, map: requestMap, cwd } = opts;
   const warnings: string[] = [];
-  const readseekWarnings: ReadseekWarning[] = [];
+  const readseekWarnings: ReadSeekWarning[] = [];
 
   if (hasBareCarriageReturn(content)) {
     const message = "File content contains bare CR (\\r) line endings; write refuses to emit anchors that read/edit would normalize differently.";
     warnings.push(message);
-    readseekWarnings.push(buildReadseekWarning("bare-cr", message));
+    readseekWarnings.push(buildReadSeekWarning("bare-cr", message));
     return {
       text: `Cannot write ${filePath}\n⚠️ ${message}`,
       warnings,
@@ -224,7 +224,7 @@ export async function executeWrite(opts: {
   }
   if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
     warnings.push("File content appears to be binary.");
-    readseekWarnings.push(buildReadseekWarning("binary-content", "File content appears to be binary."));
+    readseekWarnings.push(buildReadSeekWarning("binary-content", "File content appears to be binary."));
     return {
       text: `Cannot write ${filePath}\n⚠️ File content appears to be binary — refusing to write.`,
       warnings,
@@ -257,12 +257,12 @@ export async function executeWrite(opts: {
 
   // Compute hashlines
   const rawLines = content.split("\n");
-  const readseekLines: ReadseekLine[] = [];
+  const readseekLines: ReadSeekLine[] = [];
   const displayLines: string[] = [];
 
   for (let i = 0; i < rawLines.length; i++) {
     const lineNum = i + 1;
-    const readseekLine = buildReadseekLine(lineNum, rawLines[i]);
+    const readseekLine = buildReadSeekLine(lineNum, rawLines[i]);
     readseekLines.push(readseekLine);
     displayLines.push(formatHashlineDisplay(lineNum, rawLines[i]));
   }
@@ -325,7 +325,7 @@ export async function executeWrite(opts: {
 }
 
 export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = {}) {
-  const tool = registerReadseekTool(pi, {
+  const tool = registerReadSeekTool(pi, {
     policy: "mutating",
     pythonName: "write",
     defaultExposure: "not-safe-by-default",
@@ -363,7 +363,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
 
           // Lift binary-content signal into a fatal readseekValue.error envelope so
           // downstream consumers get the same taxonomy shape as every other tool.
-          // The existing ReadseekWarning entry is preserved on readseekValue.warnings for
+          // The existing ReadSeekWarning entry is preserved on readseekValue.warnings for
           // backward compatibility.
           for (const code of ["binary-content", "bare-cr"] as const) {
             const warning = result.readseekValue.warnings.find((w) => w.code === code);
@@ -375,7 +375,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
                   readseekValue: {
                     ...result.readseekValue,
                     ok: false,
-                    error: buildReadseekError(code, warning.message),
+                    error: buildReadSeekError(code, warning.message),
                   },
                   warnings: result.warnings,
                 },

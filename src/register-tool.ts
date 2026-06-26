@@ -1,20 +1,20 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export type ReadseekToolPolicy = "read-only" | "mutating";
+export type ReadSeekToolPolicy = "read-only" | "mutating";
 
-export type ReadseekToolExposure = "safe-by-default" | "opt-in" | "not-safe-by-default";
+export type ReadSeekToolExposure = "safe-by-default" | "opt-in" | "not-safe-by-default";
 
 /**
  * Per-tool fields of the pi tool config (`ptc`) that genuinely differ between
  * readseek tools. The remaining fields are constant or derived.
  */
-export interface ReadseekToolConfig {
-  policy: ReadseekToolPolicy;
+export interface ReadSeekToolConfig {
+  policy: ReadSeekToolPolicy;
   pythonName: string;
-  defaultExposure: ReadseekToolExposure;
+  defaultExposure: ReadSeekToolExposure;
 }
 
-export interface ReadseekToolPtc extends ReadseekToolConfig {
+export interface ReadSeekToolPtc extends ReadSeekToolConfig {
   callable: true;
   enabled: true;
   readOnly: boolean;
@@ -28,12 +28,12 @@ type ToolSpec = Parameters<ExtensionAPI["registerTool"]>[0];
  * `callable` and `enabled` are always true and `readOnly` is derived from
  * `policy`, so callers supply only the fields that vary between tools.
  */
-export function registerReadseekTool<T extends ToolSpec>(
+export function registerReadSeekTool<T extends ToolSpec>(
   pi: ExtensionAPI,
-  config: ReadseekToolConfig,
+  config: ReadSeekToolConfig,
   tool: T,
-): T & { ptc: ReadseekToolPtc } {
-  const ptc: ReadseekToolPtc = {
+): T & { ptc: ReadSeekToolPtc } {
+  const ptc: ReadSeekToolPtc = {
     callable: true,
     enabled: true,
     policy: config.policy,

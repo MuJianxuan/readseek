@@ -1,6 +1,6 @@
-import type { ReadseekLine } from "./readseek-value.js";
+import type { ReadSeekLine } from "./readseek-value.js";
 
-export interface RefsOutputLine extends ReadseekLine {
+export interface RefsOutputLine extends ReadSeekLine {
   enclosingSymbol?: string;
 }
 

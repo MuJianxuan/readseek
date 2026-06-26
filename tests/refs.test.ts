@@ -4,18 +4,18 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { classifyReadseekFailureMock, readseekRefsMock } = vi.hoisted(() => ({
-	classifyReadseekFailureMock: vi.fn(),
+const { classifyReadSeekFailureMock, readseekRefsMock } = vi.hoisted(() => ({
+	classifyReadSeekFailureMock: vi.fn(),
 	readseekRefsMock: vi.fn(),
 }));
 
 vi.mock("../src/readseek-client.js", () => ({
-	classifyReadseekFailure: classifyReadseekFailureMock,
+	classifyReadSeekFailure: classifyReadSeekFailureMock,
 	readseekRefs: readseekRefsMock,
 }));
 
 vi.mock("../src/register-tool.js", () => ({
-	registerReadseekTool: vi.fn(),
+	registerReadSeekTool: vi.fn(),
 }));
 
 vi.mock("@earendil-works/pi-tui", () => ({
@@ -37,7 +37,7 @@ describe("executeRefs", () => {
 
 	beforeEach(async () => {
 		cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-refs-"));
-		classifyReadseekFailureMock.mockImplementation((err: unknown) => ({
+		classifyReadSeekFailureMock.mockImplementation((err: unknown) => ({
 			code: "readseek-execution-error",
 			message: String((err as { message?: unknown } | null)?.message || err),
 		}));

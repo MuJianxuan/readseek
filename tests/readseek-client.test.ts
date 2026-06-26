@@ -43,11 +43,11 @@ function spawnResult(stdout: string) {
 }
 
 describe("readseek client parsing", () => {
-	let previousReadseekBin: string | undefined;
+	let previousReadSeekBin: string | undefined;
 	let tempHome: string;
 
 	beforeEach(async () => {
-		previousReadseekBin = process.env.READSEEK_BIN;
+		previousReadSeekBin = process.env.READSEEK_BIN;
 		process.env.READSEEK_BIN = "/bin/readseek";
 		tempHome = await mkdtemp(path.join(tmpdir(), "pi-readseek-home-"));
 		homeDir.value = tempHome;
@@ -55,8 +55,8 @@ describe("readseek client parsing", () => {
 	});
 
 	afterEach(async () => {
-		if (previousReadseekBin === undefined) delete process.env.READSEEK_BIN;
-		else process.env.READSEEK_BIN = previousReadseekBin;
+		if (previousReadSeekBin === undefined) delete process.env.READSEEK_BIN;
+		else process.env.READSEEK_BIN = previousReadSeekBin;
 		await rm(tempHome, { recursive: true, force: true });
 	});
 

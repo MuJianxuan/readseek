@@ -1,5 +1,5 @@
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
-import { resolveReadseekJsonSettings } from "./readseek-settings.js";
+import { resolveReadSeekJsonSettings } from "./readseek-settings.js";
 
 const POSITIVE_BASE10_INT = /^[1-9][0-9]*$/;
 
@@ -63,7 +63,7 @@ function resolveDimension(rawEnvValue: string | undefined, jsonValue: number | u
  * are used as-is.
  */
 export function resolveGrepOutputBudget(): GrepOutputBudget {
-	const settings = resolveReadseekJsonSettings().settings.grep;
+	const settings = resolveReadSeekJsonSettings().settings.grep;
 	return {
 		maxLines: resolveDimension(
 			process.env.READSEEK_GREP_MAX_LINES,

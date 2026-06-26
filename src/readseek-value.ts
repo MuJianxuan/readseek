@@ -1,7 +1,7 @@
 import { computeLineHash, escapeControlCharsForDisplay } from "./hashline.js";
 import type { DiffData } from "./diff-data.js";
 
-export interface ReadseekLine {
+export interface ReadSeekLine {
   line: number;
   hash: string;
   anchor: string;
@@ -9,29 +9,29 @@ export interface ReadseekLine {
   display: string;
 }
 
-export interface ReadseekWarningSymbol {
+export interface ReadSeekWarningSymbol {
   name: string;
   kind: string;
   startLine: number;
   endLine: number;
   parentName?: string;
 }
-export interface ReadseekWarning {
+export interface ReadSeekWarning {
   code: string;
   message: string;
   tier?: "camelCase" | "substring";
-  symbol?: ReadseekWarningSymbol;
-  otherCandidates?: ReadseekWarningSymbol[];
+  symbol?: ReadSeekWarningSymbol;
+  otherCandidates?: ReadSeekWarningSymbol[];
 }
 
-export interface ReadseekError {
+export interface ReadSeekError {
   code: string;
   message: string;
   hint?: string;
   details?: unknown;
 }
 
-export interface ReadseekRange {
+export interface ReadSeekRange {
   startLine: number;
   endLine: number;
   totalLines?: number;
@@ -42,7 +42,7 @@ export interface SemanticSummary {
   difftasticAvailable: boolean;
   movedBlocks?: number;
 }
-export interface ReadseekEditResult {
+export interface ReadSeekEditResult {
   tool: "edit";
   ok: boolean;
   path: string;
@@ -56,11 +56,11 @@ export interface ReadseekEditResult {
 }
 
 /**
- * Build a {@link ReadseekLine} from an already-known hash. Use this when the
+ * Build a {@link ReadSeekLine} from an already-known hash. Use this when the
  * hash is supplied by readseek (search, refs) rather than computed from `raw`;
- * {@link buildReadseekLine} delegates here after hashing.
+ * {@link buildReadSeekLine} delegates here after hashing.
  */
-export function buildReadseekLineWithHash(line: number, hash: string, raw: string): ReadseekLine {
+export function buildReadSeekLineWithHash(line: number, hash: string, raw: string): ReadSeekLine {
   return {
     line,
     hash,
@@ -70,36 +70,36 @@ export function buildReadseekLineWithHash(line: number, hash: string, raw: strin
   };
 }
 
-export function buildReadseekLine(line: number, raw: string): ReadseekLine {
-  return buildReadseekLineWithHash(line, computeLineHash(raw), raw);
+export function buildReadSeekLine(line: number, raw: string): ReadSeekLine {
+  return buildReadSeekLineWithHash(line, computeLineHash(raw), raw);
 }
 
-export function buildReadseekLines(startLine: number, rawLines: string[]): ReadseekLine[] {
-  return rawLines.map((raw, index) => buildReadseekLine(startLine + index, raw));
+export function buildReadSeekLines(startLine: number, rawLines: string[]): ReadSeekLine[] {
+  return rawLines.map((raw, index) => buildReadSeekLine(startLine + index, raw));
 }
 
-function renderReadseekLine(line: ReadseekLine): string {
+function renderReadSeekLine(line: ReadSeekLine): string {
   return `${line.anchor}|${line.display}`;
 }
 
-export function renderReadseekLines(lines: ReadseekLine[]): string {
-  return lines.map(renderReadseekLine).join("\n");
+export function renderReadSeekLines(lines: ReadSeekLine[]): string {
+  return lines.map(renderReadSeekLine).join("\n");
 }
 
-export function buildReadseekWarning(
+export function buildReadSeekWarning(
   code: string,
   message: string,
-  metadata: Omit<ReadseekWarning, "code" | "message"> = {},
-): ReadseekWarning {
+  metadata: Omit<ReadSeekWarning, "code" | "message"> = {},
+): ReadSeekWarning {
   return { code, message, ...metadata };
 }
 
-export function buildReadseekError(
+export function buildReadSeekError(
   code: string,
   message: string,
   hint?: string,
   details?: unknown,
-): ReadseekError {
+): ReadSeekError {
   return {
     code,
     message,
@@ -117,7 +117,7 @@ export interface ToolErrorResult {
 /**
  * Build the standard failure envelope shared by every read-family tool: a text
  * content block plus a `readseekValue` carrying `ok: false` and a
- * {@link buildReadseekError} payload.
+ * {@link buildReadSeekError} payload.
  *
  * `path` is included only when provided, and `extra` is merged into
  * `readseekValue` so callers can attach tool-specific fields (e.g. write's
@@ -138,13 +138,13 @@ export function buildToolErrorResult(
         ...(opts.extra ?? {}),
         ok: false,
         ...(opts.path !== undefined ? { path: opts.path } : {}),
-        error: buildReadseekError(code, message, opts.hint, opts.details),
+        error: buildReadSeekError(code, message, opts.hint, opts.details),
       },
     },
   };
 }
 
-export function buildReadseekEditResult(input: {
+export function buildReadSeekEditResult(input: {
   ok?: boolean;
   path: string;
   summary: string;
@@ -154,7 +154,7 @@ export function buildReadseekEditResult(input: {
   warnings: string[];
   noopEdits: unknown[];
   semanticSummary?: SemanticSummary;
-}): ReadseekEditResult {
+}): ReadSeekEditResult {
   return {
     tool: "edit",
     ok: input.ok ?? true,

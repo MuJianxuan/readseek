@@ -4,7 +4,7 @@ import {
   formatSize,
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
-import { buildReadseekLines, renderReadseekLines, type ReadseekLine, type ReadseekWarning } from "./readseek-value.js";
+import { buildReadSeekLines, renderReadSeekLines, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 
 
 export interface ReadSymbolMetadata {
@@ -42,7 +42,7 @@ export interface ReadBundleMetadata {
   mode: "local";
   applied: boolean;
   localSupport: ReadBundleSupportItem[];
-  warnings?: ReadseekWarning[];
+  warnings?: ReadSeekWarning[];
 }
 
 export interface ReadOutputInput {
@@ -51,8 +51,8 @@ export interface ReadOutputInput {
   endLine: number;
   totalLines: number;
   selectedLines?: string[];
-  lines?: ReadseekLine[];
-  warnings?: ReadseekWarning[];
+  lines?: ReadSeekLine[];
+  warnings?: ReadSeekWarning[];
   truncation?: ReadTruncationMetadata | null;
   continuation?: ReadContinuationMetadata | null;
   symbol?: ReadSymbolMetadata | null;
@@ -62,7 +62,7 @@ export interface ReadOutputInput {
 
 export interface ReadOutputResult {
   text: string;
-  lines: ReadseekLine[];
+  lines: ReadSeekLine[];
   readseekValue: {
     tool: "read";
     path: string;
@@ -71,14 +71,14 @@ export interface ReadOutputResult {
       endLine: number;
       totalLines: number;
     };
-    warnings: ReadseekWarning[];
+    warnings: ReadSeekWarning[];
     truncation: ReadTruncationMetadata | null;
     symbol: ReadSymbolMetadata | null;
     map: {
       requested: boolean;
       appended: boolean;
     };
-    lines: ReadseekLine[];
+    lines: ReadSeekLine[];
     bundle?: {
       mode: "local";
       applied: boolean;
@@ -90,16 +90,16 @@ export interface ReadOutputResult {
         endLine: number;
         lineAnchors: string[];
       }>;
-      warnings: ReadseekWarning[];
+      warnings: ReadSeekWarning[];
     };
   };
 }
 
 export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
   const selectedLines = input.selectedLines ?? input.lines?.map((line) => line.raw) ?? [];
-  const lines = input.lines ?? buildReadseekLines(input.startLine, selectedLines);
+  const lines = input.lines ?? buildReadSeekLines(input.startLine, selectedLines);
   const warnings = input.warnings ?? [];
-  const renderedLines = renderReadseekLines(lines);
+  const renderedLines = renderReadSeekLines(lines);
   const truncated = truncateHead(renderedLines, {
     maxLines: DEFAULT_MAX_LINES,
     maxBytes: DEFAULT_MAX_BYTES,
@@ -115,8 +115,8 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
 
   if (input.bundle?.applied) {
     const supportBlocks = input.bundle.localSupport.map((item) => {
-      const supportLines = buildReadseekLines(item.symbol.startLine, item.lines);
-      return renderReadseekLines(supportLines);
+      const supportLines = buildReadSeekLines(item.symbol.startLine, item.lines);
+      return renderReadSeekLines(supportLines);
     });
 
     text = [
@@ -164,7 +164,7 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
       mode: input.bundle.mode,
       applied: input.bundle.applied,
       localSupport: input.bundle.localSupport.map((item) => {
-        const supportLines = buildReadseekLines(item.symbol.startLine, item.lines);
+        const supportLines = buildReadSeekLines(item.symbol.startLine, item.lines);
         return {
           name: item.symbol.name,
           kind: item.symbol.kind,

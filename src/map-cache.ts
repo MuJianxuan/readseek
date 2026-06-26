@@ -46,7 +46,7 @@ function rememberInMemory(absPath: string, entry: CacheEntry): void {
 
 /**
  * Get or generate a structural file map, with mtime-based in-memory caching.
- * Readseek already caches map results in `.readseek/maps/` with its own binary
+ * ReadSeek already caches map results in `.readseek/maps/` with its own binary
  * format.  The in-memory layer here avoids redundant process spawns within a
  * single session.
  *

@@ -4,12 +4,12 @@ import { Type } from "@sinclair/typebox";
 import path from "node:path";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { buildReadseekLineWithHash, buildToolErrorResult } from "./readseek-value.js";
+import { buildReadSeekLineWithHash, buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
-import { classifyReadseekFailure, readseekRefs, type ReadseekReference } from "./readseek-client.js";
+import { classifyReadSeekFailure, readseekRefs, type ReadSeekReference } from "./readseek-client.js";
 import { buildRefsOutput, type RefsOutputFile, type RefsOutputLine } from "./refs-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
 
@@ -44,14 +44,14 @@ export interface ExecuteRefsOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
-function refsLine(reference: ReadseekReference): RefsOutputLine {
+function refsLine(reference: ReadSeekReference): RefsOutputLine {
   return {
-    ...buildReadseekLineWithHash(reference.line, reference.line_hash, reference.text),
+    ...buildReadSeekLineWithHash(reference.line, reference.line_hash, reference.text),
     enclosingSymbol: reference.enclosingSymbol,
   };
 }
 
-function groupReferences(references: ReadseekReference[], cwd: string): RefsOutputFile[] {
+function groupReferences(references: ReadSeekReference[], cwd: string): RefsOutputFile[] {
   const files = new Map<string, RefsOutputFile>();
   const seen = new Set<string>();
   for (const reference of references) {
@@ -69,7 +69,7 @@ function groupReferences(references: ReadseekReference[], cwd: string): RefsOutp
   return [...files.values()];
 }
 
-function isReadseekCursorValidationFailure(message: string): boolean {
+function isReadSeekCursorValidationFailure(message: string): boolean {
   return (
     /line and column must be greater than zero/i.test(message) ||
     /line \d+ not found/i.test(message) ||
@@ -115,8 +115,8 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
       details: { readseekValue: builtOutput.readseekValue },
     };
   } catch (err: any) {
-    const failure = classifyReadseekFailure(err);
-    if (p.scope && isReadseekCursorValidationFailure(failure.message)) {
+    const failure = classifyReadSeekFailure(err);
+    if (p.scope && isReadSeekCursorValidationFailure(failure.message)) {
       return buildToolErrorResult("refs", "invalid-parameter", failure.message);
     }
     return buildToolErrorResult("refs", failure.code, failure.message, failure.hint ? { hint: failure.hint } : {});
@@ -124,7 +124,7 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
 }
 
 export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}) {
-  const tool = registerReadseekTool(pi, {
+  const tool = registerReadSeekTool(pi, {
     policy: "read-only",
     pythonName: "refs",
     defaultExposure: "opt-in",

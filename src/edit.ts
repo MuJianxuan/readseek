@@ -15,8 +15,8 @@ import { throwIfAborted } from "./runtime.js";
 import { buildEditOutput } from "./edit-output.js";
 import { classifyEdit, isDifftAvailable, runDifftastic } from "./edit-classify.js";
 import type { SemanticSummary } from "./readseek-value.js";
-import { buildReadseekError } from "./readseek-value.js";
-import { classifyReadseekFailure } from "./readseek-client.js";
+import { buildReadSeekError } from "./readseek-value.js";
+import { classifyReadSeekFailure } from "./readseek-client.js";
 import { countEditTypes, formatEditCallText, formatEditResultText } from "./edit-render-helpers.js";
 import { validateSyntaxRegression } from "./edit-syntax-validate.js";
 import { resolveSyntaxValidateMode, type SyntaxValidateOptions } from "./syntax-validate-mode.js";
@@ -26,7 +26,7 @@ import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { DiffPreviewComponent } from "./tui-diff-component.js";
 import type { FreshAnchorsPredicate } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 import { resolveEditDiffDisplay } from "./readseek-settings.js";
 
@@ -104,7 +104,7 @@ function buildEditError(
 				tool: "edit",
 				ok: false,
 				path,
-				error: buildReadseekError(code, message, hint, errorDetails),
+				error: buildReadSeekError(code, message, hint, errorDetails),
 			},
 		} as EditToolDetails & { readseekValue: any },
 	};
@@ -295,7 +295,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 		}
 	} catch (err) {
 		throwIfAborted(signal);
-		const failure = classifyReadseekFailure(err);
+		const failure = classifyReadSeekFailure(err);
 		return buildEditError(absolutePath, failure.code, failure.message, failure.hint);
 	}
 
@@ -569,7 +569,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
-	const tool = registerReadseekTool(pi, {
+	const tool = registerReadSeekTool(pi, {
 		policy: "mutating",
 		pythonName: "edit",
 		defaultExposure: "not-safe-by-default",

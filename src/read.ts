@@ -13,7 +13,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { normalizeToLF, stripBom, hasBareCarriageReturn } from "./edit-diff.js";
 import { ensureHashInit, escapeControlCharsForDisplay } from "./hashline.js";
-import { buildReadseekWarning, buildToolErrorResult, renderReadseekLines, type ReadseekLine, type ReadseekWarning } from "./readseek-value.js";
+import { buildReadSeekWarning, buildToolErrorResult, renderReadSeekLines, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { isSupportedImageBuffer } from "./image-detect.js";
 import { resolveToCwd } from "./path-utils.js";
@@ -30,7 +30,7 @@ import { readseekRead } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidth } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadseekTool } from "./register-tool.js";
+import { registerReadSeekTool } from "./register-tool.js";
 
 const READ_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/read.md", import.meta.url),
@@ -176,9 +176,9 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	throwIfAborted(signal);
 	const rawText = rawBuffer.toString("utf-8");
 	const normalized = normalizeToLF(stripBom(rawText).text);
-	const allLines = splitReadseekLines(normalized);
+	const allLines = splitReadSeekLines(normalized);
 	const total = allLines.length;
-	const structuredWarnings: ReadseekWarning[] = [];
+	const structuredWarnings: ReadSeekWarning[] = [];
 	let startLine = p.offset !== undefined ? p.offset : 1;
 	let endIdx = p.limit !== undefined ? Math.min(startLine - 1 + p.limit, total) : total;
 	if (p.offset !== undefined && startLine > total) {
@@ -203,7 +203,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 					};
 					lines: string[];
 				}>;
-				warnings: ReadseekWarning[];
+				warnings: ReadSeekWarning[];
 		  }
 		| null = null;
 	if (p.symbol) {
@@ -248,7 +248,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 				lines.push(` To confirm: ${confirmHint}.]`);
 				const bannerText = lines.join("\n");
 				structuredWarnings.push(
-					buildReadseekWarning("fuzzy-symbol-match", bannerText, {
+					buildReadSeekWarning("fuzzy-symbol-match", bannerText, {
 						tier: lookup.tier,
 						symbol: lookup.symbol,
 						otherCandidates: lookup.otherCandidates,
@@ -261,7 +261,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	if (p.bundle === "local") {
 		if (!symbolFileMap) {
 			const extLabel = ext || "unknown";
-			const warning = buildReadseekWarning(
+			const warning = buildReadSeekWarning(
 				"bundle-unmappable",
 				`[Warning: local bundle unavailable because symbol mapping is not available for .${extLabel} files — showing plain symbol read]`,
 			);
@@ -282,7 +282,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		} else {
 			const bundle = buildLocalBundle(symbolFileMap, symbolMatch, allLines);
 			if (!bundle) {
-				const warning = buildReadseekWarning(
+				const warning = buildReadSeekWarning(
 					"bundle-context-unavailable",
 					`[Warning: local bundle context could not be determined for symbol '${symbolMatch.name}' — showing plain symbol read]`,
 				);
@@ -333,7 +333,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			: `readseek returned ${readseekOutput.hashlines.length} lines for requested range ${startLine}-${endIdx} (${expectedLineCount} expected)`;
 		return buildToolErrorResult("read", "readseek-output-mismatch", message, { path: rawParams.path });
 	}
-	const readseekLines: ReadseekLine[] = readseekOutput.hashlines.map((line) => ({
+	const readseekLines: ReadSeekLine[] = readseekOutput.hashlines.map((line) => ({
 		line: line.line,
 		hash: line.hash,
 		anchor: `${line.line}:${line.hash}`,
@@ -341,7 +341,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		display: escapeControlCharsForDisplay(line.text),
 	}));
 	const selected = readseekLines.map((line) => line.raw);
-	const formatted = renderReadseekLines(readseekLines);
+	const formatted = renderReadSeekLines(readseekLines);
 
 	const truncation = truncateHead(formatted, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
 
@@ -363,17 +363,17 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	}
 
 	if (symbolWarning) {
-		structuredWarnings.push(buildReadseekWarning("symbol-warning", symbolWarning.trim()));
+		structuredWarnings.push(buildReadSeekWarning("symbol-warning", symbolWarning.trim()));
 	}
 
 	if (hasBinaryContent) {
 		const warning = "[Warning: file appears to be binary — output may be garbled]";
-		structuredWarnings.push(buildReadseekWarning("binary-content", warning));
+		structuredWarnings.push(buildReadSeekWarning("binary-content", warning));
 	}
 
 	if (hasBareCarriageReturn(rawText)) {
 		const warning = "[Warning: file contains bare CR (\\r) line endings — line numbering may be inconsistent with grep and other tools]";
-		structuredWarnings.push(buildReadseekWarning("bare-cr", warning));
+		structuredWarnings.push(buildReadSeekWarning("bare-cr", warning));
 	}
 
 	const readOutput = buildReadOutput({
@@ -420,14 +420,14 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	});
 }
 
-function splitReadseekLines(text: string): string[] {
+function splitReadSeekLines(text: string): string[] {
 	if (text.length === 0) return [];
 	const withoutTrailingTerminator = text.endsWith("\n") ? text.slice(0, -1) : text;
 	return withoutTrailingTerminator.split("\n");
 }
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
-	const tool = registerReadseekTool(pi, {
+	const tool = registerReadSeekTool(pi, {
 		policy: "read-only",
 		pythonName: "read",
 		defaultExposure: "safe-by-default",
@@ -497,7 +497,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				return new Text(clampLinesToWidth([summaryLine(errorText)], width).join("\n"), 0, 0);
 			}
 
-			const readseekValue = (result.details as any)?.readseekValue as { range: { startLine: number; endLine: number; totalLines: number }; truncation: any; symbol: any; map: any; warnings: ReadseekWarning[] } | undefined;
+			const readseekValue = (result.details as any)?.readseekValue as { range: { startLine: number; endLine: number; totalLines: number }; truncation: any; symbol: any; map: any; warnings: ReadSeekWarning[] } | undefined;
 			if (!readseekValue) {
 				const lines = textContent.split("\n").filter(Boolean).length || textContent.split("\n").length;
 				return new Text(summaryLine(`loaded ${lines} ${lines === 1 ? "line" : "lines"}`, { hidden: !!textContent && !expanded }), 0, 0);
