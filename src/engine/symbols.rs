@@ -438,12 +438,12 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
         "function_definition" => node
             .child_by_field_name("declarator")
-            .and_then(|declarator| function_declarator_name(declarator, source))
+            .and_then(|declarator| declarator_name(declarator, source))
             .or_else(|| descendant_identifier(node, source))
             .map(|name| ("function".to_owned(), name)),
         "field_declaration" => node
             .child_by_field_name("declarator")
-            .and_then(|declarator| function_declarator_name(declarator, source))
+            .and_then(|declarator| declarator_name(declarator, source))
             .map(|name| ("member".to_owned(), name)),
         "struct_specifier" => named_symbol(node, source, "name", "struct"),
         "enumerator" => named_symbol(node, source, "name", "enumerator"),
@@ -486,7 +486,9 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
                         .and_then(|declarator| declarator_identifier(declarator, source))
                         .map(|name| ("function".to_owned(), name))
                 } else {
-                    last_identifier(text).map(|name| ("variable".to_owned(), name))
+                    node.child_by_field_name("declarator")
+                        .and_then(|declarator| declarator_name(declarator, source))
+                        .map(|name| ("variable".to_owned(), name))
                 }
             } else {
                 None
@@ -514,7 +516,7 @@ fn descendant_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree
     None
 }
 
-fn function_declarator_name(node: Node<'_>, source: &str) -> Option<String> {
+fn declarator_name(node: Node<'_>, source: &str) -> Option<String> {
     match node.kind() {
         "identifier"
         | "field_identifier"
@@ -524,7 +526,7 @@ fn function_declarator_name(node: Node<'_>, source: &str) -> Option<String> {
             .utf8_text(source.as_bytes())
             .ok()
             .map(ToOwned::to_owned),
-        _ => function_declarator_name(node.child_by_field_name("declarator")?, source),
+        _ => declarator_name(node.child_by_field_name("declarator")?, source),
     }
 }
 

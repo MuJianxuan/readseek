@@ -49,6 +49,7 @@ name=map jsx | path=sample.jsx | content=export function App() {\n  return <main
 name=map typescript | path=sample.ts | content=interface Named { name: string; }\nclass Greeter implements Named {\n  name = 'reader';\n  greet() { return 'hello'; }\n}\nconst make = (): Greeter => new Greeter();\n | args=map %s | language=typescript | symbol=interface,Named | symbol=class,Greeter | symbol=method,greet | symbol=function,make
 name=map tsx | path=sample.tsx | content=type Props = { name: string };\nexport function App(props: Props) {\n  return <main>{props.name}</main>;\n}\n | args=map %s | language=tsx | symbol=type,Props | symbol=function,App
 name=map cpp | path=sample.cpp | content=namespace demo {\nclass Thing {\npublic:\n  int value();\n};\n}\nint add(int a, int b) { return a + b; }\n | args=map %s | symbol=namespace,demo | symbol=class,Thing | symbol=function,add
+name=map c variable initializer name | path=vars.c | content=int b = other;\nint c = func();\nstatic int d = a + b;\n | args=map %s | language=c | symbol=variable,b | symbol=variable,c | symbol=variable,d
 name=map makefile target | path=Makefile | content=build: main.c\n\tcc -o app main.c\n | args=map %s | language=make | symbol=target,build
 name=map justfile recipe | path=Justfile | content=build:\n    cargo build\n | args=map %s | language=just | symbol=recipe,build
 name=map vimscript function | path=plugin.vim | content=function! s:greet(name) abort\n  echo a:name\nendfunction\n | args=map %s | language=vimscript | symbol=function,s:greet
