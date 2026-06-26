@@ -104,7 +104,6 @@ describe("executeRead anchor tracking", () => {
 				totalBytes: 17,
 				language: "TypeScript",
 				symbols: [],
-				imports: [],
 				detailLevel: "full",
 			});
 

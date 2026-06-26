@@ -478,7 +478,6 @@ function fileMapFromReadSeekOutput(output: ReadSeekMapOutput, filePath: string, 
 		totalBytes,
 		language: normalizeLanguage(output.language),
 		detailLevel: DetailLevel.Full,
-		imports: [],
 		symbols: symbolsFromReadSeek(output.symbols),
 	};
 }

@@ -42,8 +42,6 @@ export interface FileMap {
   language: string;
   /** Extracted symbols */
   symbols: FileSymbol[];
-  /** Module imports / dependencies */
-  imports: string[];
   /** Detail level used for this map */
   detailLevel: DetailLevel;
   /** Truncation metadata (present when symbols are truncated) */

@@ -137,20 +137,6 @@ function formatFileMap(map: FileMap, level?: DetailLevel): string {
     lines.push("");
   }
 
-  // Add imports if present and not outline or truncated level
-  if (
-    effectiveLevel !== DetailLevel.Outline &&
-    effectiveLevel !== DetailLevel.Truncated &&
-    map.imports.length > 0
-  ) {
-    const importList =
-      map.imports.length > 10
-        ? [...map.imports.slice(0, 10), `...${map.imports.length - 10} more`]
-        : map.imports;
-    lines.push(`imports: ${importList.join(", ")}`);
-    lines.push("");
-  }
-
   // Add symbols
   if (map.truncatedInfo) {
     // Truncated format: first half, separator, second half
@@ -210,11 +196,10 @@ function formatFileMap(map: FileMap, level?: DetailLevel): string {
  */
 function reduceToLevel(map: FileMap, level: DetailLevel): FileMap {
   if (level === DetailLevel.Outline) {
-    // Remove all children and signatures
+    // Remove all children
     return {
       ...map,
       detailLevel: DetailLevel.Outline,
-      imports: [],
       symbols: map.symbols.map((s) => ({
         name: s.name,
         kind: s.kind,
@@ -284,7 +269,6 @@ function reduceToTruncated(
     ...map,
     symbols: [...firstSymbols, ...lastSymbols],
     detailLevel: DetailLevel.Truncated,
-    imports: [],
     truncatedInfo: {
       totalSymbols: total,
       shownSymbols: symbolsEach * 2,
