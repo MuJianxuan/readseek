@@ -75,7 +75,12 @@ pub(crate) fn output(request: &Request) -> Result<DefOutput> {
     let paths = match readseek_dir {
         Some(dir) => match crate::engine::repo::load_index(dir, &name)? {
             Some(entries) if !entries.is_empty() => {
-                entries.into_iter().map(|entry| entry.path).collect()
+                let scoped = paths_in_scope(entries, &request.target);
+                if scoped.is_empty() {
+                    def_candidate_paths(&request.target, request.flags, search_name)?
+                } else {
+                    scoped
+                }
             }
             _ => def_candidate_paths(&request.target, request.flags, search_name)?,
         },
@@ -104,6 +109,28 @@ pub(crate) fn output(request: &Request) -> Result<DefOutput> {
     }
 
     Ok(DefOutput { definitions })
+}
+
+/// Keep the index entries whose file lies within the requested `target` scope.
+///
+/// The target is canonicalized once; an entry is retained when its own
+/// canonical path equals the target (a file) or is nested under it (a
+/// directory). Entries that no longer canonicalize are dropped, so a stale
+/// index cannot return a deleted file.
+fn paths_in_scope(
+    entries: Vec<crate::engine::repo::DefIndexEntry>,
+    target: &Path,
+) -> Vec<PathBuf> {
+    let Ok(target) = target.canonicalize() else {
+        return Vec::new();
+    };
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            let canonical = entry.path.canonicalize().ok()?;
+            canonical.starts_with(&target).then_some(entry.path)
+        })
+        .collect()
 }
 
 fn locations_in_path(
