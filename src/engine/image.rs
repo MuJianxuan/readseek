@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Image detection and attachment-ready descriptors.
+//! Image detection, metadata, and OCR.
 
+use anyhow::{Context as _, Result};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "transform")]
-use anyhow::Context as _;
-use anyhow::Result;
-use base64::Engine as _;
-use serde::Serialize;
+const DETECTION_MODEL: (&str, &str) = (
+    "text-detection.rten",
+    "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.rten",
+);
 
-use crate::engine::hash::hash_bytes;
+const RECOGNITION_MODEL: (&str, &str) = (
+    "text-recognition.rten",
+    "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.rten",
+);
 
-/// A recognized image format usable as a model attachment.
+/// A recognized image format.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ImageFormat {
@@ -29,21 +33,6 @@ pub(crate) enum ImageFormat {
 }
 
 impl ImageFormat {
-    /// The IANA media type for this format.
-    pub(crate) fn media_type(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
-            Self::Gif => "image/gif",
-            Self::WebP => "image/webp",
-            Self::Bmp => "image/bmp",
-            Self::Tiff => "image/tiff",
-            Self::Avif => "image/avif",
-            Self::Heic => "image/heic",
-            Self::Ico => "image/x-icon",
-        }
-    }
-
     fn from_image_type(kind: imagesize::ImageType) -> Option<Self> {
         use imagesize::{Compression, ImageType};
         Some(match kind {
@@ -70,37 +59,7 @@ pub(crate) struct ImageInfo {
     pub(crate) animated: bool,
 }
 
-/// An attachment-ready descriptor: image metadata plus the base64 payload.
-#[derive(Debug, Serialize)]
-pub(crate) struct ImageOutput {
-    file: PathBuf,
-    image: bool,
-    format: ImageFormat,
-    width: usize,
-    height: usize,
-    animated: bool,
-    bytes: usize,
-    hash: String,
-    media_type: &'static str,
-    encoding: &'static str,
-    data: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    original: Option<OriginalImage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ocr: Option<OcrText>,
-}
-
-/// The pre-transform image, reported when `image` re-encoded or downscaled.
-#[derive(Debug, Serialize)]
-pub(crate) struct OriginalImage {
-    format: ImageFormat,
-    width: usize,
-    height: usize,
-    bytes: usize,
-}
-
 /// Text extracted from an image by OCR.
-#[cfg_attr(not(feature = "ocr"), allow(dead_code))]
 #[derive(Debug, Serialize)]
 pub(crate) struct OcrText {
     text: String,
@@ -108,35 +67,10 @@ pub(crate) struct OcrText {
 }
 
 /// A recognized line of text with its bounding box `[x, y, width, height]`.
-#[cfg_attr(not(feature = "ocr"), allow(dead_code))]
 #[derive(Debug, Serialize)]
 pub(crate) struct OcrLine {
     text: String,
     bbox: [i32; 4],
-}
-
-/// Options controlling optional re-encoding and downscaling.
-#[derive(Debug, Default)]
-pub(crate) struct TransformOptions {
-    pub(crate) max_dim: Option<u32>,
-    pub(crate) max_bytes: Option<usize>,
-    pub(crate) format: Option<ImageFormat>,
-}
-
-impl TransformOptions {
-    fn is_noop(&self) -> bool {
-        self.max_dim.is_none() && self.max_bytes.is_none() && self.format.is_none()
-    }
-}
-
-/// A re-encoded image payload produced by [`maybe_transform`].
-#[cfg_attr(not(feature = "transform"), allow(dead_code))]
-#[derive(Debug)]
-pub(crate) struct Transformed {
-    format: ImageFormat,
-    width: usize,
-    height: usize,
-    bytes: Vec<u8>,
 }
 
 /// Identify `bytes` as an image, reporting its format, pixel dimensions, and a
@@ -157,142 +91,6 @@ pub(crate) fn probe(bytes: &[u8]) -> Option<ImageInfo> {
         height: size.height,
         animated,
     })
-}
-
-/// Build an attachment-ready descriptor, preferring the transformed payload
-/// when present and recording the original image alongside it.
-pub(crate) fn image_output(
-    path: &Path,
-    bytes: &[u8],
-    info: &ImageInfo,
-    transformed: Option<&Transformed>,
-    ocr: Option<OcrText>,
-) -> ImageOutput {
-    let payload: &[u8] = transformed.map_or(bytes, |t| &t.bytes);
-    let (format, width, height, animated, original) = match transformed {
-        Some(t) => (
-            t.format,
-            t.width,
-            t.height,
-            false,
-            Some(OriginalImage {
-                format: info.format,
-                width: info.width,
-                height: info.height,
-                bytes: bytes.len(),
-            }),
-        ),
-        None => (info.format, info.width, info.height, info.animated, None),
-    };
-    ImageOutput {
-        file: path.to_path_buf(),
-        image: true,
-        format,
-        width,
-        height,
-        animated,
-        bytes: payload.len(),
-        hash: hash_bytes(payload),
-        media_type: format.media_type(),
-        encoding: "base64",
-        data: base64::engine::general_purpose::STANDARD.encode(payload),
-        original,
-        ocr,
-    }
-}
-
-/// Apply [`TransformOptions`] when any are set, re-encoding the image to fit.
-///
-/// Returns `Ok(None)` when no options are requested, leaving the original
-/// bytes for lossless passthrough.
-#[cfg(feature = "transform")]
-pub(crate) fn maybe_transform(
-    bytes: &[u8],
-    info: &ImageInfo,
-    options: &TransformOptions,
-) -> Result<Option<Transformed>> {
-    if options.is_noop() {
-        return Ok(None);
-    }
-    transform(bytes, info, options).map(Some)
-}
-
-#[cfg(not(feature = "transform"))]
-pub(crate) fn maybe_transform(
-    bytes: &[u8],
-    info: &ImageInfo,
-    options: &TransformOptions,
-) -> Result<Option<Transformed>> {
-    let _ = (bytes, info);
-    if options.is_noop() {
-        return Ok(None);
-    }
-    anyhow::bail!("readseek was built without image transform support")
-}
-
-#[cfg(feature = "transform")]
-fn transform(bytes: &[u8], info: &ImageInfo, options: &TransformOptions) -> Result<Transformed> {
-    let mut img = ::image::load_from_memory(bytes).context("decode image")?;
-    if let Some(max) = options.max_dim {
-        if img.width() > max || img.height() > max {
-            img = img.resize(max, max, ::image::imageops::FilterType::Triangle);
-        }
-    }
-    let format = options
-        .format
-        .unwrap_or_else(|| encodable_format(info.format));
-    let mut encoded = encode(&img, format)?;
-    if let Some(max_bytes) = options.max_bytes {
-        let mut guard = 0;
-        while encoded.len() > max_bytes && img.width() > 1 && img.height() > 1 && guard < 16 {
-            let width = (img.width() * 17 / 20).max(1);
-            let height = (img.height() * 17 / 20).max(1);
-            img = img.resize(width, height, ::image::imageops::FilterType::Triangle);
-            encoded = encode(&img, format)?;
-            guard += 1;
-        }
-    }
-    Ok(Transformed {
-        format,
-        width: img.width() as usize,
-        height: img.height() as usize,
-        bytes: encoded,
-    })
-}
-
-#[cfg(feature = "transform")]
-fn encode(img: &::image::DynamicImage, format: ImageFormat) -> Result<Vec<u8>> {
-    let mut buffer = std::io::Cursor::new(Vec::new());
-    match format {
-        ImageFormat::Jpeg => ::image::DynamicImage::ImageRgb8(img.to_rgb8())
-            .write_to(&mut buffer, ::image::ImageFormat::Jpeg)
-            .context("encode jpeg")?,
-        ImageFormat::Gif => img
-            .write_to(&mut buffer, ::image::ImageFormat::Gif)
-            .context("encode gif")?,
-        ImageFormat::Bmp => img
-            .write_to(&mut buffer, ::image::ImageFormat::Bmp)
-            .context("encode bmp")?,
-        ImageFormat::Tiff => img
-            .write_to(&mut buffer, ::image::ImageFormat::Tiff)
-            .context("encode tiff")?,
-        _ => img
-            .write_to(&mut buffer, ::image::ImageFormat::Png)
-            .context("encode png")?,
-    }
-    Ok(buffer.into_inner())
-}
-
-#[cfg(feature = "transform")]
-fn encodable_format(format: ImageFormat) -> ImageFormat {
-    match format {
-        ImageFormat::Png
-        | ImageFormat::Jpeg
-        | ImageFormat::Gif
-        | ImageFormat::Bmp
-        | ImageFormat::Tiff => format,
-        _ => ImageFormat::Png,
-    }
 }
 
 /// Whether a PNG carries an `acTL` chunk (APNG) ahead of its first `IDAT`.
@@ -384,15 +182,14 @@ fn skip_sub_blocks(bytes: &[u8], mut pos: usize) -> usize {
     pos
 }
 
-/// Recognize text in `bytes`, loading models from `models` or the default
-/// `~/.cache/ocrs` cache.
-#[cfg(feature = "ocr")]
-pub(crate) fn run_ocr(bytes: &[u8], models: Option<&Path>) -> Result<OcrText> {
+/// Recognize text in `bytes`, downloading the OCR models into the user cache
+/// directory on first use.
+pub(crate) fn run_ocr(bytes: &[u8]) -> Result<OcrText> {
     use ocrs::{ImageSource, OcrEngine, OcrEngineParams, TextItem};
 
-    let dir = ocr_models_dir(models)?;
-    let detection = dir.join("text-detection.rten");
-    let recognition = dir.join("text-recognition.rten");
+    let dir = cache_dir()?;
+    let detection = ensure_model(&dir, DETECTION_MODEL.0, DETECTION_MODEL.1)?;
+    let recognition = ensure_model(&dir, RECOGNITION_MODEL.0, RECOGNITION_MODEL.1)?;
     let detection_model = rten::Model::load_file(&detection)
         .map_err(|err| anyhow::anyhow!("load {}: {err}", detection.display()))?;
     let recognition_model = rten::Model::load_file(&recognition)
@@ -431,16 +228,14 @@ pub(crate) fn run_ocr(bytes: &[u8], models: Option<&Path>) -> Result<OcrText> {
     Ok(OcrText { text, lines })
 }
 
-#[cfg(feature = "ocr")]
 struct Decoded {
     width: u32,
     height: u32,
     rgb: Vec<u8>,
 }
 
-#[cfg(feature = "ocr")]
 fn decode(bytes: &[u8]) -> Result<Decoded> {
-    let img = ::image::load_from_memory(bytes)
+    let img = image::load_from_memory(bytes)
         .context("decode image")?
         .into_rgb8();
     let (width, height) = img.dimensions();
@@ -451,14 +246,29 @@ fn decode(bytes: &[u8]) -> Result<Decoded> {
     })
 }
 
-#[cfg(feature = "ocr")]
-fn ocr_models_dir(models: Option<&Path>) -> Result<PathBuf> {
-    if let Some(dir) = models {
-        return Ok(dir.to_path_buf());
+fn cache_dir() -> Result<PathBuf> {
+    let base = dirs::cache_dir().context("no cache directory available")?;
+    Ok(base.join("readseek"))
+}
+
+/// Return the cached path for `name`, downloading it from `url` on first use.
+fn ensure_model(dir: &Path, name: &str, url: &str) -> Result<PathBuf> {
+    let path = dir.join(name);
+    if path.exists() {
+        return Ok(path);
     }
-    if let Some(dir) = std::env::var_os("READSEEK_OCR_MODELS") {
-        return Ok(PathBuf::from(dir));
-    }
-    let home = std::env::var_os("HOME").context("set --ocr-models or READSEEK_OCR_MODELS")?;
-    Ok(PathBuf::from(home).join(".cache").join("ocrs"))
+    std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    log::info!("downloading OCR model {name}");
+    let partial = dir.join(format!("{name}.part"));
+    let mut response = ureq::get(url)
+        .call()
+        .map_err(|err| anyhow::anyhow!("download {url}: {err}"))?;
+    let mut file =
+        std::fs::File::create(&partial).with_context(|| format!("create {}", partial.display()))?;
+    std::io::copy(&mut response.body_mut().as_reader(), &mut file)
+        .with_context(|| format!("download {url}"))?;
+    file.sync_all().ok();
+    drop(file);
+    std::fs::rename(&partial, &path).with_context(|| format!("install {}", path.display()))?;
+    Ok(path)
 }

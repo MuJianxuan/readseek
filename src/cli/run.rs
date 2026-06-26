@@ -5,7 +5,6 @@ use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use serde::Serialize;
 use std::path::Path;
-use std::process;
 use tree_sitter::Parser;
 
 use crate::cli;
@@ -35,10 +34,6 @@ pub(crate) fn run() -> Result<()> {
     let json = match command {
         cli::Command::Detect(command) => command.run()?,
         cli::Command::Read(command) => command.run()?,
-        cli::Command::Image(command) => match command.run()? {
-            Some(json) => json,
-            None => process::exit(3),
-        },
         cli::Command::Map(command) => command.run()?,
         cli::Command::Check(command) => command.run()?,
         cli::Command::Symbol(command) => command.run()?,
@@ -58,13 +53,32 @@ pub(crate) fn run() -> Result<()> {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(
+        let (target, source) = load_source(
             self.target.as_deref(),
             self.stdin.as_deref(),
             self.language,
             BinaryMode::Detect,
         )?;
-        to_json(&source.detection)
+        let mut detection = source.detection;
+        self.apply_ocr(&target, &mut detection);
+        to_json(&detection)
+    }
+
+    fn apply_ocr(&self, target: &Target, detection: &mut crate::engine::source::Detection) {
+        if !self.ocr || detection.image.is_none() {
+            return;
+        }
+        let bytes = match std::fs::read(&target.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log::warn!("ocr skipped: read {}: {error}", target.path.display());
+                return;
+            }
+        };
+        match crate::engine::image::run_ocr(&bytes) {
+            Ok(text) => detection.ocr = Some(text),
+            Err(error) => log::warn!("ocr skipped: {error:#}"),
+        }
     }
 }
 
@@ -104,52 +118,6 @@ impl cli::ReadCommand {
         };
         let output = output::read_output(&source, start, end)?;
         to_json(&output)
-    }
-}
-
-impl cli::ImageCommand {
-    fn run(&self) -> Result<Option<String>> {
-        let bytes = std::fs::read(&self.target)
-            .with_context(|| format!("read {}", self.target.display()))?;
-        let Some(info) = crate::engine::image::probe(&bytes) else {
-            return Ok(None);
-        };
-        #[cfg(not(feature = "ocr"))]
-        if self.ocr {
-            bail!("readseek was built without OCR support");
-        }
-        let options = crate::engine::image::TransformOptions {
-            max_dim: self.max_dim,
-            max_bytes: self.max_bytes,
-            format: self.format,
-        };
-        let transformed = crate::engine::image::maybe_transform(&bytes, &info, &options)?;
-        #[cfg(feature = "ocr")]
-        let ocr = self.ocr_text(&bytes);
-        #[cfg(not(feature = "ocr"))]
-        let ocr: Option<crate::engine::image::OcrText> = None;
-        let output = crate::engine::image::image_output(
-            &self.target,
-            &bytes,
-            &info,
-            transformed.as_ref(),
-            ocr,
-        );
-        Ok(Some(to_json(&output)?))
-    }
-
-    #[cfg(feature = "ocr")]
-    fn ocr_text(&self, bytes: &[u8]) -> Option<crate::engine::image::OcrText> {
-        if !self.ocr {
-            return None;
-        }
-        match crate::engine::image::run_ocr(bytes, self.ocr_models.as_deref()) {
-            Ok(text) => Some(text),
-            Err(error) => {
-                eprintln!("warning: ocr skipped: {error:#}");
-                None
-            }
-        }
     }
 }
 
