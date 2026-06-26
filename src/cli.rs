@@ -425,42 +425,20 @@ pub(crate) trait GitSelection {
     fn git_flags(&self) -> GitFlags;
 }
 
-impl GitSelection for DefCommand {
-    fn git_flags(&self) -> GitFlags {
-        GitFlags {
-            cached: self.cached,
-            others: self.others,
-            ignored: self.ignored,
-        }
-    }
+macro_rules! impl_git_selection {
+    ($($command:ty),+ $(,)?) => {
+        $(
+            impl GitSelection for $command {
+                fn git_flags(&self) -> GitFlags {
+                    GitFlags {
+                        cached: self.cached,
+                        others: self.others,
+                        ignored: self.ignored,
+                    }
+                }
+            }
+        )+
+    };
 }
 
-impl GitSelection for RefsCommand {
-    fn git_flags(&self) -> GitFlags {
-        GitFlags {
-            cached: self.cached,
-            others: self.others,
-            ignored: self.ignored,
-        }
-    }
-}
-
-impl GitSelection for RenameCommand {
-    fn git_flags(&self) -> GitFlags {
-        GitFlags {
-            cached: self.cached,
-            others: self.others,
-            ignored: self.ignored,
-        }
-    }
-}
-
-impl GitSelection for SearchCommand {
-    fn git_flags(&self) -> GitFlags {
-        GitFlags {
-            cached: self.cached,
-            others: self.others,
-            ignored: self.ignored,
-        }
-    }
-}
+impl_git_selection!(DefCommand, RefsCommand, RenameCommand, SearchCommand);
