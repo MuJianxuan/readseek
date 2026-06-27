@@ -2,10 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerReadTool } from "./src/read.js";
 import { registerEditTool } from "./src/edit.js";
 import { registerGrepTool } from "./src/grep.js";
-import { registerSgTool, isSgAvailable } from "./src/sg.js";
+import { registerSgTool } from "./src/sg.js";
 import { registerRefsTool } from "./src/refs.js";
 import { registerWriteTool } from "./src/write.js";
 import { SessionAnchors } from "./src/session-anchors.js";
+import { isReadSeekAvailable } from "./src/readseek-client.js";
 
 export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const sessionAnchors = new SessionAnchors();
@@ -14,10 +15,10 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 
 	registerReadTool(pi, { onSuccessfulRead: markAnchored });
 	registerEditTool(pi, { wasReadInSession: hasFreshAnchors });
-	const sgAvailable = isSgAvailable();
-	const searchGuideline = sgAvailable
+	const searchAvailable = isReadSeekAvailable();
+	const searchGuideline = searchAvailable
 		? "Use grep summary for counts; use search for structural code patterns."
-		: "Use grep summary for counts; install @jarkkojs/readseek to enable search.";
+		: "Use grep summary for counts; search is unavailable (readseek native backend not loaded).";
 
 	registerGrepTool(pi, { searchGuideline, onFileAnchored: markAnchored });
 	registerSgTool(pi, { onFileAnchored: markAnchored });

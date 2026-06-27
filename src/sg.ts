@@ -7,7 +7,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildReadSeekLineWithHash, buildToolErrorResult, type ReadSeekLine } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { classifyReadSeekFailure, isReadSeekAvailable, readseekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
+import { classifyReadSeekFailure, readseekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { langParam, readseekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
@@ -51,10 +51,6 @@ const SG_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/sg.md", import.meta.url),
   promptSnippet: "Search code structurally with readseek and return edit-ready anchors",
 });
-
-export function isSgAvailable(): boolean {
-  return isReadSeekAvailable();
-}
 
 interface SgToolOptions {
   onFileAnchored?: FileAnchoredCallback;
