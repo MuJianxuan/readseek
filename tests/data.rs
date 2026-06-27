@@ -181,10 +181,10 @@ impl<'a> Case<'a> {
                     stderr.trim()
                 ));
             }
-            if let Some(needle) = self.stderr {
-                if !stderr.contains(needle) {
-                    return Err(format!("stderr missing `{needle}`: {}", stderr.trim()));
-                }
+            if let Some(needle) = self.stderr
+                && !stderr.contains(needle)
+            {
+                return Err(format!("stderr missing `{needle}`: {}", stderr.trim()));
             }
             return Ok(());
         }

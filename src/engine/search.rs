@@ -244,40 +244,40 @@ fn child_nodes_match<'a>(
     }
 
     let pattern_child = pattern_children[pattern_index];
-    if let Some(meta) = pattern_meta(pattern, pattern_child) {
-        if meta.kind == PatternMetaKind::Variadic {
-            for count in 0..=source_children.len().saturating_sub(source_index) {
-                let snapshot = captures.len();
-                if count > 0 {
-                    let start_node = source_children[source_index];
-                    let end_node = source_children[source_index + count - 1];
-                    let (start_line, _) = symbols::node_line_range(start_node);
-                    let (_, end_line) = symbols::node_line_range(end_node);
-                    let Some(text) = source
-                        .text
-                        .get(start_node.start_byte()..end_node.end_byte())
-                    else {
-                        continue;
-                    };
-                    if !bind_capture(captures, &meta.name, text, start_line, end_line) {
-                        continue;
-                    }
+    if let Some(meta) = pattern_meta(pattern, pattern_child)
+        && meta.kind == PatternMetaKind::Variadic
+    {
+        for count in 0..=source_children.len().saturating_sub(source_index) {
+            let snapshot = captures.len();
+            if count > 0 {
+                let start_node = source_children[source_index];
+                let end_node = source_children[source_index + count - 1];
+                let (start_line, _) = symbols::node_line_range(start_node);
+                let (_, end_line) = symbols::node_line_range(end_node);
+                let Some(text) = source
+                    .text
+                    .get(start_node.start_byte()..end_node.end_byte())
+                else {
+                    continue;
+                };
+                if !bind_capture(captures, &meta.name, text, start_line, end_line) {
+                    continue;
                 }
-                if child_nodes_match(
-                    source,
-                    pattern,
-                    pattern_children,
-                    source_children,
-                    pattern_index + 1,
-                    source_index + count,
-                    captures,
-                ) {
-                    return true;
-                }
-                captures.truncate(snapshot);
             }
-            return false;
+            if child_nodes_match(
+                source,
+                pattern,
+                pattern_children,
+                source_children,
+                pattern_index + 1,
+                source_index + count,
+                captures,
+            ) {
+                return true;
+            }
+            captures.truncate(snapshot);
         }
+        return false;
     }
 
     if source_index >= source_children.len() {

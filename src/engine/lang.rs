@@ -528,14 +528,14 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> (Language, Option<Stri
     }
 
     // Shebang detection
-    if let Some(line) = text.lines().next() {
-        if line.starts_with("#!") {
-            if line.contains("python") {
-                return (Language::Python, None);
-            }
-            if line.contains("node") {
-                return (Language::JavaScript, None);
-            }
+    if let Some(line) = text.lines().next()
+        && line.starts_with("#!")
+    {
+        if line.contains("python") {
+            return (Language::Python, None);
+        }
+        if line.contains("node") {
+            return (Language::JavaScript, None);
         }
     }
 
@@ -567,15 +567,15 @@ fn detect_syntax<'a>(
     path: &Path,
     text: &str,
 ) -> Option<&'a SyntaxReference> {
-    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-        if let Some(syntax) = syntax_set.find_syntax_by_extension(name) {
-            return Some(syntax);
-        }
+    if let Some(name) = path.file_name().and_then(|name| name.to_str())
+        && let Some(syntax) = syntax_set.find_syntax_by_extension(name)
+    {
+        return Some(syntax);
     }
-    if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
-        if let Some(syntax) = syntax_set.find_syntax_by_extension(ext) {
-            return Some(syntax);
-        }
+    if let Some(ext) = path.extension().and_then(|ext| ext.to_str())
+        && let Some(syntax) = syntax_set.find_syntax_by_extension(ext)
+    {
+        return Some(syntax);
     }
     let first_line = text.lines().next().unwrap_or("");
     syntax_set.find_syntax_by_first_line(first_line)

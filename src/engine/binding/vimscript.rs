@@ -59,10 +59,10 @@ pub(super) fn declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node
             }
         }
         "function_declaration" => {
-            if let Some(name) = node.child_by_field_name("name") {
-                if name.kind() == "identifier" || name.kind() == "name" {
-                    out.push(name);
-                }
+            if let Some(name) = node.child_by_field_name("name")
+                && (name.kind() == "identifier" || name.kind() == "name")
+            {
+                out.push(name);
             }
         }
         _ => {}
