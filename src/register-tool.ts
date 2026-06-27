@@ -1,4 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
+
+/**
+ * Optional tool parameter accepting an integer or its string form, since models
+ * frequently pass integers as quoted strings. Both union halves share
+ * {@link description}.
+ */
+export function optionalIntOrString(description: string) {
+  return Type.Optional(Type.Union([Type.Number({ description }), Type.String({ description })]));
+}
 
 export type ReadSeekToolPolicy = "read-only" | "mutating";
 

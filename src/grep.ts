@@ -21,7 +21,7 @@ import { formatGrepCallText, formatGrepResultText } from "./grep-render-helpers.
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadSeekTool } from "./register-tool.js";
+import { optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 
 const GREP_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/grep.md", import.meta.url),
@@ -34,30 +34,15 @@ const grepSchema = Type.Object({
 	glob: Type.Optional(Type.String({ description: "Glob filter" })),
 	ignoreCase: Type.Optional(Type.Boolean({ description: "Ignore case" })),
 	literal: Type.Optional(Type.Boolean({ description: "Treat pattern literally" })),
-	context: Type.Optional(
-		Type.Union([
-			Type.Number({ description: "Context lines" }),
-			Type.String({ description: "Context lines" }),
-		]),
-	),
-	limit: Type.Optional(
-		Type.Union([
-			Type.Number({ description: "Max matches" }),
-			Type.String({ description: "Max matches" }),
-		]),
-	),
+	context: optionalIntOrString("Context lines"),
+	limit: optionalIntOrString("Max matches"),
 	summary: Type.Optional(Type.Boolean({ description: "Return per-file counts" })),
 	scope: Type.Optional(
 		Type.Literal("symbol", {
 			description: "Scope matches to symbols",
 		}),
 	),
-	scopeContext: Type.Optional(
-		Type.Union([
-			Type.Number({ description: "Symbol context lines" }),
-			Type.String({ description: "Symbol context lines" }),
-		]),
-	),
+	scopeContext: optionalIntOrString("Symbol context lines"),
 });
 
 interface GrepParams {

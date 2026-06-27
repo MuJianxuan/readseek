@@ -29,7 +29,7 @@ import { readseekRead, readseekDetect, type ReadSeekDetection } from "./readseek
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidth } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadSeekTool } from "./register-tool.js";
+import { optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 
 const READ_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/read.md", import.meta.url),
@@ -451,18 +451,8 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 		promptGuidelines: READ_PROMPT_METADATA.promptGuidelines,
 		parameters: Type.Object({
 			path: Type.String({ description: "File path" }),
-			offset: Type.Optional(
-				Type.Union([
-					Type.Number({ description: "Start line (1-indexed)" }),
-					Type.String({ description: "Start line (1-indexed)" }),
-				]),
-			),
-			limit: Type.Optional(
-				Type.Union([
-					Type.Number({ description: "Max lines" }),
-					Type.String({ description: "Max lines" }),
-				]),
-			),
+			offset: optionalIntOrString("Start line (1-indexed)"),
+			limit: optionalIntOrString("Max lines"),
 			symbol: Type.Optional(Type.String({ description: "Symbol name to read" })),
 			map: Type.Optional(Type.Boolean({ description: "Append structural map" })),
 			bundle: Type.Optional(
