@@ -108,14 +108,14 @@ export interface ReadSeekCheckOutput {
 	diagnostics: ReadSeekDiagnostic[];
 }
 
-export interface ReadSeekOcrLine {
+export interface ReadSeekTranscriptRegion {
 	text: string;
-	bbox: [number, number, number, number];
+	quad: [number, number, number, number, number, number, number, number];
 }
 
-export interface ReadSeekOcrText {
+export interface ReadSeekTranscript {
 	text: string;
-	lines: ReadSeekOcrLine[];
+	regions: ReadSeekTranscriptRegion[];
 }
 
 export type ReadSeekDetection =
@@ -136,7 +136,7 @@ export type ReadSeekDetection =
 			width: number;
 			height: number;
 			animated: boolean;
-			ocr?: ReadSeekOcrText;
+			transcribe?: ReadSeekTranscript;
 		}
 	| {
 			type: "binary";
@@ -641,21 +641,21 @@ export async function readseekCheck(
 	);
 }
 
-function parseOcrText(value: unknown): ReadSeekOcrText | undefined {
+function parseTranscript(value: unknown): ReadSeekTranscript | undefined {
 	if (value === undefined || value === null) return undefined;
-	if (typeof value !== "object") throw new Error("invalid readseek detect ocr");
-	const ocr = value as Record<string, unknown>;
-	if (!Array.isArray(ocr.lines)) throw new Error("invalid readseek detect ocr.lines");
+	if (typeof value !== "object") throw new Error("invalid readseek detect transcribe");
+	const transcribe = value as Record<string, unknown>;
+	if (!Array.isArray(transcribe.regions)) throw new Error("invalid readseek detect transcribe.regions");
 	return {
-		text: requireString(ocr.text, "ocr.text"),
-		lines: ocr.lines.map((line) => {
-			if (!line || typeof line !== "object") throw new Error("invalid readseek detect ocr line");
-			const item = line as Record<string, unknown>;
-			const bbox = item.bbox;
-			if (!Array.isArray(bbox) || bbox.length !== 4) throw new Error("invalid readseek detect ocr bbox");
+		text: requireString(transcribe.text, "transcribe.text"),
+		regions: transcribe.regions.map((region) => {
+			if (!region || typeof region !== "object") throw new Error("invalid readseek detect transcribe region");
+			const item = region as Record<string, unknown>;
+			const quad = item.quad;
+			if (!Array.isArray(quad) || quad.length !== 8) throw new Error("invalid readseek detect transcribe quad");
 			return {
-				text: requireString(item.text, "ocr.line.text"),
-				bbox: bbox.map((n, i) => requireNumber(n, `ocr.line.bbox[${i}]`)) as [number, number, number, number],
+				text: requireString(item.text, "transcribe.region.text"),
+				quad: quad.map((n, i) => requireNumber(n, `transcribe.region.quad[${i}]`)) as ReadSeekTranscriptRegion["quad"],
 			};
 		}),
 	};
@@ -687,7 +687,7 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 				width: requireNumber(output.width, "width"),
 				height: requireNumber(output.height, "height"),
 				animated: requireBoolean(output.animated, "animated"),
-				ocr: parseOcrText(output.ocr),
+				transcribe: parseTranscript(output.transcribe),
 			};
 		case "binary":
 		case "text":
@@ -699,10 +699,10 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 
 export async function readseekDetect(
 	filePath: string,
-	options: { ocr?: boolean; signal?: AbortSignal } = {},
+	options: { transcribe?: boolean; signal?: AbortSignal } = {},
 ): Promise<ReadSeekDetection> {
 	const args = ["detect"];
-	if (options.ocr) args.push("--ocr");
+	if (options.transcribe) args.push("--transcribe");
 	args.push(filePath);
 	return parseDetectOutput(await runReadSeek(args, { signal: options.signal }));
 }

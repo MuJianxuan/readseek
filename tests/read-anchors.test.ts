@@ -82,10 +82,13 @@ describe("executeRead anchor tracking", () => {
 				height: 1,
 				animated: false,
 			};
-			readseekDetectMock.mockImplementation((_filePath: string, options?: { ocr?: boolean }) =>
+			readseekDetectMock.mockImplementation((_filePath: string, options?: { transcribe?: boolean }) =>
 				Promise.resolve(
-					options?.ocr
-						? { ...imageDetection, ocr: { text: "OCR TEXT", lines: [{ text: "OCR TEXT", bbox: [0, 0, 1, 1] }] } }
+					options?.transcribe
+						? {
+								...imageDetection,
+								transcribe: { text: "OCR TEXT", regions: [{ text: "OCR TEXT", quad: [0, 0, 1, 0, 1, 1, 0, 1] }] },
+							}
 						: imageDetection,
 				),
 			);

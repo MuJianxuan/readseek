@@ -162,23 +162,23 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 
 	const hasBinaryContent = looksLikeBinary(rawBuffer);
 	if (hasBinaryContent) {
-		// Images are always binary; classify and OCR in a single readseek detect call.
+		// Images are always binary; classify and transcribe in a single readseek detect call.
 		let detection: ReadSeekDetection | undefined;
 		try {
-			detection = await readseekDetect(absolutePath, { ocr: true, signal });
+			detection = await readseekDetect(absolutePath, { transcribe: true, signal });
 		} catch {
 			// detect unavailable — fall through to binary-as-text handling below
 		}
 		if (detection?.type === "image") {
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
-			const ocrText = detection.ocr?.text?.trim();
-			if (ocrText) {
+			const transcript = detection.transcribe?.text?.trim();
+			if (transcript) {
 				return succeed({
 					...builtinResult,
 					content: [
 						...(builtinResult.content ?? []),
-						{ type: "text" as const, text: `OCR text extracted from image:\n${ocrText}` },
+						{ type: "text" as const, text: `Transcribed text from image:\n${transcript}` },
 					],
 				});
 			}
