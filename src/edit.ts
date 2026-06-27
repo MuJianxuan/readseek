@@ -27,7 +27,7 @@ import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { upsertDiffComponent, upsertTextComponent } from "./tui-diff-component.js";
 import type { FreshAnchorsPredicate } from "./tool-types.js";
-import { registerReadSeekTool } from "./register-tool.js";
+import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
 import { resolveEditDiffDisplay } from "./readseek-settings.js";
 
@@ -60,7 +60,7 @@ const hashlineEditItemSchema = Type.Union([
 
 const hashlineEditSchema = Type.Object(
 	{
-		path: Type.String({ description: "File path" }),
+		path: filePathParam(),
 		edits: Type.Optional(Type.Array(hashlineEditItemSchema, { description: "Edit operations" })),
 		postEditVerify: Type.Optional(Type.Boolean({
 			description: "Verify persisted content after write",

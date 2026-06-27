@@ -20,7 +20,7 @@ import { buildDiffData, type DiffData } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { upsertDiffComponent, upsertTextComponent } from "./tui-diff-component.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { registerReadSeekTool } from "./register-tool.js";
+import { filePathParam, mapParam, registerReadSeekTool } from "./register-tool.js";
 
 const WRITE_PENDING_PREVIEW_STATE_KEY = "hashline-write-pending-preview";
 
@@ -314,9 +314,9 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
     promptSnippet: WRITE_PROMPT_METADATA.promptSnippet,
     promptGuidelines: WRITE_PROMPT_METADATA.promptGuidelines,
     parameters: Type.Object({
-      path: Type.String({ description: "File path" }),
+      path: filePathParam(),
       content: Type.String({ description: "File content" }),
-      map: Type.Optional(Type.Boolean({ description: "Append structural map" })),
+      map: mapParam(),
     }),
     async execute(_toolCallId: string, params: { path: string; content: string; map?: boolean }, _signal: AbortSignal | undefined, _onUpdate: any, ctx: any): Promise<any> {
       const cwd = ctx?.cwd ?? process.cwd();

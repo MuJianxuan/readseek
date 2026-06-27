@@ -10,6 +10,16 @@ export function optionalIntOrString(description: string) {
   return Type.Optional(Type.Union([Type.Number({ description }), Type.String({ description })]));
 }
 
+/** Required file-path parameter shared by the read, edit, and write tools. */
+export function filePathParam() {
+  return Type.String({ description: "File path" });
+}
+
+/** Optional structural-map toggle shared by the read and write tools. */
+export function mapParam() {
+  return Type.Optional(Type.Boolean({ description: "Append structural map" }));
+}
+
 export type ReadSeekToolPolicy = "read-only" | "mutating";
 
 export type ReadSeekToolExposure = "safe-by-default" | "opt-in" | "not-safe-by-default";
