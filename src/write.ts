@@ -9,6 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
 import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, buildToolErrorResult, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
+import { classifyFsError, type FsErrorCode } from "./fs-error.js";
 import { getOrGenerateMap } from "./file-map.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
 
@@ -120,8 +121,9 @@ export interface WriteToolOptions {
 }
 
 type MappedFsError = {
-  code: "permission-denied" | "path-is-directory" | "fs-error";
+  code: FsErrorCode | "fs-error";
   message: string;
+  hint?: string;
   includeMeta: boolean;
 };
 
@@ -129,20 +131,6 @@ function mapFsWriteError(err: any, path: string): MappedFsError {
   const phase: "mkdir" | "write" | undefined = err?.__phase;
   const fsCode = err?.code as string | undefined;
 
-  if (fsCode === "EACCES" || fsCode === "EPERM") {
-    return {
-      code: "permission-denied",
-      message: `Permission denied — cannot write: ${path}`,
-      includeMeta: false,
-    };
-  }
-  if (fsCode === "EISDIR") {
-    return {
-      code: "path-is-directory",
-      message: `Path is a directory — cannot overwrite: ${path}`,
-      includeMeta: false,
-    };
-  }
   if (fsCode === "ENOENT" && phase === "mkdir") {
     return {
       code: "fs-error",
@@ -164,6 +152,10 @@ function mapFsWriteError(err: any, path: string): MappedFsError {
       includeMeta: true,
     };
   }
+  const fsError = classifyFsError(err, path);
+  if (fsError) {
+    return { code: fsError.code, message: fsError.message, hint: fsError.hint, includeMeta: false };
+  }
   return {
     code: "fs-error",
     message: `Error writing ${path}: ${err?.message ?? String(err)}`,
@@ -175,6 +167,7 @@ function buildWriteFsErrorResult(err: any, absolutePath: string) {
   const mapped = mapFsWriteError(err, absolutePath);
   return buildToolErrorResult("write", mapped.code, mapped.message, {
     path: absolutePath,
+    hint: mapped.hint,
     extra: { lines: [], warnings: [] },
     details: mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
   });
