@@ -119,9 +119,10 @@ export function formatHashlineDisplay(lineNumber: number, content: string): stri
 }
 
 export function parseLineRef(ref: string): { line: number; hash: string; content?: string } {
-	const contentMatch = ref.match(/^[^|]*\|(.*)$/);
+	const firstLine = ref.split(/\r?\n/, 1)[0]; // an anchor is one line; ignore any pasted trailing lines
+	const contentMatch = firstLine.match(/^[^|]*\|(.*)$/);
 	const contentAfterPipe = contentMatch ? contentMatch[1] : undefined;
-	const cleaned = ref
+	const cleaned = firstLine
 		.replace(/\|.*$/, "") // drop |content suffix
 		.replace(/^[\s>]+/, "") // drop leading gutter: >> / >>> / indentation
 		.replace(/ {2}.*$/, "") // drop trailing "  comment"

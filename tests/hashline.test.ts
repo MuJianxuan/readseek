@@ -26,4 +26,20 @@ describe("parseLineRef", () => {
 	it("still accepts a bare anchor", () => {
 		expect(parseLineRef("78:f0e")).toMatchObject({ line: 78, hash: "f0e" });
 	});
+
+	it("ignores a trailing newline after the anchor", () => {
+		expect(parseLineRef("76:4c9|#[derive(Clone, Copy)]\n")).toMatchObject({
+			line: 76,
+			hash: "4c9",
+			content: "#[derive(Clone, Copy)]",
+		});
+	});
+
+	it("uses only the first line of a multi-line paste", () => {
+		expect(parseLineRef("76:4c9|#[derive(Clone, Copy)]\n77:abc|pub struct Foo")).toMatchObject({
+			line: 76,
+			hash: "4c9",
+			content: "#[derive(Clone, Copy)]",
+		});
+	});
 });
