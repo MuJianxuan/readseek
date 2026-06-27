@@ -64,7 +64,7 @@ impl cli::DetectCommand {
     }
 
     fn apply_vision(&self, target: &Target, output: &mut output::DetectOutput) {
-        let request = crate::engine::florence::Request {
+        let request = crate::engine::vision::Request {
             transcribe: self.transcribe,
             caption: self.caption,
             objects: self.objects,
@@ -79,7 +79,7 @@ impl cli::DetectCommand {
                 return;
             }
         };
-        match crate::engine::florence::analyze(&bytes, request) {
+        match crate::engine::vision::analyze(&bytes, request) {
             Ok(analysis) => output.set_analysis(analysis),
             Err(error) => log::warn!("vision skipped: {error:#}"),
         }

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Image detection and metadata. Text/vision analysis lives in
-//! [`crate::engine::florence`].
+//! [`crate::engine::vision`].
 
 use serde::Serialize;
 

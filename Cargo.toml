@@ -18,12 +18,13 @@ blake3 = "1.8"
 env_logger = "0.11"
 git2 = { version = "0.20", default-features = false }
 hex = "0.4"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
 imagesize = "0.14"
+encoding_rs = "0.8"
+dirs = "6"
 infer = "0.19"
+indicatif = "0.17"
 log = "0.4"
 memchr = "2.7"
-ort = { version = "=2.0.0-rc.12", features = ["download-binaries", "ndarray"] }
 rayon = "1.10"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
@@ -67,15 +68,13 @@ tree-sitter-toml-ng = "0.7.0"
 tree-sitter-vim = "0.4.0"
 tree-sitter-zig = "1.1"
 ts-parser-perl = "1.1"
-tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh32"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 crc = "3.4.0"
+llama-cpp-2 = { version = "0.1", features = ["mtmd"] }
 
-[build-dependencies]
-ureq = "3"
 sha2 = "0.10"
-hex = "0.4"
+ureq = "3"
 
 [dev-dependencies]
 duct = "1"

@@ -7,7 +7,6 @@ use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::engine::florence::{Analysis, DetectedObject, OcrText};
 use crate::engine::hash::LineHash;
 use crate::engine::image::ImageInfo;
 use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
@@ -16,6 +15,7 @@ use crate::engine::source::{
     source_from_text, source_map,
 };
 use crate::engine::target::{Target, TargetAddress};
+use crate::engine::vision::{Analysis, DetectedObject, OcrText};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Format {

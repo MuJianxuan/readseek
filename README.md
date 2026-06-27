@@ -50,7 +50,7 @@ readseek identify src/main.rs:42 --column 8 | readseek def --from-identify src -
 ## Images
 
 `detect` reports format, dimensions, and animation status for images. Add a vision
-flag to analyze image contents with the embedded Florence-2 model:
+flag to analyze image contents with the Qwen2.5-VL vision model:
 
 ```sh
 readseek detect screenshot.png --transcribe  # text + per-region bounding quads
@@ -58,9 +58,11 @@ readseek detect photo.jpg --caption        # detailed natural-language caption
 readseek detect photo.jpg --objects        # object labels + bounding boxes
 ```
 
-The flags can be combined; the model loads once per invocation. The model is
-embedded in the binary, so no download or network access is required at runtime.
-Inference is CPU-only and takes a few seconds per image.
+The flags can be combined; the model loads once per invocation. The model files
+(~1.8 GB GGUF + ~1.3 GB multimodal projection) are downloaded lazily into the
+user cache directory on first vision use and reused on subsequent runs; a
+progress bar is shown while downloading when stdout is an interactive TTY.
+Inference is CPU-only and takes a few to tens of seconds per image.
 
 ## Cache
 
@@ -86,6 +88,6 @@ native binaries are licensed under `LGPL-2.1-or-later`. Corresponding source for
 each published native binary is available from the GitHub repository tag that
 matches the package version.
 
-The binary embeds the Florence-2 model (`onnx-community/Florence-2-base-ft`, a
-re-export of `microsoft/Florence-2-base-ft`), which is licensed under `MIT`. See
-`LICENSE-Florence-2` for its license text.
+readseek downloads the Qwen2.5-VL vision model (`unsloth/Qwen2.5-VL-3B-Instruct-GGUF`,
+a re-export of `Qwen/Qwen2.5-VL-3B-Instruct`) into the user cache directory on
+first use. It is licensed under `Apache-2.0`.
