@@ -9,6 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { classifyReadSeekFailure, readseekRefs, type ReadSeekReference } from "./readseek-client.js";
 import { buildRefsOutput, type RefsOutputFile, type RefsOutputLine } from "./refs-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { readseekGitSearchParams, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
@@ -83,9 +84,8 @@ function isReadSeekCursorValidationFailure(message: string): boolean {
 export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
   const { params, signal, cwd, onFileAnchored } = opts;
   const p = params as RefsParams;
-  if (p.ignored && !p.others) {
-    return buildToolErrorResult("refs", "invalid-parameter", "Error: refs parameter 'ignored' requires 'others'");
-  }
+  const ignoredError = validateIgnoredRequiresOthers("refs", p);
+  if (ignoredError) return ignoredError;
   if (p.scope && p.line === undefined) {
     return buildToolErrorResult("refs", "invalid-parameter", "Error: refs parameter 'scope' requires 'line'");
   }
@@ -141,9 +141,7 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
       scope: Type.Optional(Type.Boolean({ description: "Restrict to the binding under line/column (single file)" })),
       line: Type.Optional(Type.Number({ description: "One-based cursor line, used with scope" })),
       column: Type.Optional(Type.Number({ description: "One-based cursor byte column, used with scope" })),
-      cached: Type.Optional(Type.Boolean({ description: "In a Git repository, search tracked/indexed files" })),
-      others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
-      ignored: Type.Optional(Type.Boolean({ description: "With others=true, include ignored untracked files" })),
+      ...readseekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeRefs({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });

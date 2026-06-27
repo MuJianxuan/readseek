@@ -11,6 +11,7 @@ import { statSearchPathOrError } from "./stat-search-path.js";
 import { classifyReadSeekFailure, isReadSeekAvailable, readseekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
+import { readseekGitSearchParams, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
@@ -107,10 +108,8 @@ function readseekLanguageForPath(language: string | undefined, searchPath: strin
 export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
   const { params, signal, cwd, onFileAnchored } = opts;
   const p = params as SgParams;
-  if (p.ignored && !p.others) {
-    const message = "Error: search parameter 'ignored' requires 'others'";
-    return buildToolErrorResult("search", "invalid-parameter", message);
-  }
+  const ignoredError = validateIgnoredRequiresOthers("search", p);
+  if (ignoredError) return ignoredError;
   const searchPath = resolveToCwd(p.path ?? ".", cwd);
 
   const statResult = await statSearchPathOrError("search", p.path, searchPath);
@@ -203,9 +202,7 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       pattern: Type.String({ description: "AST pattern" }),
       lang: Type.Optional(Type.String({ description: "Language hint" })),
       path: Type.Optional(Type.String({ description: "Search path" })),
-      cached: Type.Optional(Type.Boolean({ description: "In a Git repository, search tracked/indexed files" })),
-      others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
-      ignored: Type.Optional(Type.Boolean({ description: "With others=true, include ignored untracked files" })),
+      ...readseekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeSg({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
