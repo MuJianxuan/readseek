@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 
-import { withFileMutationQueue, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue, type ExtensionAPI, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
@@ -16,7 +16,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildPendingWritePreviewData, buildWritePreviewKey, resolvePendingDiffPreview, type PendingDiffPreviewResult } from "./pending-diff-preview.js";
 import { generateCompactOrFullDiff, normalizeToLF, hasBareCarriageReturn } from "./edit-diff.js";
 import { buildDiffData, type DiffData } from "./diff-data.js";
-import { clampLineToWidth, clampLinesToWidth, isRendererExpanded, linkToolPath, renderErrorResult, renderToolLabel, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { upsertDiffComponent, upsertTextComponent } from "./tui-diff-component.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { registerReadSeekTool } from "./register-tool.js";
@@ -410,9 +410,9 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       }
       return upsertTextComponent(context.lastComponent, clampLinesToWidth(parts.lines, context.width).join("\n"));
     },
-    renderResult(result: any, options: any, theme: any, context: any = {}) {
-      const expanded = isRendererExpanded(options, context);
-      const width = context.width ?? options?.width;
+    renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
+      const { isPartial, expanded, width, context } = resolveRenderResultContext(options, rest);
+      if (isPartial) return renderPendingResult("pending write", width);
       const details = result.details ?? {};
       const output = result.content?.[0]?.type === "text" ? result.content[0].text : "";
       if (result.isError || details.readseekValue?.ok === false) {
