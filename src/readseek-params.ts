@@ -33,7 +33,7 @@ export function validateIgnoredRequiresOthers(
   params: { others?: boolean; ignored?: boolean },
 ): ToolErrorResult | null {
   if (params.ignored && !params.others) {
-    return buildToolErrorResult(tool, "invalid-parameter", `Error: ${tool} parameter 'ignored' requires 'others'`);
+    return buildToolErrorResult(tool, "invalid-parameter", `${tool} parameter 'ignored' requires 'others'`);
   }
   return null;
 }

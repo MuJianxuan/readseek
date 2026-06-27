@@ -23,12 +23,12 @@ export async function statSearchPathOrError(
     const display = rawPath ?? ".";
     const path = rawPath ?? searchPath;
     if (err?.code === "ENOENT") {
-      return { ok: false, error: buildToolErrorResult(tool, "path-not-found", `Error: path '${display}' does not exist`, { path }) };
+      return { ok: false, error: buildToolErrorResult(tool, "path-not-found", `Path '${display}' does not exist`, { path }) };
     }
     if (err?.code === "EACCES" || err?.code === "EPERM") {
-      return { ok: false, error: buildToolErrorResult(tool, "permission-denied", `Error: permission denied for path '${display}'`, { path }) };
+      return { ok: false, error: buildToolErrorResult(tool, "permission-denied", `Permission denied for path '${display}'`, { path }) };
     }
-    const message = `Error: could not access path '${display}': ${err?.message ?? String(err)}`;
+    const message = `Could not access path '${display}': ${err?.message ?? String(err)}`;
     return { ok: false, error: buildToolErrorResult(tool, "fs-error", message, { path, details: { fsCode: err?.code, fsMessage: err?.message } }) };
   }
 }

@@ -86,7 +86,7 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
   const ignoredError = validateIgnoredRequiresOthers("refs", p);
   if (ignoredError) return ignoredError;
   if (p.scope && p.line === undefined) {
-    return buildToolErrorResult("refs", "invalid-parameter", "Error: refs parameter 'scope' requires 'line'");
+    return buildToolErrorResult("refs", "invalid-parameter", "refs parameter 'scope' requires 'line'");
   }
   const searchPath = resolveToCwd(p.path ?? ".", cwd);
 
