@@ -64,9 +64,17 @@ pub(crate) struct DetectCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// extract text with OCR (requires a build with the ocr feature)
+    /// transcribe text from an image, including per-region bounding quads
     #[argh(switch)]
-    pub(crate) ocr: bool,
+    pub(crate) transcribe: bool,
+
+    /// describe an image with a detailed natural-language caption
+    #[argh(switch)]
+    pub(crate) caption: bool,
+
+    /// detect objects in an image, with category labels and bounding boxes
+    #[argh(switch)]
+    pub(crate) objects: bool,
 }
 
 /// read and hash from a line range

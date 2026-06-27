@@ -59,24 +59,29 @@ impl cli::DetectCommand {
             BinaryMode::Detect,
         )?;
         let mut output = output::DetectOutput::from_detection(source.detection);
-        self.apply_ocr(&target, &mut output);
+        self.apply_vision(&target, &mut output);
         Ok(serde_json::to_string(&output)?)
     }
 
-    fn apply_ocr(&self, target: &Target, output: &mut output::DetectOutput) {
-        if !self.ocr || !output.is_image() {
+    fn apply_vision(&self, target: &Target, output: &mut output::DetectOutput) {
+        let request = crate::engine::florence::Request {
+            transcribe: self.transcribe,
+            caption: self.caption,
+            objects: self.objects,
+        };
+        if (!request.transcribe && !request.caption && !request.objects) || !output.is_image() {
             return;
         }
         let bytes = match std::fs::read(&target.path) {
             Ok(bytes) => bytes,
             Err(error) => {
-                log::warn!("ocr skipped: read {}: {error}", target.path.display());
+                log::warn!("vision skipped: read {}: {error}", target.path.display());
                 return;
             }
         };
-        match crate::engine::image::run_ocr(&bytes) {
-            Ok(text) => output.set_ocr(text),
-            Err(error) => log::warn!("ocr skipped: {error:#}"),
+        match crate::engine::florence::analyze(&bytes, request) {
+            Ok(analysis) => output.set_analysis(analysis),
+            Err(error) => log::warn!("vision skipped: {error:#}"),
         }
     }
 }

@@ -1,21 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Image detection, metadata, and OCR.
+//! Image detection and metadata. Text/vision analysis lives in
+//! [`crate::engine::florence`].
 
-use anyhow::{Context as _, Result};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
-
-const DETECTION_MODEL: (&str, &str) = (
-    "text-detection.rten",
-    "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.rten",
-);
-
-const RECOGNITION_MODEL: (&str, &str) = (
-    "text-recognition.rten",
-    "https://ocrs-models.s3-accelerate.amazonaws.com/text-recognition.rten",
-);
 
 /// A recognized image format.
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -57,20 +46,6 @@ pub(crate) struct ImageInfo {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) animated: bool,
-}
-
-/// Text extracted from an image by OCR.
-#[derive(Debug, Serialize)]
-pub(crate) struct OcrText {
-    text: String,
-    lines: Vec<OcrLine>,
-}
-
-/// A recognized line of text with its bounding box `[x, y, width, height]`.
-#[derive(Debug, Serialize)]
-pub(crate) struct OcrLine {
-    text: String,
-    bbox: [i32; 4],
 }
 
 /// Identify `bytes` as an image, reporting its format, pixel dimensions, and a
@@ -180,95 +155,4 @@ fn skip_sub_blocks(bytes: &[u8], mut pos: usize) -> usize {
         pos += usize::from(size);
     }
     pos
-}
-
-/// Recognize text in `bytes`, downloading the OCR models into the user cache
-/// directory on first use.
-pub(crate) fn run_ocr(bytes: &[u8]) -> Result<OcrText> {
-    use ocrs::{ImageSource, OcrEngine, OcrEngineParams, TextItem};
-
-    let dir = cache_dir()?;
-    let detection = ensure_model(&dir, DETECTION_MODEL.0, DETECTION_MODEL.1)?;
-    let recognition = ensure_model(&dir, RECOGNITION_MODEL.0, RECOGNITION_MODEL.1)?;
-    let detection_model = rten::Model::load_file(&detection)
-        .map_err(|err| anyhow::anyhow!("load {}: {err}", detection.display()))?;
-    let recognition_model = rten::Model::load_file(&recognition)
-        .map_err(|err| anyhow::anyhow!("load {}: {err}", recognition.display()))?;
-    let engine = OcrEngine::new(OcrEngineParams {
-        detection_model: Some(detection_model),
-        recognition_model: Some(recognition_model),
-        ..Default::default()
-    })?;
-
-    let decoded = decode(bytes)?;
-    let source = ImageSource::from_bytes(&decoded.rgb, (decoded.width, decoded.height))
-        .map_err(|err| anyhow::anyhow!("ocr image source: {err}"))?;
-    let input = engine.prepare_input(source)?;
-    let words = engine.detect_words(&input)?;
-    let line_rects = engine.find_text_lines(&input, &words);
-    let recognized = engine.recognize_text(&input, &line_rects)?;
-
-    let mut lines = Vec::new();
-    for line in recognized.into_iter().flatten() {
-        let text = line.to_string();
-        if text.trim().is_empty() {
-            continue;
-        }
-        let rect = line.bounding_rect();
-        lines.push(OcrLine {
-            text,
-            bbox: [rect.left(), rect.top(), rect.width(), rect.height()],
-        });
-    }
-    let text = lines
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(OcrText { text, lines })
-}
-
-struct Decoded {
-    width: u32,
-    height: u32,
-    rgb: Vec<u8>,
-}
-
-fn decode(bytes: &[u8]) -> Result<Decoded> {
-    let img = image::load_from_memory(bytes)
-        .context("decode image")?
-        .into_rgb8();
-    let (width, height) = img.dimensions();
-    Ok(Decoded {
-        width,
-        height,
-        rgb: img.into_raw(),
-    })
-}
-
-fn cache_dir() -> Result<PathBuf> {
-    let base = dirs::cache_dir().context("no cache directory available")?;
-    Ok(base.join("readseek"))
-}
-
-/// Return the cached path for `name`, downloading it from `url` on first use.
-fn ensure_model(dir: &Path, name: &str, url: &str) -> Result<PathBuf> {
-    let path = dir.join(name);
-    if path.exists() {
-        return Ok(path);
-    }
-    std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
-    log::info!("downloading OCR model {name}");
-    let partial = dir.join(format!("{name}.part"));
-    let mut response = ureq::get(url)
-        .call()
-        .map_err(|err| anyhow::anyhow!("download {url}: {err}"))?;
-    let mut file =
-        std::fs::File::create(&partial).with_context(|| format!("create {}", partial.display()))?;
-    std::io::copy(&mut response.body_mut().as_reader(), &mut file)
-        .with_context(|| format!("download {url}"))?;
-    file.sync_all().ok();
-    drop(file);
-    std::fs::rename(&partial, &path).with_context(|| format!("install {}", path.display()))?;
-    Ok(path)
 }

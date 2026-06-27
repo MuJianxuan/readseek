@@ -8,6 +8,7 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek\fR [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
+    [\fB--transcribe\fR] [\fB--caption\fR] [\fB--objects\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
@@ -141,8 +142,13 @@ parser-based features.
 Print detection metadata for the input as a tagged JSON object. Source files use
 \fItype=source\fR and include the detected language, parser engine, support flag,
 optional MIME type, and optional syntax name. Images use \fItype=image\fR and
-include MIME type, format, width, height, animation status, and optional OCR text.
-Other binary files use \fItype=binary\fR. Unknown plain text uses \fItype=text\fR.
+include MIME type, format, width, height, and animation status. With
+\fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR the image is analyzed with
+the embedded Florence-2 model: \fB--transcribe\fR adds a \fItranscribe\fR object
+with the recognized \fItext\fR and per-region bounding quads, \fB--caption\fR adds
+a \fIcaption\fR string, and \fB--objects\fR adds an \fIobjects\fR array of category
+labels with bounding boxes. Other binary files use \fItype=binary\fR. Unknown plain
+text uses \fItype=text\fR.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range

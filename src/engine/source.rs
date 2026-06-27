@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::hash::{LineHash, hash_line, hash_text};
-use crate::engine::image::{ImageInfo, OcrText};
+use crate::engine::image::ImageInfo;
 use crate::engine::lang::{
     AnalysisEngine, BinaryMode, DocumentKind, Language, detect_by_path, detect_language,
     extract_plain_text, language_spec, normalize_source_text, serialize_engine,
@@ -29,8 +29,6 @@ pub(crate) struct Detection {
     pub(crate) syntax: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) image: Option<ImageInfo>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) ocr: Option<OcrText>,
 }
 
 #[derive(Debug, Serialize)]
@@ -235,7 +233,6 @@ pub(crate) fn source_from_text(
             mime,
             syntax,
             image: None,
-            ocr: None,
         },
         lines,
         line_starts,

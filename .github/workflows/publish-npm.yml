@@ -221,27 +221,16 @@ jobs:
           ref: ${{ needs.metadata.outputs.tag }}
 
       - name: Install Rust toolchain
-        if: runner.os != 'Linux'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build (Linux musl-static)
+      # A fully static (crt-static) glibc binary has no dynamic dependencies, so
+      # it runs on any Linux distribution (glibc or musl). onnxruntime is linked
+      # in statically by `ort`; the Florence-2 model is fetched by build.rs.
+      - name: Build (Linux static-glibc)
         if: runner.os == 'Linux'
-        run: |
-          uid="$(id -u)"
-          gid="$(id -g)"
-          docker run --rm \
-            -e HOST_UID="$uid" \
-            -e HOST_GID="$gid" \
-            -v "$PWD:/work" \
-            -w /work \
-            rust:1.89-alpine sh -euxc '
-              apk add --no-cache build-base openssl-dev openssl-libs-static pkgconf
-              rustup target add x86_64-unknown-linux-musl
-              cargo fetch --target x86_64-unknown-linux-musl
-              OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
-                cargo build --release --target x86_64-unknown-linux-musl
-              chown -R "$HOST_UID:$HOST_GID" target
-            '
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Build (macOS / Windows)
         if: runner.os != 'Linux'
@@ -252,7 +241,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            bin_path="target/x86_64-unknown-linux-musl/release/readseek"
+            bin_path="target/x86_64-unknown-linux-gnu/release/readseek"
           else
             bin_path="target/release/readseek"
           fi
@@ -384,7 +373,7 @@ jobs:
           mv artifacts/darwin-arm64/darwin-arm64.tar.gz \
             "assets/readseek-${ver}-darwin-arm64.tar.gz"
           mv artifacts/linux-x64/linux-x64.tar.gz \
-            "assets/readseek-${ver}-linux-x64-musl.tar.gz"
+            "assets/readseek-${ver}-linux-x64.tar.gz"
           mv artifacts/win32-x64/win32-x64.tar.gz \
             "assets/readseek-${ver}-win32-x64.tar.gz"
 

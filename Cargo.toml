@@ -15,18 +15,16 @@ anyhow = "1.0"
 arborium-meson = "2.18"
 argh = "0.1.13"
 blake3 = "1.8"
-dirs = "6"
 env_logger = "0.11"
-git2 = "0.20"
+git2 = { version = "0.20", default-features = false }
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp"] }
 imagesize = "0.14"
 infer = "0.19"
 log = "0.4"
 memchr = "2.7"
-ocrs = "0.12"
+ort = { version = "=2.0.0-rc.12", features = ["download-binaries", "ndarray"] }
 rayon = "1.10"
-rten = "0.24"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 strum = "0.27"
@@ -69,10 +67,15 @@ tree-sitter-toml-ng = "0.7.0"
 tree-sitter-vim = "0.4.0"
 tree-sitter-zig = "1.1"
 ts-parser-perl = "1.1"
-ureq = "3"
+tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh32"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 crc = "3.4.0"
+
+[build-dependencies]
+ureq = "3"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 duct = "1"

@@ -6,6 +6,7 @@
 pub(crate) mod binding;
 pub(crate) mod def;
 pub(crate) mod flags;
+pub(crate) mod florence;
 pub(crate) mod hash;
 pub(crate) mod image;
 pub(crate) mod lang;

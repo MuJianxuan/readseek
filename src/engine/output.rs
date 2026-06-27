@@ -7,8 +7,9 @@ use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::engine::florence::{Analysis, DetectedObject, OcrText};
 use crate::engine::hash::LineHash;
-use crate::engine::image::{ImageInfo, OcrText};
+use crate::engine::image::ImageInfo;
 use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
 use crate::engine::source::{
     Detection, HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines,
@@ -80,9 +81,11 @@ impl DetectOutput {
         matches!(self, Self::Image(_))
     }
 
-    pub(crate) fn set_ocr(&mut self, text: OcrText) {
+    pub(crate) fn set_analysis(&mut self, analysis: Analysis) {
         if let Self::Image(image) = self {
-            image.ocr = Some(text);
+            image.transcribe = analysis.transcribe;
+            image.caption = analysis.caption;
+            image.objects = analysis.objects;
         }
     }
 }
@@ -109,7 +112,11 @@ pub(crate) struct DetectImageOutput {
     #[serde(flatten)]
     image: ImageInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ocr: Option<OcrText>,
+    transcribe: Option<OcrText>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caption: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    objects: Option<Vec<DetectedObject>>,
 }
 
 impl DetectImageOutput {
@@ -118,7 +125,9 @@ impl DetectImageOutput {
             file,
             mime,
             image,
-            ocr: None,
+            transcribe: None,
+            caption: None,
+            objects: None,
         }
     }
 }
