@@ -1,5 +1,4 @@
 import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import path from "node:path";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
@@ -12,7 +11,7 @@ import type { FileAnchoredCallback } from "./tool-types.js";
 import { readseekGitSearchParams, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
-import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
+import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
 
 type RefsParams = {
   name: string;
@@ -147,13 +146,11 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
       return executeRefs({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
     },
     renderCall(args: any, theme: any, ...rest: any[]) {
-      const context = rest[0] ?? {};
-      let text = `${renderToolLabel(theme, "refs")} ${theme.fg("accent", args.name)}`;
-      text += theme.fg("dim", ` in ${args.path ?? "."}`);
-      if (args.lang) text += theme.fg("dim", ` (${args.lang})`);
-      const flags = [args.scope && "scope", args.cached && "cached", args.others && "others", args.ignored && "ignored"].filter(Boolean);
-      if (flags.length > 0) text += theme.fg("dim", ` [${flags.join(",")}]`);
-      return new Text(clampLineToWidth(text, context.width), 0, 0);
+      return renderReadSeekSearchCall(args, theme, rest, {
+        label: "refs",
+        accent: args.name,
+        flags: [args.scope && "scope", args.cached && "cached", args.others && "others", args.ignored && "ignored"],
+      });
     },
     renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
       return renderAnchoredFilesResult(result, options, theme, rest, {

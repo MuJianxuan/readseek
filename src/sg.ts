@@ -1,7 +1,6 @@
 import path from "node:path";
 
 import type { ExtensionAPI, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
@@ -14,7 +13,7 @@ import type { FileAnchoredCallback } from "./tool-types.js";
 import { readseekGitSearchParams, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
-import { clampLineToWidth, renderAnchoredFilesResult, renderToolLabel } from "./tui-render-utils.js";
+import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
 
 type SgParams = { pattern: string; lang?: string; path?: string; cached?: boolean; others?: boolean; ignored?: boolean };
 
@@ -208,13 +207,11 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       return executeSg({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
     },
     renderCall(args: any, theme: any, ...rest: any[]) {
-      const context = rest[0] ?? {};
-      let text = `${renderToolLabel(theme, "search")} ${theme.fg("accent", `/${args.pattern}/`)}`;
-      text += theme.fg("dim", ` in ${args.path ?? "."}`);
-      if (args.lang) text += theme.fg("dim", ` (${args.lang})`);
-      const flags = [args.cached && "cached", args.others && "others", args.ignored && "ignored"].filter(Boolean);
-      if (flags.length > 0) text += theme.fg("dim", ` [${flags.join(",")}]`);
-      return new Text(clampLineToWidth(text, context.width), 0, 0);
+      return renderReadSeekSearchCall(args, theme, rest, {
+        label: "search",
+        accent: `/${args.pattern}/`,
+        flags: [args.cached && "cached", args.others && "others", args.ignored && "ignored"],
+      });
     },
     renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
       return renderAnchoredFilesResult(result, options, theme, rest, {

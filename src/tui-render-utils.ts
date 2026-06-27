@@ -178,6 +178,26 @@ export interface AnchoredFilesLabels {
 }
 
 /**
+ * Render the call line shared by the readseek search tools (search, refs): a
+ * tool label, an accent term, the search path, an optional language hint, and
+ * the active boolean flags. Falsy {@link opts.flags} entries are dropped.
+ */
+export function renderReadSeekSearchCall(
+  args: { path?: string; lang?: string },
+  theme: RendererTheme,
+  rest: any[],
+  opts: { label: string; accent: string; flags: Array<string | false | undefined> },
+): Text {
+  const context = rest[0] ?? {};
+  let text = `${renderToolLabel(theme, opts.label)} ${theme.fg("accent", opts.accent)}`;
+  text += theme.fg("dim", ` in ${args.path ?? "."}`);
+  if (args.lang) text += theme.fg("dim", ` (${args.lang})`);
+  const flags = opts.flags.filter(Boolean);
+  if (flags.length > 0) text += theme.fg("dim", ` [${flags.join(",")}]`);
+  return new Text(clampLineToWidth(text, context.width), 0, 0);
+}
+
+/**
  * Render the result summary shared by the anchored-files search tools (search,
  * refs): a pending line, an error first-line/expanded body, an empty-result
  * line, or a `<count> <unit> in <n> files` summary with an expandable per-file
