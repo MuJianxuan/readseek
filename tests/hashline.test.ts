@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseLineRef } from "../src/hashline.js";
+import { applyHashlineEdits, computeLineHash, ensureHashInit, parseLineRef } from "../src/hashline.js";
 
 describe("parseLineRef", () => {
 	it("rejects unsafe anchor line numbers", () => {
@@ -41,5 +41,27 @@ describe("parseLineRef", () => {
 			hash: "4c9",
 			content: "#[derive(Clone, Copy)]",
 		});
+	});
+});
+
+describe("applyHashlineEdits new_text prefix stripping", () => {
+	it("strips >> / >>> / indentation gutters copied into new_text", async () => {
+		await ensureHashInit();
+		const content = "alpha\nbeta\ngamma";
+		const anchor = `2:${computeLineHash("beta")}|beta`;
+		const result = applyHashlineEdits(content, [
+			{ set_line: { anchor, new_text: ">>10:abc|first\n>>> 11:def|second\n    12:f0e|third" } },
+		]);
+		expect(result.content).toBe("alpha\nfirst\nsecond\nthird\ngamma");
+	});
+
+	it("leaves plain replacement text untouched", async () => {
+		await ensureHashInit();
+		const content = "alpha\nbeta\ngamma";
+		const anchor = `2:${computeLineHash("beta")}|beta`;
+		const result = applyHashlineEdits(content, [
+			{ set_line: { anchor, new_text: "first()\nsecond()" } },
+		]);
+		expect(result.content).toBe("alpha\nfirst()\nsecond()\ngamma");
 	});
 });

@@ -58,7 +58,7 @@ const RADIX = 16;
 const HASH_MOD = RADIX ** HASH_LEN;
 const DICT = Array.from({ length: HASH_MOD }, (_, i) => i.toString(RADIX).padStart(HASH_LEN, "0"));
 
-const HASHLINE_PREFIX_RE = /^\d+:[0-9a-zA-Z]{1,16}\|/;
+const HASHLINE_PREFIX_RE = /^[\s>]*\d+:[0-9a-zA-Z]{1,16}\|/;
 const DIFF_PLUS_RE = /^\+(?!\+)/;
 const HASH_ONLY_PREFIX_RE = /^[0-9a-f]{3}\|/;
 const HASH_RELOCATION_WINDOW_BASE = 20;
