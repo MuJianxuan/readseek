@@ -94,7 +94,7 @@ function isReplaceEdit(edit: unknown): edit is ReplaceEdit {
 type AnchorEdit =
 	| { set_line: { anchor: string; new_text: string } }
 	| { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
-	| { insert_after: { anchor: string; new_text: string; text?: string } };
+	| { insert_after: { anchor: string; new_text: string } };
 
 function isAnchorEdit(edit: unknown): edit is AnchorEdit {
 	return !!edit && typeof edit === "object" && ("set_line" in edit || "replace_lines" in edit || "insert_after" in edit);

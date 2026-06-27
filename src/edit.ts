@@ -46,7 +46,7 @@ const hashlineEditItemSchema = Type.Union([
 		{ replace_lines: Type.Object({ start_anchor: Type.String(), end_anchor: Type.String(), new_text: Type.String() }) },
 		{ additionalProperties: true },
 	),
-	Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String(), text: Type.Optional(Type.String()) }) }, { additionalProperties: true }),
+	Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: true }),
 	Type.Object(
 		{ replace: Type.Object({ old_text: Type.String(), new_text: Type.String(), all: Type.Optional(Type.Boolean()), fuzzy: Type.Optional(Type.Boolean()) }) },
 		{ additionalProperties: true },
@@ -54,13 +54,6 @@ const hashlineEditItemSchema = Type.Union([
 	Type.Object(
 		{ replace_symbol: Type.Object({ symbol: Type.String(), new_body: Type.String() }) },
 		{ additionalProperties: true },
-	),
-	Type.Object(
-		{ old_text: Type.String(), new_text: Type.String() },
-		{
-			additionalProperties: true,
-			description: "Do not use — Wrap as { replace: {old_text, new_text} }.",
-		},
 	),
 ]);
 
