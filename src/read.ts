@@ -165,7 +165,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		} catch {
 			// detect unavailable — fall through to binary-as-text handling below
 		}
-		if (detection?.type === "image") {
+		if (detection?.kind === "image") {
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
 			const transcript = detection.transcribe?.text?.trim();

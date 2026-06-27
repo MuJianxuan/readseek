@@ -120,7 +120,8 @@ export interface ReadSeekTranscript {
 
 export type ReadSeekDetection =
 	| {
-			type: "source";
+			kind: "source";
+			type: string;
 			file: string;
 			language: string;
 			engine?: string;
@@ -129,7 +130,8 @@ export type ReadSeekDetection =
 			syntax?: string;
 		}
 	| {
-			type: "image";
+			kind: "image";
+			type: string;
 			file: string;
 			mime?: string;
 			format: string;
@@ -139,12 +141,8 @@ export type ReadSeekDetection =
 			transcribe?: ReadSeekTranscript;
 		}
 	| {
-			type: "binary";
-			file: string;
-			mime?: string;
-		}
-	| {
-			type: "text";
+			kind: "text";
+			type: string;
 			file: string;
 			mime?: string;
 		};
@@ -667,34 +665,38 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 	const type = requireString(output.type, "type");
 	const file = requireString(output.file, "file");
 	const mime = optionalString(output.mime, "mime");
-	switch (type) {
-		case "source":
-			return {
-				type,
-				file,
-				language: requireString(output.language, "language"),
-				engine: optionalString(output.engine, "engine"),
-				supported: requireBoolean(output.supported, "supported"),
-				mime,
-				syntax: optionalString(output.syntax, "syntax"),
-			};
-		case "image":
-			return {
-				type,
-				file,
-				mime,
-				format: requireString(output.format, "format"),
-				width: requireNumber(output.width, "width"),
-				height: requireNumber(output.height, "height"),
-				animated: requireBoolean(output.animated, "animated"),
-				transcribe: parseTranscript(output.transcribe),
-			};
-		case "binary":
-		case "text":
-			return { type, file, mime };
-		default:
-			throw new Error(`invalid readseek detect type: ${type}`);
+
+	// readseek 0.4.22 made the detect enum untagged and repurposed `type` to
+	// carry the actual MIME type. Discriminate structurally: image detections
+	// carry `format`/`width`/`height`/`animated`; source detections carry
+	// `language`. Text and binary are byte-identical on the wire and collapse
+	// to the text variant.
+	if (output.format !== undefined || output.width !== undefined || output.height !== undefined) {
+		return {
+			kind: "image",
+			type,
+			file,
+			mime,
+			format: requireString(output.format, "format"),
+			width: requireNumber(output.width, "width"),
+			height: requireNumber(output.height, "height"),
+			animated: requireBoolean(output.animated, "animated"),
+			transcribe: parseTranscript(output.transcribe),
+		};
 	}
+	if (output.language !== undefined) {
+		return {
+			kind: "source",
+			type,
+			file,
+			language: requireString(output.language, "language"),
+			engine: optionalString(output.engine, "engine"),
+			supported: requireBoolean(output.supported, "supported"),
+			mime,
+			syntax: optionalString(output.syntax, "syntax"),
+		};
+	}
+	return { kind: "text", type, file, mime };
 }
 
 export async function readseekDetect(

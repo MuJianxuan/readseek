@@ -74,7 +74,8 @@ describe("executeRead anchor tracking", () => {
 			);
 			await writeFile(filePath, png);
 			const imageDetection = {
-				type: "image",
+				kind: "image",
+				type: "image/png",
 				file: filePath,
 				mime: "image/png",
 				format: "png",

@@ -23,7 +23,7 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { readseekRead, readseekSearch } = await import("../src/readseek-client.js");
+const { readseekRead, readseekSearch, readseekDetect } = await import("../src/readseek-client.js");
 
 function spawnResult(stdout: string) {
 	const child = new EventEmitter() as EventEmitter & {
@@ -148,5 +148,59 @@ describe("readseek client parsing", () => {
 		await expect(readseekRead("/tmp/file.txt")).rejects.toThrow(
 			"invalid readseek line_count: expected safe integer",
 		);
+	});
+
+	it("classifies image detections by structural fields", async () => {
+		const imageOutput = JSON.stringify({
+			type: "image/png",
+			file: "/tmp/image.png",
+			mime: "image/png",
+			format: "png",
+			width: 1,
+			height: 1,
+			animated: false,
+		});
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => spawnResult(imageOutput));
+
+		const detection = await readseekDetect("/tmp/image.png");
+
+		expect(detection.kind).toBe("image");
+		expect(detection.type).toBe("image/png");
+		if (detection.kind === "image") expect(detection.transcribe).toBeUndefined();
+	});
+
+	it("classifies source detections by language field", async () => {
+		const sourceOutput = JSON.stringify({
+			type: "text/plain",
+			file: "/tmp/sample.rs",
+			language: "rust",
+			engine: "tree-sitter",
+			supported: true,
+		});
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => spawnResult(sourceOutput));
+
+		const detection = await readseekDetect("/tmp/sample.rs");
+
+		expect(detection.kind).toBe("source");
+		if (detection.kind === "source") expect(detection.language).toBe("rust");
+	});
+
+	it("classifies plain-text detections without language or format", async () => {
+		const textOutput = JSON.stringify({
+			type: "text/plain",
+			file: "/tmp/note.txt",
+		});
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => spawnResult(textOutput));
+
+		const detection = await readseekDetect("/tmp/note.txt");
+
+		expect(detection.kind).toBe("text");
+		expect(detection.type).toBe("text/plain");
 	});
 });
