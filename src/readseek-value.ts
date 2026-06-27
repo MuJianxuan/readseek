@@ -86,6 +86,26 @@ export function renderReadSeekLines(lines: ReadSeekLine[]): string {
   return lines.map(renderReadSeekLine).join("\n");
 }
 
+/**
+ * Render the anchored-file block format shared by the `search` and `refs`
+ * tools: a `--- <displayPath> ---` header per file followed by one
+ * `>><anchor>|<display>` line per match. {@link lineSuffix} appends tool
+ * specific trailers (e.g. refs' enclosing-symbol annotation).
+ */
+export function formatAnchoredFileBlocks<T extends ReadSeekLine>(
+  files: Array<{ displayPath: string; lines: T[] }>,
+  lineSuffix?: (line: T) => string,
+): string {
+  const blocks: string[] = [];
+  for (const file of files) {
+    blocks.push(`--- ${file.displayPath} ---`);
+    for (const line of file.lines) {
+      blocks.push(`>>${line.anchor}|${line.display}${lineSuffix?.(line) ?? ""}`);
+    }
+  }
+  return blocks.join("\n");
+}
+
 export function buildReadSeekWarning(
   code: string,
   message: string,

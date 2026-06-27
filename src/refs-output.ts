@@ -1,4 +1,4 @@
-import type { ReadSeekLine } from "./readseek-value.js";
+import { formatAnchoredFileBlocks, type ReadSeekLine } from "./readseek-value.js";
 
 export interface RefsOutputLine extends ReadSeekLine {
   enclosingSymbol?: string;
@@ -34,17 +34,8 @@ export function buildRefsOutput(input: BuildRefsOutputInput): RefsOutputResult {
     };
   }
 
-  const blocks: string[] = [];
-  for (const file of input.files) {
-    blocks.push(`--- ${file.displayPath} ---`);
-    for (const line of file.lines) {
-      const suffix = line.enclosingSymbol ? ` (in ${line.enclosingSymbol})` : "";
-      blocks.push(`>>${line.anchor}|${line.display}${suffix}`);
-    }
-  }
-
   return {
-    text: blocks.join("\n"),
+    text: formatAnchoredFileBlocks(input.files, (line) => (line.enclosingSymbol ? ` (in ${line.enclosingSymbol})` : "")),
     readseekValue: {
       tool: "refs",
       files: input.files.map((file) => ({

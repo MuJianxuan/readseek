@@ -1,4 +1,4 @@
-import type { ReadSeekLine, ReadSeekRange } from "./readseek-value.js";
+import { formatAnchoredFileBlocks, type ReadSeekLine, type ReadSeekRange } from "./readseek-value.js";
 
 export interface SgOutputFile {
   displayPath: string;
@@ -36,16 +36,8 @@ export function buildSgOutput(input: BuildSgOutputInput): SgOutputResult {
     };
   }
 
-  const blocks: string[] = [];
-  for (const file of input.files) {
-    blocks.push(`--- ${file.displayPath} ---`);
-    for (const line of file.lines) {
-      blocks.push(`>>${line.anchor}|${line.display}`);
-    }
-  }
-
   return {
-    text: blocks.join("\n"),
+    text: formatAnchoredFileBlocks(input.files),
     readseekValue: {
       tool: "search",
       files: input.files.map((file) => ({
