@@ -139,16 +139,16 @@ parser-based features.
 .SH COMMANDS
 .TP
 .B detect
-Print detection metadata for the input as a tagged JSON object. Source files use
-\fItype=source\fR and include the detected language, parser engine, support flag,
-optional MIME type, and optional syntax name. Images use \fItype=image\fR and
-include MIME type, format, width, height, and animation status. With
+Print detection metadata for the input as a JSON object. The \fBtype\fR field
+contains the exact MIME type detected by inspecting the file content, or
+\fBtext/plain\fR as a fallback. Source files include the detected language, parser
+engine, support flag, optional MIME type, and optional syntax name. Image files
+also include format, width, height, and animation status. With
 \fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR the image is analyzed with
 the embedded Florence-2 model: \fB--transcribe\fR adds a \fItranscribe\fR object
 with the recognized \fItext\fR and per-region bounding quads, \fB--caption\fR adds
 a \fIcaption\fR string, and \fB--objects\fR adds an \fIobjects\fR array of category
-labels with bounding boxes. Other binary files use \fItype=binary\fR. Unknown plain
-text uses \fItype=text\fR.
+labels with bounding boxes.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range

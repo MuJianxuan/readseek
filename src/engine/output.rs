@@ -35,7 +35,7 @@ impl argh::FromArgValue for Format {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(untagged)]
 pub(crate) enum DetectOutput {
     Source(DetectSourceOutput),
     Image(DetectImageOutput),
@@ -45,9 +45,15 @@ pub(crate) enum DetectOutput {
 
 impl DetectOutput {
     pub(crate) fn from_detection(detection: Detection) -> Self {
+        let mime = detection
+            .mime
+            .clone()
+            .unwrap_or_else(|| "text/plain".to_string());
+
         if let Some(image) = detection.image {
             return Self::Image(DetectImageOutput::new(
                 detection.file,
+                mime,
                 detection.mime,
                 image,
             ));
@@ -56,6 +62,7 @@ impl DetectOutput {
         if detection.binary {
             return Self::Binary(DetectBinaryOutput {
                 file: detection.file,
+                type_: mime,
                 mime: detection.mime,
             });
         }
@@ -63,6 +70,7 @@ impl DetectOutput {
         if detection.language == Language::Unknown {
             return Self::Text(DetectTextOutput {
                 file: detection.file,
+                type_: mime,
                 mime: detection.mime,
             });
         }
@@ -72,6 +80,7 @@ impl DetectOutput {
             language: detection.language,
             engine: detection.engine,
             supported: detection.supported,
+            type_: mime,
             mime: detection.mime,
             syntax: detection.syntax,
         })
@@ -92,6 +101,8 @@ impl DetectOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct DetectSourceOutput {
+    #[serde(rename = "type")]
+    type_: String,
     file: PathBuf,
     language: Language,
     #[serde(serialize_with = "serialize_engine")]
@@ -106,6 +117,8 @@ pub(crate) struct DetectSourceOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct DetectImageOutput {
+    #[serde(rename = "type")]
+    type_: String,
     file: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     mime: Option<String>,
@@ -120,8 +133,9 @@ pub(crate) struct DetectImageOutput {
 }
 
 impl DetectImageOutput {
-    fn new(file: PathBuf, mime: Option<String>, image: ImageInfo) -> Self {
+    fn new(file: PathBuf, type_: String, mime: Option<String>, image: ImageInfo) -> Self {
         Self {
+            type_,
             file,
             mime,
             image,
@@ -134,6 +148,8 @@ impl DetectImageOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct DetectBinaryOutput {
+    #[serde(rename = "type")]
+    type_: String,
     file: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     mime: Option<String>,
@@ -141,6 +157,8 @@ pub(crate) struct DetectBinaryOutput {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct DetectTextOutput {
+    #[serde(rename = "type")]
+    type_: String,
     file: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     mime: Option<String>,
