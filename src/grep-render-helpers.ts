@@ -22,7 +22,7 @@ export function formatGrepCallText(
   };
 }
 
-const GREP_TRUNCATION_THRESHOLD = 50;
+export const GREP_TRUNCATION_THRESHOLD = 50;
 
 interface GrepResultTextInput {
   totalMatches: number;
@@ -56,7 +56,7 @@ export function formatGrepResultText(input: GrepResultTextInput): GrepResultText
 
   const { totalMatches, summary, fileCount } = input;
   const noMatches = totalMatches === 0;
-  const truncated = totalMatches >= GREP_TRUNCATION_THRESHOLD;
+  const truncated = totalMatches > GREP_TRUNCATION_THRESHOLD;
 
   const matchWord = totalMatches === 1 ? "match" : "matches";
   const fileWord = fileCount === 1 ? "file" : "files";

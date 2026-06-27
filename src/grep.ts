@@ -17,7 +17,7 @@ import { getOrGenerateMap } from "./file-map.js";
 import { scopeGrepGroupsToSymbols } from "./grep-symbol-scope.js";
 import { resolveToCwd } from "./path-utils.js";
 import { throwIfAborted } from "./runtime.js";
-import { formatGrepCallText, formatGrepResultText } from "./grep-render-helpers.js";
+import { formatGrepCallText, formatGrepResultText, GREP_TRUNCATION_THRESHOLD } from "./grep-render-helpers.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
@@ -89,7 +89,6 @@ function parseGrepOutputLine(line: string):
 	return null;
 }
 
-const GREP_TRUNCATION_THRESHOLD = 50;
 const GREP_MAX_MATCHES_PER_FILE = 10;
 
 type GrepAnchoredEntry = Extract<GrepOutputEntry, { kind: "match" | "context" }>;
