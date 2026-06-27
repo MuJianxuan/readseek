@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::engine::hash::LineHash;
-use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
-use crate::engine::source::{
-    HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines, source_from_text,
-    source_map,
-};
-use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use crate::engine::hash::LineHash;
+use crate::engine::image::{ImageInfo, OcrText};
+use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
+use crate::engine::source::{
+    Detection, HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines,
+    source_from_text, source_map,
+};
+use crate::engine::target::{Target, TargetAddress};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Format {
@@ -30,11 +32,117 @@ impl argh::FromArgValue for Format {
         }
     }
 }
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub(crate) enum DetectOutput {
+    Source(DetectSourceOutput),
+    Image(DetectImageOutput),
+    Binary(DetectBinaryOutput),
+    Text(DetectTextOutput),
+}
+
+impl DetectOutput {
+    pub(crate) fn from_detection(detection: Detection) -> Self {
+        if let Some(image) = detection.image {
+            return Self::Image(DetectImageOutput::new(
+                detection.file,
+                detection.mime,
+                image,
+            ));
+        }
+
+        if detection.binary {
+            return Self::Binary(DetectBinaryOutput {
+                file: detection.file,
+                mime: detection.mime,
+            });
+        }
+
+        if detection.language == Language::Unknown {
+            return Self::Text(DetectTextOutput {
+                file: detection.file,
+                mime: detection.mime,
+            });
+        }
+
+        Self::Source(DetectSourceOutput {
+            file: detection.file,
+            language: detection.language,
+            engine: detection.engine,
+            supported: detection.supported,
+            mime: detection.mime,
+            syntax: detection.syntax,
+        })
+    }
+
+    pub(crate) fn is_image(&self) -> bool {
+        matches!(self, Self::Image(_))
+    }
+
+    pub(crate) fn set_ocr(&mut self, text: OcrText) {
+        if let Self::Image(image) = self {
+            image.ocr = Some(text);
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DetectSourceOutput {
+    file: PathBuf,
+    language: Language,
+    #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engine: Option<AnalysisEngine>,
+    supported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    syntax: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DetectImageOutput {
+    file: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+    #[serde(flatten)]
+    image: ImageInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ocr: Option<OcrText>,
+}
+
+impl DetectImageOutput {
+    fn new(file: PathBuf, mime: Option<String>, image: ImageInfo) -> Self {
+        Self {
+            file,
+            mime,
+            image,
+            ocr: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DetectBinaryOutput {
+    file: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DetectTextOutput {
+    file: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct SourceHeader {
     file: PathBuf,
     language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     engine: Option<AnalysisEngine>,
     line_count: usize,
     file_hash: String,
@@ -107,7 +215,9 @@ pub(crate) struct IdentifyOutput {
     column: usize,
     line_hash: LineHash,
     hashlines: Vec<HashLine>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     identifier: Option<IdentifierOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     symbol: Option<Symbol>,
 }
 
@@ -130,6 +240,7 @@ pub(crate) struct DefLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) symbol: Symbol,
@@ -149,12 +260,14 @@ pub(crate) struct RefLocation {
     pub(crate) file: Arc<PathBuf>,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: Arc<str>,
     pub(crate) line: usize,
     pub(crate) column: usize,
     pub(crate) line_hash: LineHash,
     pub(crate) text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) symbol: Option<Symbol>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) occurrence: Option<crate::engine::binding::OccurrenceKind>,
@@ -172,8 +285,11 @@ pub(crate) struct CompactLocation {
     pub(crate) column: usize,
     pub(crate) line_hash: LineHash,
     pub(crate) text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) qualified_name: Option<String>,
 }
 
@@ -182,6 +298,7 @@ pub(crate) struct RenameOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) old_name: String,
@@ -201,6 +318,7 @@ pub(crate) struct RenameFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) conflicts: Vec<RenameConflict>,
@@ -236,6 +354,7 @@ pub(crate) struct SearchFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) file_hash: String,
     pub(crate) matches: Vec<SearchMatch>,

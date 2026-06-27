@@ -58,13 +58,13 @@ impl cli::DetectCommand {
             self.language,
             BinaryMode::Detect,
         )?;
-        let mut detection = source.detection;
-        self.apply_ocr(&target, &mut detection);
-        Ok(serde_json::to_string(&detection)?)
+        let mut output = output::DetectOutput::from_detection(source.detection);
+        self.apply_ocr(&target, &mut output);
+        Ok(serde_json::to_string(&output)?)
     }
 
-    fn apply_ocr(&self, target: &Target, detection: &mut crate::engine::source::Detection) {
-        if !self.ocr || detection.image.is_none() {
+    fn apply_ocr(&self, target: &Target, output: &mut output::DetectOutput) {
+        if !self.ocr || !output.is_image() {
             return;
         }
         let bytes = match std::fs::read(&target.path) {
@@ -75,7 +75,7 @@ impl cli::DetectCommand {
             }
         };
         match crate::engine::image::run_ocr(&bytes) {
-            Ok(text) => detection.ocr = Some(text),
+            Ok(text) => output.set_ocr(text),
             Err(error) => log::warn!("ocr skipped: {error:#}"),
         }
     }

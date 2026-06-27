@@ -2,33 +2,33 @@
 
 # detect / language
 
-name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | language=rust | supported=true | binary=false
-name=file stdin path | stdin=class BufferGreeter {}\n | args=detect --stdin buffer.ts | file=buffer.ts | language=typescript | binary=false
-name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect --stdin buffer | file=buffer | language=bash | supported=true | binary=false
-name=detect stdin extensionless with override | stdin=fn main() {}\n | args=detect --stdin buffer --language rust | file=buffer | language=rust | supported=true | binary=false
-name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | language=html | supported=true
-name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | language=xml | supported=true
-name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | language=json | supported=true
-name=file yaml | path=sample.yaml | content=name: sample\n | args=detect %s | language=yaml | supported=true
-name=file puppet | path=site.pp | content=class profile::sample {}\n | args=detect %s | language=puppet | supported=true
-name=file dockerfile | path=Dockerfile | content=FROM alpine:3.20\nRUN echo hello\n | args=detect %s | language=dockerfile | supported=true
-name=file nix | path=flake.nix | content={ description = "sample"; }\n | args=detect %s | language=nix | supported=true
-name=file lua | path=sample.lua | content=function greet()\n  return 'hello'\nend\n | args=detect %s | language=lua | supported=true
-name=file perl | path=sample.pl | content=sub greet { return "hello"; }\n | args=detect %s | language=perl | supported=true
-name=file zig | path=sample.zig | content=pub fn main() void {}\n | args=detect %s | language=zig | supported=true
-name=file vimscript | path=plugin.vim | content=function! Greet() abort\nendfunction\n | args=detect %s | language=vimscript | supported=true
-name=file meson build | path=meson.build | content=project('sample', 'c')\n | args=detect %s | language=meson | supported=true
-name=file language override | path=script | content=#!/usr/bin/env node\nfunction main() {}\n | args=detect %s --language typescript | language=typescript | supported=true
-name=file language alias | path=header | content=int add(int a, int b);\n | args=detect %s --language c-plus-plus | language=cpp | supported=true
-name=file special filename | path=go.mod | content=module example.com/readseek\n | args=detect %s | language=go | supported=true
-name=file tex | path=paper.tex | content=\\section{Intro}\nText.\n | args=detect %s | language=latex | supported=true
-name=file typst | path=paper.typ | content== Intro\nText.\n | args=detect %s | language=typst | supported=true
-name=file assembly | path=boot.S | content=_start:\n    mov %rsp, %rbp\n | args=detect %s | language=assembly | supported=true
-name=file riscv | path=boot.riscv | content=_start:\n    addi sp, sp, -16\n | args=detect %s | language=riscv | supported=true
-name=file gdscript | path=player.gd | content=func _ready():\n    pass\n | args=detect %s | language=gdscript | supported=true
-name=file sql | path=query.sql | content=select * from users;\n | args=detect %s | language=sql | supported=true
-name=file toml | path=config.toml | content=name = "demo"\n | args=detect %s | language=toml | supported=true
-name=file binary detected | path=blob.bin | content=\x00\x01\x02\x03 | args=detect %s | binary=true | supported=false | language=unknown
+name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | type=source | language=rust | supported=true
+name=file stdin path | stdin=class BufferGreeter {}\n | args=detect --stdin buffer.ts | type=source | file=buffer.ts | language=typescript
+name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect --stdin buffer | type=source | file=buffer | language=bash | supported=true
+name=detect stdin extensionless with override | stdin=fn main() {}\n | args=detect --stdin buffer --language rust | type=source | file=buffer | language=rust | supported=true
+name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | type=source | language=html | supported=true
+name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | type=source | language=xml | supported=true
+name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | type=source | language=json | supported=true
+name=file yaml | path=sample.yaml | content=name: sample\n | args=detect %s | type=source | language=yaml | supported=true
+name=file puppet | path=site.pp | content=class profile::sample {}\n | args=detect %s | type=source | language=puppet | supported=true
+name=file dockerfile | path=Dockerfile | content=FROM alpine:3.20\nRUN echo hello\n | args=detect %s | type=source | language=dockerfile | supported=true
+name=file nix | path=flake.nix | content={ description = "sample"; }\n | args=detect %s | type=source | language=nix | supported=true
+name=file lua | path=sample.lua | content=function greet()\n  return 'hello'\nend\n | args=detect %s | type=source | language=lua | supported=true
+name=file perl | path=sample.pl | content=sub greet { return "hello"; }\n | args=detect %s | type=source | language=perl | supported=true
+name=file zig | path=sample.zig | content=pub fn main() void {}\n | args=detect %s | type=source | language=zig | supported=true
+name=file vimscript | path=plugin.vim | content=function! Greet() abort\nendfunction\n | args=detect %s | type=source | language=vimscript | supported=true
+name=file meson build | path=meson.build | content=project('sample', 'c')\n | args=detect %s | type=source | language=meson | supported=true
+name=file language override | path=script | content=#!/usr/bin/env node\nfunction main() {}\n | args=detect %s --language typescript | type=source | language=typescript | supported=true
+name=file language alias | path=header | content=int add(int a, int b);\n | args=detect %s --language c-plus-plus | type=source | language=cpp | supported=true
+name=file special filename | path=go.mod | content=module example.com/readseek\n | args=detect %s | type=source | language=go | supported=true
+name=file tex | path=paper.tex | content=\\section{Intro}\nText.\n | args=detect %s | type=source | language=latex | supported=true
+name=file typst | path=paper.typ | content== Intro\nText.\n | args=detect %s | type=source | language=typst | supported=true
+name=file assembly | path=boot.S | content=_start:\n    mov %rsp, %rbp\n | args=detect %s | type=source | language=assembly | supported=true
+name=file riscv | path=boot.riscv | content=_start:\n    addi sp, sp, -16\n | args=detect %s | type=source | language=riscv | supported=true
+name=file gdscript | path=player.gd | content=func _ready():\n    pass\n | args=detect %s | type=source | language=gdscript | supported=true
+name=file sql | path=query.sql | content=select * from users;\n | args=detect %s | type=source | language=sql | supported=true
+name=file toml | path=config.toml | content=name = "demo"\n | args=detect %s | type=source | language=toml | supported=true
+name=file binary detected | path=blob.bin | content=\x00\x01\x02\x03 | args=detect %s | type=binary | binary.absent=true | language.absent=true | supported.absent=true | syntax.absent=true
 
 # read
 
@@ -56,7 +56,7 @@ name=map vimscript function | path=plugin.vim | content=function! s:greet(name) 
 name=map markdown headings | path=notes.md | content=# Title\n\nSome text.\n\n## Details ##\n | args=map %s | language=markdown | symbol=heading,Title,start_line=1,end_line=1,end_hash=@start_hash | symbol=heading,Details
 name=map kconfig symbols | path=Kconfig | content=menu "Drivers"\n\nconfig USB_SUPPORT\n    bool "USB support"\n\nmenuconfig NET\n    bool "Networking support"\n\nendmenu\n | args=map %s | language=kconfig | symbol=menu,Drivers | symbol=config,USB_SUPPORT | symbol=menuconfig,NET
 name=map swift symbols | path=sample.swift | content=actor BankAccount {\n    var balance: Double = 0\n    func deposit(_ amount: Double) {\n        balance += amount\n    }\n}\n | args=map %s | language=swift | symbol=class,actor BankAccount | symbol=function,func deposit(_ amount: Double)
-name=map unknown text | path=notes.txt | content=alpha\nbeta\n | args=map %s | language=unknown | symbols.len=0
+name=map unknown text | path=notes.txt | content=alpha\nbeta\n | args=map %s | language=unknown | engine.absent=true | symbols.len=0
 name=map stdin path | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=map --stdin buffer.ts | file=buffer.ts | language=typescript | symbol=class,BufferGreeter | symbol=method,greet
 name=map dockerfile parser | path=Containerfile | content=FROM alpine:3.20\nRUN echo hello\n | args=map %s | language=dockerfile
 name=map nix parser | path=parser.nix | content={ packages.default = null; }\n | args=map %s | language=nix
@@ -76,6 +76,7 @@ name=check unsupported file | stdin=just some text\n | args=check --stdin notes.
 
 name=identify cursor identifier and symbol | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=identify --stdin buffer.ts --line 2 --column 3 | file=buffer.ts | line=2 | line_hash=@hashlines.0.hash | identifier.text=greet | identifier.start_column=3 | identifier.end_column=8 | identifier.start_byte=24 | identifier.end_byte=29 | symbol.qualified_name=BufferGreeter.greet
 name=identify unicode identifier span | stdin=fn café() {}\n | args=identify --stdin unicode.rs --line 1 --column 8 | identifier.text=café | identifier.start_column=4 | identifier.end_column=9
+name=identify unknown no optional fields | stdin=  \n | args=identify --stdin note.txt --line 1 --column 1 | language=unknown | engine.absent=true | identifier.absent=true | symbol.absent=true
 name=identify column out of range | stdin=fn main() {}\n | args=identify --stdin cursor.rs --line 1 --column 20 | status=1 | stderr=exceeds maximum column
 
 # symbol
@@ -135,7 +136,7 @@ name=rename vimscript nested shadow | path=shadow.vim | content=let val = 1\nfun
 
 # image
 
-name=detect png image | path=detpix.png | content=\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99\x3d\x1d\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82 | args=detect %s | binary=true | supported=false | language=unknown | mime=image/png | image.format=png | image.width=1 | image.height=1 | image.animated=false
-name=detect gif image | path=detpix.gif | content=\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b | args=detect %s | binary=true | language=unknown | mime=image/gif | image.format=gif | image.width=1 | image.height=1 | image.animated=false
-name=detect apng animated | path=detanim.png | content=\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x08\x61\x63\x54\x4c\x00\x00\x00\x01\x00\x00\x00\x00\xb4\x2d\xe9\xa0\x00\x00\x00\x1a\x66\x63\x54\x4c\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x6a\x88\x9c\xb6\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99\x3d\x1d\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82 | args=detect %s | binary=true | language=unknown | image.format=png | image.width=1 | image.height=1 | image.animated=true
-name=detect ocr ignored on non-image | path=note.txt | content=hi\n | args=detect %s --ocr | binary=false | language=unknown
+name=detect png image | path=detpix.png | content=\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99\x3d\x1d\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82 | args=detect %s | type=image | mime=image/png | format=png | width=1 | height=1 | animated=false | binary.absent=true | language.absent=true | engine.absent=true | supported.absent=true | syntax.absent=true | image.absent=true
+name=detect gif image | path=detpix.gif | content=\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b | args=detect %s | type=image | mime=image/gif | format=gif | width=1 | height=1 | animated=false | binary.absent=true | language.absent=true | syntax.absent=true
+name=detect apng animated | path=detanim.png | content=\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x08\x61\x63\x54\x4c\x00\x00\x00\x01\x00\x00\x00\x00\xb4\x2d\xe9\xa0\x00\x00\x00\x1a\x66\x63\x54\x4c\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x6a\x88\x9c\xb6\x00\x00\x00\x0d\x49\x44\x41\x54\x78\x9c\x63\xf8\xcf\xc0\xf0\x1f\x00\x05\x00\x01\xff\x89\x99\x3d\x1d\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82 | args=detect %s | type=image | format=png | width=1 | height=1 | animated=true | language.absent=true | syntax.absent=true
+name=detect ocr ignored on non-image | path=note.txt | content=hi\n | args=detect %s --ocr | type=text | binary.absent=true | language.absent=true | syntax.absent=true

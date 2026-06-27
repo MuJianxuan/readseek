@@ -231,6 +231,20 @@ fn parse_symbol(value: &str) -> Symbol<'_> {
 }
 
 fn check_path(base: &Value, path: &str, expected: &str, root: &Value) -> Result<(), String> {
+    if let Some(prefix) = path.strip_suffix(".absent") {
+        let actual = resolve(base, prefix).is_none();
+        let expected = match expected {
+            "true" => true,
+            "false" => false,
+            _ => return Err(format!("{path}: expected true or false, got {expected}")),
+        };
+        return if actual == expected {
+            Ok(())
+        } else {
+            Err(format!("{prefix}.absent = {actual}, expected {expected}"))
+        };
+    }
+
     if let Some(prefix) = path.strip_suffix(".len") {
         let value = resolve(base, prefix).ok_or_else(|| format!("{path}: not found"))?;
         let len = match value {

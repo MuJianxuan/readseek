@@ -19,11 +19,15 @@ pub(crate) struct Detection {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
     #[serde(serialize_with = "serialize_engine")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) supported: bool,
     pub(crate) binary: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) mime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) syntax: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) image: Option<ImageInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) ocr: Option<OcrText>,

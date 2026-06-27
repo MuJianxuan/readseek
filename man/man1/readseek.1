@@ -138,8 +138,11 @@ parser-based features.
 .SH COMMANDS
 .TP
 .B detect
-Print detection metadata for the input: filename, detected language, whether a
-parser is available, whether the content is binary, MIME type, and syntax name.
+Print detection metadata for the input as a tagged JSON object. Source files use
+\fItype=source\fR and include the detected language, parser engine, support flag,
+optional MIME type, and optional syntax name. Images use \fItype=image\fR and
+include MIME type, format, width, height, animation status, and optional OCR text.
+Other binary files use \fItype=binary\fR. Unknown plain text uses \fItype=text\fR.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
