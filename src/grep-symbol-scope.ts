@@ -1,29 +1,21 @@
 import { buildReadSeekLine } from "./readseek-value.js";
 import type { GrepOutputEntry, GrepOutputGroup, GrepOutputScopeSymbol, GrepScopeWarning } from "./grep-output.js";
-import type { FileMap, FileSymbol } from "./readseek/types.js";
+import type { FileMap } from "./readseek/types.js";
+import { traverseSymbolTree } from "./symbol-tree.js";
 
 interface FlatSymbol extends GrepOutputScopeSymbol {
   rangeSize: number;
 }
 
-function flattenSymbols(symbols: FileSymbol[], parentName?: string): FlatSymbol[] {
-  const flattened: FlatSymbol[] = [];
-  for (const symbol of symbols) {
-    flattened.push({
-      name: symbol.name,
-      kind: symbol.kind,
-      startLine: symbol.startLine,
-      endLine: symbol.endLine,
-      parentName,
-      rangeSize: symbol.endLine - symbol.startLine,
-    });
-    if (symbol.children?.length) flattened.push(...flattenSymbols(symbol.children, symbol.name));
-  }
-  return flattened;
-}
-
 function findEnclosingSymbol(map: FileMap, lineNumber: number): GrepOutputScopeSymbol | null {
-  const candidates = flattenSymbols(map.symbols)
+  const candidates = traverseSymbolTree(map.symbols, (symbol, parentName): FlatSymbol => ({
+    name: symbol.name,
+    kind: symbol.kind,
+    startLine: symbol.startLine,
+    endLine: symbol.endLine,
+    parentName,
+    rangeSize: symbol.endLine - symbol.startLine,
+  }))
     .filter((s) => lineNumber >= s.startLine && lineNumber <= s.endLine)
     .sort((a, b) => {
       if (a.rangeSize !== b.rangeSize) return a.rangeSize - b.rangeSize;

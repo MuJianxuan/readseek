@@ -1,6 +1,7 @@
 import { SymbolKind } from "./readseek/enums.js";
 import type { SymbolMatch } from "./readseek/symbol-lookup.js";
 import type { FileMap, FileSymbol } from "./readseek/types.js";
+import { traverseSymbolTree } from "./symbol-tree.js";
 
 export interface LocalBundleSupport {
   symbol: SymbolMatch;
@@ -23,19 +24,6 @@ const CONTAINER_KINDS = new Set<SymbolKind>([
   SymbolKind.Namespace,
 ]);
 
-function flattenSymbols(symbols: FileSymbol[], parentName?: string): FlatSymbol[] {
-  const flattened: FlatSymbol[] = [];
-
-  for (const symbol of symbols) {
-    flattened.push({ symbol, parentName });
-    if (symbol.children?.length) {
-      flattened.push(...flattenSymbols(symbol.children, symbol.name));
-    }
-  }
-
-  return flattened;
-}
-
 export function buildLocalBundle(
   fileMap: FileMap,
   requested: SymbolMatch,
@@ -44,7 +32,7 @@ export function buildLocalBundle(
   const requestedText = allLines.slice(requested.startLine - 1, requested.endLine).join("\n");
   const identifiers = new Set(requestedText.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? []);
 
-  const candidates = flattenSymbols(fileMap.symbols).filter(({ symbol }) => {
+  const candidates = traverseSymbolTree(fileMap.symbols, (symbol, parentName): FlatSymbol => ({ symbol, parentName })).filter(({ symbol }) => {
     if (CONTAINER_KINDS.has(symbol.kind as SymbolKind)) return false;
     return !(symbol.name === requested.name && symbol.startLine === requested.startLine && symbol.endLine === requested.endLine);
   });
