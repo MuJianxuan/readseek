@@ -17,6 +17,7 @@
 
 use anyhow::{Context as _, Result};
 use encoding_rs::UTF_8;
+use indicatif::ProgressBar;
 use llama_cpp_2::LogOptions;
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::params::LlamaContextParams;
@@ -42,14 +43,19 @@ unsafe extern "C" {
 unsafe extern "C" fn noop_log(_level: c_int, _text: *const c_char, _user_data: *mut c_void) {}
 use serde::Serialize;
 use std::ffi::CString;
+use std::io::IsTerminal as _;
 use std::num::NonZeroU32;
 use std::os::raw::{c_char, c_int, c_void};
+use std::time::{Duration, Instant};
 
 const CTX: u32 = 4096;
 const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
 const N_BATCH: i32 = 512;
 const MAX_NEW_TOKENS: i32 = 1024;
 const LOC_BINS: f32 = 1000.0;
+const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
+const PROGRESS_TICK: Duration = Duration::from_millis(100);
+const PROGRESS_MSG: &str = "Analyzing image...";
 
 const FIELD_TRANSCRIBE: &str = "\"regions\": an array of {\"text\": string, \"quad\": [x1,y1,x2,y2,x3,y3,x4,y4]} for each run of visible text, where the quad is its bounding quadrilateral with coordinates normalized to 0-1000 relative to image width and height (omit the quad if you cannot localize the text)";
 const FIELD_CAPTION: &str = "\"caption\": a single paragraph describing the image";
@@ -159,6 +165,47 @@ fn build_prompt(request: Request) -> String {
     )
 }
 
+/// TTY-only spinner that stays silent until inference exceeds
+/// `PROGRESS_DEADLINE`, then shows a ticking spinner so slow runs are not
+/// silent. Modeled on the tpm2sh CLI progress pattern; dropping clears it so
+/// early `?`-return error paths stay clean.
+struct InferenceProgress {
+    is_tty: bool,
+    started: Instant,
+    bar: Option<ProgressBar>,
+}
+
+impl InferenceProgress {
+    fn new() -> Self {
+        Self {
+            is_tty: std::io::stdout().is_terminal(),
+            started: Instant::now(),
+            bar: None,
+        }
+    }
+
+    /// Reveal the spinner once the deadline elapses, but only on a TTY and only
+    /// once; fast runs that finish first never draw anything.
+    fn maybe_reveal(&mut self) {
+        if self.bar.is_some() || !self.is_tty {
+            return;
+        }
+        if self.started.elapsed() >= PROGRESS_DEADLINE {
+            let bar = ProgressBar::new_spinner();
+            bar.set_message(PROGRESS_MSG);
+            bar.enable_steady_tick(PROGRESS_TICK);
+            self.bar = Some(bar);
+        }
+    }
+}
+
+impl Drop for InferenceProgress {
+    fn drop(&mut self) {
+        if let Some(bar) = self.bar.take() {
+            bar.finish_and_clear();
+        }
+    }
+}
 /// Greedily decode the model's answer for `prompt` given the image bitmap,
 /// returning the generated text.
 fn generate(
@@ -185,12 +232,15 @@ fn generate(
     let chunks = mtmd_ctx.tokenize(input, &[bitmap])?;
 
     let mut batch = LlamaBatch::new(1, 1);
+    let mut progress = InferenceProgress::new();
     let n_past_start = chunks.eval_chunks(mtmd_ctx, context, 0, 0, N_BATCH, true)?;
+    progress.maybe_reveal();
 
     let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
     let mut output = String::new();
     let mut decoder = UTF_8.new_decoder();
     for n_past in (n_past_start..).take(MAX_NEW_TOKENS as usize) {
+        progress.maybe_reveal();
         let token = sampler.sample(context, -1);
         sampler.accept(token);
         if model.is_eog_token(token) {
