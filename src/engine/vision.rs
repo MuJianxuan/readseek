@@ -171,10 +171,12 @@ fn build_prompt(request: Request) -> String {
     )
 }
 
-/// TTY-only spinner that stays silent until inference exceeds
-/// `PROGRESS_DEADLINE`, then shows a ticking spinner so slow runs are not
-/// silent. Modeled on the tpm2sh CLI progress pattern; dropping clears it so
-/// early `?`-return error paths stay clean.
+/// Spinner that stays silent until inference exceeds `PROGRESS_DEADLINE`, then
+/// shows a ticking spinner so slow runs are not silent. It draws on stderr (so
+/// the JSON result on stdout stays clean) and is gated on stderr being a
+/// terminal, which keeps the spinner visible even when stdout is redirected.
+/// Modeled on the tpm2sh CLI progress pattern; dropping clears it so early
+/// `?`-return error paths stay clean.
 struct InferenceProgress {
     is_tty: bool,
     started: Instant,
@@ -184,7 +186,7 @@ struct InferenceProgress {
 impl InferenceProgress {
     fn new() -> Self {
         Self {
-            is_tty: std::io::stdout().is_terminal(),
+            is_tty: std::io::stderr().is_terminal(),
             started: Instant::now(),
             bar: None,
         }
