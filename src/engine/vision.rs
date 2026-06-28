@@ -17,6 +17,8 @@
 
 use anyhow::{Context as _, Result};
 use encoding_rs::UTF_8;
+use llama_cpp_2::LogOptions;
+use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
@@ -24,7 +26,6 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel};
 use llama_cpp_2::mtmd::{MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputText};
 use llama_cpp_2::sampling::LlamaSampler;
-use llama_cpp_2::LogOptions;
 
 // llama.cpp's mtmd/clip tools keep their OWN log sinks (separate from the
 // global `ggml_log` that `send_logs_to_tracing` silences) and default to writing
@@ -92,7 +93,8 @@ pub(crate) struct Analysis {
 }
 
 /// Run the requested tasks against `image_bytes`, loading the model once.
-/// A fresh context is created per task so the KV cache starts clean.
+/// A single context is reused across tasks, clearing the KV cache between
+/// them so each starts clean.
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
     llama_cpp_2::send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
     // Safe: installs a no-op log callback; only suppresses stderr diagnostics.
@@ -119,39 +121,43 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     let width = bitmap.nx();
     let height = bitmap.ny();
 
+    let context_params = LlamaContextParams::default()
+        .with_n_threads(n_threads)
+        .with_n_threads_batch(n_threads)
+        .with_n_batch(N_BATCH.try_into()?)
+        .with_n_ctx(Some(NONZERO_CTX));
+    let mut context = model.new_context(&backend, context_params)?;
+
     let mut analysis = Analysis::default();
     if request.transcribe {
         let raw = generate(
-            &backend,
             &model,
             &mtmd_ctx,
             &chat_template,
+            &mut context,
             &bitmap,
-            n_threads,
             PROMPT_TRANSCRIBE,
         )?;
         analysis.transcribe = Some(parse_ocr(&raw, width, height));
     }
     if request.caption {
         let raw = generate(
-            &backend,
             &model,
             &mtmd_ctx,
             &chat_template,
+            &mut context,
             &bitmap,
-            n_threads,
             PROMPT_CAPTION,
         )?;
         analysis.caption = Some(strip_special(&raw));
     }
     if request.objects {
         let raw = generate(
-            &backend,
             &model,
             &mtmd_ctx,
             &chat_template,
+            &mut context,
             &bitmap,
-            n_threads,
             PROMPT_OBJECTS,
         )?;
         analysis.objects = Some(parse_objects(&raw, width, height));
@@ -162,20 +168,14 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
 /// Greedily decode the model's answer for `prompt` given the image bitmap,
 /// returning the generated text.
 fn generate(
-    backend: &LlamaBackend,
     model: &LlamaModel,
     mtmd_ctx: &MtmdContext,
     chat_template: &LlamaChatTemplate,
+    context: &mut LlamaContext,
     bitmap: &MtmdBitmap,
-    n_threads: i32,
     prompt: &str,
 ) -> Result<String> {
-    let context_params = LlamaContextParams::default()
-        .with_n_threads(n_threads)
-        .with_n_threads_batch(n_threads)
-        .with_n_batch(N_BATCH.try_into()?)
-        .with_n_ctx(Some(NONZERO_CTX));
-    let mut context = model.new_context(backend, context_params)?;
+    context.clear_kv_cache();
 
     let marker = llama_cpp_2::mtmd::mtmd_default_marker();
     let full_prompt = if prompt.contains(marker) {
@@ -193,13 +193,13 @@ fn generate(
     let chunks = mtmd_ctx.tokenize(input, &[bitmap])?;
 
     let mut batch = LlamaBatch::new(CTX as usize, 1);
-    let n_past_start = chunks.eval_chunks(mtmd_ctx, &context, 0, 0, N_BATCH, true)?;
+    let n_past_start = chunks.eval_chunks(mtmd_ctx, context, 0, 0, N_BATCH, true)?;
 
     let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
     let mut output = String::new();
     let mut decoder = UTF_8.new_decoder();
     for n_past in (n_past_start..).take(MAX_NEW_TOKENS as usize) {
-        let token = sampler.sample(&context, -1);
+        let token = sampler.sample(context, -1);
         sampler.accept(token);
         if model.is_eog_token(token) {
             break;
