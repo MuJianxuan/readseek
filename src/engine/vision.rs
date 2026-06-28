@@ -51,9 +51,9 @@ const N_BATCH: i32 = 512;
 const MAX_NEW_TOKENS: i32 = 1024;
 const LOC_BINS: f32 = 1000.0;
 
-const PROMPT_TRANSCRIBE: &str = "Read all text visible in the image. Output a JSON object with \"regions\": an array of {\"text\": string, \"quad\": [x1,y1,x2,y2,x3,y3,x4,y4]} where the quad is the bounding quadrilateral of each text run, coordinates normalized to the range 0-1000 relative to image width/height. If you cannot localize a region, omit the quad. Output only the JSON.";
-const PROMPT_CAPTION: &str = "Describe with a paragraph what is shown in the image.";
-const PROMPT_OBJECTS: &str = "Locate the objects in the image. Output a JSON array of {\"label\": string, \"bbox\": [x1,y1,x2,y2]} where bbox is the axis-aligned bounding box, coordinates normalized to 0-1000 relative to image width/height. Output only the JSON array.";
+const FIELD_TRANSCRIBE: &str = "\"regions\": an array of {\"text\": string, \"quad\": [x1,y1,x2,y2,x3,y3,x4,y4]} for each run of visible text, where the quad is its bounding quadrilateral with coordinates normalized to 0-1000 relative to image width and height (omit the quad if you cannot localize the text)";
+const FIELD_CAPTION: &str = "\"caption\": a single paragraph describing the image";
+const FIELD_OBJECTS: &str = "\"objects\": an array of {\"label\": string, \"bbox\": [x1,y1,x2,y2]} for the salient objects, where bbox is the axis-aligned bounding box with coordinates normalized to 0-1000 relative to image width and height";
 
 /// Text recognized in an image, with per-region bounding quads.
 #[derive(Debug, Serialize)]
@@ -92,9 +92,9 @@ pub(crate) struct Analysis {
     pub(crate) objects: Option<Vec<DetectedObject>>,
 }
 
-/// Run the requested tasks against `image_bytes`, loading the model once.
-/// A single context is reused across tasks, clearing the KV cache between
-/// them so each starts clean.
+/// Run the requested tasks against `image_bytes` in a single pass: the image is
+/// encoded once and one combined prompt requests all selected fields, which are
+/// parsed back into the per-task results.
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
     llama_cpp_2::send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
     // Safe: installs a no-op log callback; only suppresses stderr diagnostics.
@@ -128,41 +128,35 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
         .with_n_ctx(Some(NONZERO_CTX));
     let mut context = model.new_context(&backend, context_params)?;
 
-    let mut analysis = Analysis::default();
+    let prompt = build_prompt(request);
+    let raw = generate(
+        &model,
+        &mtmd_ctx,
+        &chat_template,
+        &mut context,
+        &bitmap,
+        &prompt,
+    )?;
+    Ok(parse_analysis(&raw, request, width, height))
+}
+
+/// Build a combined instruction requesting exactly the selected fields in one
+/// JSON object, so the image is encoded once for all tasks.
+fn build_prompt(request: Request) -> String {
+    let mut fields = Vec::new();
     if request.transcribe {
-        let raw = generate(
-            &model,
-            &mtmd_ctx,
-            &chat_template,
-            &mut context,
-            &bitmap,
-            PROMPT_TRANSCRIBE,
-        )?;
-        analysis.transcribe = Some(parse_ocr(&raw, width, height));
+        fields.push(FIELD_TRANSCRIBE);
     }
     if request.caption {
-        let raw = generate(
-            &model,
-            &mtmd_ctx,
-            &chat_template,
-            &mut context,
-            &bitmap,
-            PROMPT_CAPTION,
-        )?;
-        analysis.caption = Some(strip_special(&raw));
+        fields.push(FIELD_CAPTION);
     }
     if request.objects {
-        let raw = generate(
-            &model,
-            &mtmd_ctx,
-            &chat_template,
-            &mut context,
-            &bitmap,
-            PROMPT_OBJECTS,
-        )?;
-        analysis.objects = Some(parse_objects(&raw, width, height));
+        fields.push(FIELD_OBJECTS);
     }
-    Ok(analysis)
+    format!(
+        "Analyze the image and respond with a single JSON object containing {}. Output only the JSON object.",
+        fields.join(", ")
+    )
 }
 
 /// Greedily decode the model's answer for `prompt` given the image bitmap,
@@ -175,8 +169,6 @@ fn generate(
     bitmap: &MtmdBitmap,
     prompt: &str,
 ) -> Result<String> {
-    context.clear_kv_cache();
-
     let marker = llama_cpp_2::mtmd::mtmd_default_marker();
     let full_prompt = if prompt.contains(marker) {
         prompt.to_string()
@@ -237,89 +229,96 @@ fn extract_json(raw: &str) -> Option<&str> {
     }
 }
 
-fn parse_ocr(raw: &str, width: u32, height: u32) -> OcrText {
-    #[derive(serde::Deserialize)]
-    struct RegionJson {
-        text: String,
-        quad: Vec<i32>,
-    }
-    #[derive(serde::Deserialize)]
-    struct TranscribeJson {
-        regions: Vec<RegionJson>,
-    }
+/// JSON shape of one OCR region in the model's response.
+#[derive(serde::Deserialize)]
+struct RegionJson {
+    text: String,
+    quad: Vec<i32>,
+}
 
-    let json_str = extract_json(raw).unwrap_or(raw);
-    if let Ok(parsed) = serde_json::from_str::<TranscribeJson>(json_str) {
-        let mut regions = Vec::new();
-        for region in parsed.regions {
-            if region.text.is_empty() || region.quad.len() != 8 {
-                continue;
-            }
-            let mut quad = [0i32; 8];
-            for (i, &loc) in region.quad.iter().enumerate() {
-                quad[i] = loc_to_px(loc, if i % 2 == 0 { width } else { height });
-            }
-            regions.push(OcrRegion {
-                text: region.text,
-                quad,
-            });
+/// JSON shape of one detected object in the model's response.
+#[derive(serde::Deserialize)]
+struct ObjectJson {
+    label: String,
+    bbox: Vec<i32>,
+}
+
+/// Combined JSON object returned for a single multi-task prompt.
+#[derive(Default, serde::Deserialize)]
+struct CombinedJson {
+    regions: Option<Vec<RegionJson>>,
+    caption: Option<String>,
+    objects: Option<Vec<ObjectJson>>,
+}
+
+/// Parse the combined response, filling in only the requested fields.
+fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analysis {
+    let parsed = extract_json(raw)
+        .and_then(|json| serde_json::from_str::<CombinedJson>(json).ok())
+        .unwrap_or_else(|| {
+            log::warn!("vision JSON parse failed, returning empty results");
+            CombinedJson::default()
+        });
+
+    let mut analysis = Analysis::default();
+    if request.transcribe {
+        analysis.transcribe = Some(build_ocr(parsed.regions.unwrap_or_default(), width, height));
+    }
+    if request.caption {
+        analysis.caption = Some(strip_special(&parsed.caption.unwrap_or_default()));
+    }
+    if request.objects {
+        analysis.objects = Some(build_objects(
+            parsed.objects.unwrap_or_default(),
+            width,
+            height,
+        ));
+    }
+    analysis
+}
+
+/// Convert parsed OCR regions into pixel-space [`OcrText`].
+fn build_ocr(regions: Vec<RegionJson>, width: u32, height: u32) -> OcrText {
+    let mut parsed = Vec::new();
+    for region in regions {
+        if region.text.is_empty() || region.quad.len() != 8 {
+            continue;
         }
-        let text = regions
-            .iter()
-            .map(|region| region.text.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        return OcrText { text, regions };
+        let mut quad = [0i32; 8];
+        for (i, &loc) in region.quad.iter().enumerate() {
+            quad[i] = loc_to_px(loc, if i % 2 == 0 { width } else { height });
+        }
+        parsed.push(OcrRegion {
+            text: region.text,
+            quad,
+        });
     }
-
-    log::warn!("transcribe JSON parse failed, using raw text");
-    let cleaned = strip_special(raw);
-    let full_quad = [
-        0,
-        0,
-        width as i32,
-        0,
-        width as i32,
-        height as i32,
-        0,
-        height as i32,
-    ];
+    let text = parsed
+        .iter()
+        .map(|region| region.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     OcrText {
-        text: cleaned.clone(),
-        regions: vec![OcrRegion {
-            text: cleaned,
-            quad: full_quad,
-        }],
+        text,
+        regions: parsed,
     }
 }
 
-fn parse_objects(raw: &str, width: u32, height: u32) -> Vec<DetectedObject> {
-    #[derive(serde::Deserialize)]
-    struct ObjectJson {
-        label: String,
-        bbox: Vec<i32>,
-    }
-
-    let json_str = extract_json(raw).unwrap_or(raw);
-    match serde_json::from_str::<Vec<ObjectJson>>(json_str) {
-        Ok(parsed) => parsed
-            .into_iter()
-            .filter(|object| !object.label.is_empty() && object.bbox.len() == 4)
-            .map(|object| DetectedObject {
-                label: object.label,
-                bbox: [
-                    loc_to_px(object.bbox[0], width),
-                    loc_to_px(object.bbox[1], height),
-                    loc_to_px(object.bbox[2], width),
-                    loc_to_px(object.bbox[3], height),
-                ],
-            })
-            .collect(),
-        Err(error) => {
-            log::warn!("objects JSON parse failed: {error}");
-            Vec::new()
-        }
-    }
+/// Convert parsed objects into pixel-space [`DetectedObject`]s.
+fn build_objects(objects: Vec<ObjectJson>, width: u32, height: u32) -> Vec<DetectedObject> {
+    objects
+        .into_iter()
+        .filter(|object| !object.label.is_empty() && object.bbox.len() == 4)
+        .map(|object| DetectedObject {
+            label: object.label,
+            bbox: [
+                loc_to_px(object.bbox[0], width),
+                loc_to_px(object.bbox[1], height),
+                loc_to_px(object.bbox[2], width),
+                loc_to_px(object.bbox[3], height),
+            ],
+        })
+        .collect()
 }
 
 /// Remove special tokens and trim whitespace from generated text.
