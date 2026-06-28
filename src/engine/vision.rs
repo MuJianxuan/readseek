@@ -24,9 +24,25 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel};
 use llama_cpp_2::mtmd::{MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputText};
 use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp_2::LogOptions;
+
+// llama.cpp's mtmd/clip tools keep their OWN log sinks (separate from the
+// global `ggml_log` that `send_logs_to_tracing` silences) and default to writing
+// every model-load/tensor/warmup line straight to stderr. `mtmd_helper_log_set`
+// redirects all of them (clip, mtmd, and the mtmd helper) through our callback.
+// It is an `extern "C"` symbol in libmtmd (declared in mtmd-helper.h) but not
+// exposed by `llama-cpp-sys-2`, so bind it directly.
+type GgmlLogCallback = Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>;
+
+unsafe extern "C" {
+    fn mtmd_helper_log_set(callback: GgmlLogCallback, user_data: *mut c_void);
+}
+
+unsafe extern "C" fn noop_log(_level: c_int, _text: *const c_char, _user_data: *mut c_void) {}
 use serde::Serialize;
 use std::ffi::CString;
 use std::num::NonZeroU32;
+use std::os::raw::{c_char, c_int, c_void};
 
 const CTX: u32 = 4096;
 const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
@@ -79,6 +95,9 @@ pub(crate) struct Analysis {
 /// Run the requested tasks against `image_bytes`, loading the model once.
 /// A fresh context is created per task so the KV cache starts clean.
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
+    llama_cpp_2::send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
+    // Safe: installs a no-op log callback; only suppresses stderr diagnostics.
+    unsafe { mtmd_helper_log_set(Some(noop_log), std::ptr::null_mut()) };
     let backend = LlamaBackend::init()?;
     let model_path = crate::engine::model::file("Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf")?;
     let mmproj_path = crate::engine::model::file("mmproj-F16.gguf")?;
