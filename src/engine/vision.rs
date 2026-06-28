@@ -277,15 +277,22 @@ fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analy
     analysis
 }
 
-/// Convert parsed OCR regions into pixel-space [`OcrText`].
+/// Convert parsed OCR regions into pixel-space [`OcrText`]. A `quad` may be a
+/// full quadrilateral `[x1,y1,...,x4,y4]` or an axis-aligned box `[x1,y1,x2,y2]`,
+/// which is expanded to its four corners.
 fn build_ocr(regions: Vec<RegionJson>, width: u32, height: u32) -> OcrText {
     let mut parsed = Vec::new();
     for region in regions {
-        if region.text.is_empty() || region.quad.len() != 8 {
+        if region.text.is_empty() {
             continue;
         }
+        let corners = match *region.quad.as_slice() {
+            [x1, y1, x2, y2] => [x1, y1, x2, y1, x2, y2, x1, y2],
+            [x1, y1, x2, y2, x3, y3, x4, y4] => [x1, y1, x2, y2, x3, y3, x4, y4],
+            _ => continue,
+        };
         let mut quad = [0i32; 8];
-        for (i, &loc) in region.quad.iter().enumerate() {
+        for (i, &loc) in corners.iter().enumerate() {
             quad[i] = loc_to_px(loc, if i % 2 == 0 { width } else { height });
         }
         parsed.push(OcrRegion {
