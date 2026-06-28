@@ -46,7 +46,6 @@ use std::os::raw::{c_char, c_int, c_void};
 
 const CTX: u32 = 4096;
 const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
-const N_THREADS: i32 = 4;
 const N_BATCH: i32 = 512;
 const MAX_NEW_TOKENS: i32 = 1024;
 const LOC_BINS: f32 = 1000.0;
@@ -103,10 +102,11 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     let mmproj_path = crate::engine::model::file("mmproj-F16.gguf")?;
     let model = LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default())?;
 
+    let n_threads = num_cpus::get_physical() as i32;
     let mtmd_params = MtmdContextParams {
         use_gpu: false,
         print_timings: false,
-        n_threads: N_THREADS,
+        n_threads,
         media_marker: CString::new(llama_cpp_2::mtmd::mtmd_default_marker())
             .context("media marker contains null")?,
         image_min_tokens: -1,
@@ -127,6 +127,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
             &mtmd_ctx,
             &chat_template,
             &bitmap,
+            n_threads,
             PROMPT_TRANSCRIBE,
         )?;
         analysis.transcribe = Some(parse_ocr(&raw, width, height));
@@ -138,6 +139,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
             &mtmd_ctx,
             &chat_template,
             &bitmap,
+            n_threads,
             PROMPT_CAPTION,
         )?;
         analysis.caption = Some(strip_special(&raw));
@@ -149,6 +151,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
             &mtmd_ctx,
             &chat_template,
             &bitmap,
+            n_threads,
             PROMPT_OBJECTS,
         )?;
         analysis.objects = Some(parse_objects(&raw, width, height));
@@ -164,10 +167,12 @@ fn generate(
     mtmd_ctx: &MtmdContext,
     chat_template: &LlamaChatTemplate,
     bitmap: &MtmdBitmap,
+    n_threads: i32,
     prompt: &str,
 ) -> Result<String> {
     let context_params = LlamaContextParams::default()
-        .with_n_threads(N_THREADS)
+        .with_n_threads(n_threads)
+        .with_n_threads_batch(n_threads)
         .with_n_batch(N_BATCH.try_into()?)
         .with_n_ctx(Some(NONZERO_CTX));
     let mut context = model.new_context(backend, context_params)?;
