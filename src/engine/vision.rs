@@ -301,7 +301,9 @@ struct CombinedJson {
     objects: Option<Vec<ObjectJson>>,
 }
 
-/// Parse the combined response, filling in only the requested fields.
+/// Parse the combined response. A requested field is filled only when the model
+/// actually produced it, so an absent field (or unparseable output) stays `None`
+/// and is recomputed on a later run instead of being cached as final-empty.
 fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analysis {
     let parsed = extract_json(raw)
         .and_then(|json| serde_json::from_str::<CombinedJson>(json).ok())
@@ -312,17 +314,15 @@ fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analy
 
     let mut analysis = Analysis::default();
     if request.transcribe {
-        analysis.transcribe = Some(build_ocr(parsed.regions.unwrap_or_default(), width, height));
+        analysis.transcribe = parsed.regions.map(|regions| build_ocr(regions, width, height));
     }
     if request.caption {
-        analysis.caption = Some(strip_special(&parsed.caption.unwrap_or_default()));
+        analysis.caption = parsed.caption.map(|caption| strip_special(&caption));
     }
     if request.objects {
-        analysis.objects = Some(build_objects(
-            parsed.objects.unwrap_or_default(),
-            width,
-            height,
-        ));
+        analysis.objects = parsed
+            .objects
+            .map(|objects| build_objects(objects, width, height));
     }
     analysis
 }
