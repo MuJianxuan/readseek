@@ -192,7 +192,7 @@ fn generate(
     };
     let chunks = mtmd_ctx.tokenize(input, &[bitmap])?;
 
-    let mut batch = LlamaBatch::new(CTX as usize, 1);
+    let mut batch = LlamaBatch::new(1, 1);
     let n_past_start = chunks.eval_chunks(mtmd_ctx, context, 0, 0, N_BATCH, true)?;
 
     let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
