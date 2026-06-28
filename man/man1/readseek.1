@@ -145,7 +145,7 @@ contains the exact MIME type detected by inspecting the file content, or
 engine, support flag, optional MIME type, and optional syntax name. Image files
 also include format, width, height, and animation status. With
 \fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR the image is analyzed with
-the Qwen3-VL vision model (downloaded to the user cache directory on first use): \fB--transcribe\fR adds a \fItranscribe\fR object
+the SmolVLM-500M vision model (downloaded to the user cache directory on first use): \fB--transcribe\fR adds a \fItranscribe\fR object
 with the recognized \fItext\fR and per-region bounding quads, \fB--caption\fR adds
 a \fIcaption\fR string, and \fB--objects\fR adds an \fIobjects\fR array of category
 labels with bounding boxes.
@@ -357,8 +357,8 @@ Sharded JSON definition index used by \fBdef\fR directory lookup.
 .I .readseek/def-index.json
 Legacy definition index removed during cache refresh when present.
 .TP
-.I $XDG_CACHE_HOME/readseek/qwen3-vl-2b/
-Qwen3-VL vision model files (GGUF and multimodal projection), downloaded
+.I $XDG_CACHE_HOME/readseek/smolvlm-500m/
+SmolVLM-500M vision model files (GGUF and multimodal projection), downloaded
 lazily on first use of \fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR.
 
 .SH EXAMPLES

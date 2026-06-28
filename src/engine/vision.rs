@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Qwen3-VL vision model: OCR (with regions), captioning, and object
+//! SmolVLM-500M vision model: OCR (with regions), captioning, and object
 //! detection. The GGUF model and multimodal projection are fetched lazily into
 //! the user cache directory (see [`crate::engine::model`]) and executed via
 //! llama.cpp through the `llama-cpp-2` crate's `mtmd` (multimodal) API.
@@ -100,8 +100,8 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     // Safe: installs a no-op log callback; only suppresses stderr diagnostics.
     unsafe { mtmd_helper_log_set(Some(noop_log), std::ptr::null_mut()) };
     let backend = LlamaBackend::init()?;
-    let model_path = crate::engine::model::file("Qwen3VL-2B-Instruct-Q4_K_M.gguf")?;
-    let mmproj_path = crate::engine::model::file("mmproj-Qwen3VL-2B-Instruct-F16.gguf")?;
+    let model_path = crate::engine::model::file("SmolVLM-500M-Instruct-Q8_0.gguf")?;
+    let mmproj_path = crate::engine::model::file("mmproj-SmolVLM-500M-Instruct-f16.gguf")?;
     let model = LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default())?;
 
     let n_threads = num_cpus::get_physical() as i32;

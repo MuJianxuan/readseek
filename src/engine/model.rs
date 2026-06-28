@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Qwen3-VL model cache: lazily downloads and SHA-256-verifies the GGUF model
+//! SmolVLM-500M model cache: lazily downloads and SHA-256-verifies the GGUF model
 //! and multimodal projection into the user cache directory (`dirs::cache_dir`) on
 //! first use. A progress bar is shown while downloading when stdout is a TTY.
 
@@ -12,21 +12,21 @@ use std::fs;
 use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
-const BASE: &str = "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main";
+const BASE: &str = "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main";
 
 /// `(remote path, local file name, byte size, sha256)`.
 const FILES: &[(&str, &str, u64, &str)] = &[
     (
-        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
-        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
-        1_107_409_952,
-        "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
+        "SmolVLM-500M-Instruct-Q8_0.gguf",
+        "SmolVLM-500M-Instruct-Q8_0.gguf",
+        436_806_912,
+        "9d4612de6a42214499e301494a3ecc2be0abdd9de44e663bda63f1152fad1bf4",
     ),
     (
-        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
-        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
-        819_394_848,
-        "c3d5afbef5287953acd57b4043d2269456e5761a4eaccb3b71b062996970aea5",
+        "mmproj-SmolVLM-500M-Instruct-f16.gguf",
+        "mmproj-SmolVLM-500M-Instruct-f16.gguf",
+        199_468_800,
+        "4b2fca922e549e9b9608f4ba56f93565dd5220e935ba5570a2a864a0fcc988a6",
     ),
 ];
 
@@ -55,12 +55,12 @@ pub(crate) fn file(name: &str) -> Result<PathBuf> {
     Ok(target)
 }
 
-/// Root cache directory for the Qwen3-VL model files.
+/// Root cache directory for the SmolVLM-500M model files.
 fn cache_dir() -> Result<PathBuf> {
     let dir = dirs::cache_dir()
         .context("no user cache directory is available on this platform")?
         .join("readseek")
-        .join("qwen3-vl-2b");
+        .join("smolvlm-500m");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     Ok(dir)
 }
