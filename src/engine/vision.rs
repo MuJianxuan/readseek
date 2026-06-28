@@ -48,10 +48,10 @@ use std::num::NonZeroU32;
 use std::os::raw::{c_char, c_int, c_void};
 use std::time::{Duration, Instant};
 
-const CTX: u32 = 4096;
+const CTX: u32 = 8192;
 const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
 const N_BATCH: i32 = 512;
-const MAX_NEW_TOKENS: i32 = 1024;
+const MAX_NEW_TOKENS: i32 = 4096;
 /// Cap on image tokens so the encoded image, the text prompt, and up to
 /// [`MAX_NEW_TOKENS`] of generated output all fit within [`CTX`] KV-cache cells.
 /// Larger images are downscaled to this budget by the mtmd preprocessor; left
@@ -213,7 +213,9 @@ impl Drop for InferenceProgress {
     }
 }
 /// Greedily decode the model's answer for `prompt` given the image bitmap,
-/// returning the generated text.
+/// returning the generated text. Generation is capped at [`MAX_NEW_TOKENS`] and
+/// further to whatever [`CTX`] KV-cache cells remain after the prompt, so a long
+/// answer is bounded rather than overflowing the context.
 fn generate(
     model: &LlamaModel,
     mtmd_ctx: &MtmdContext,
@@ -241,11 +243,12 @@ fn generate(
     let mut progress = InferenceProgress::new();
     let n_past_start = chunks.eval_chunks(mtmd_ctx, context, 0, 0, N_BATCH, true)?;
     progress.maybe_reveal();
+    let budget = (CTX as i32 - chunks.total_tokens() as i32).clamp(0, MAX_NEW_TOKENS);
 
     let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
     let mut output = String::new();
     let mut decoder = UTF_8.new_decoder();
-    for n_past in (n_past_start..).take(MAX_NEW_TOKENS as usize) {
+    for n_past in (n_past_start..).take(budget as usize) {
         progress.maybe_reveal();
         let token = sampler.sample(context, -1);
         sampler.accept(token);
