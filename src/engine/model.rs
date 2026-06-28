@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Qwen2.5-VL model cache: lazily downloads and SHA-256-verifies the GGUF model
+//! Qwen3-VL model cache: lazily downloads and SHA-256-verifies the GGUF model
 //! and multimodal projection into the user cache directory (`dirs::cache_dir`) on
 //! first use. A progress bar is shown while downloading when stdout is a TTY.
 
@@ -12,21 +12,21 @@ use std::fs;
 use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
-const BASE: &str = "https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main";
+const BASE: &str = "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main";
 
 /// `(remote path, local file name, byte size, sha256)`.
 const FILES: &[(&str, &str, u64, &str)] = &[
     (
-        "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
-        "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf",
-        1_929_901_408,
-        "c47e8c1f6fb3e8cff6ec58909baff16dbeffb64a5bb3b746b96e05e6334c129f",
+        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+        1_107_409_952,
+        "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
     ),
     (
-        "mmproj-F16.gguf",
-        "mmproj-F16.gguf",
-        1_338_428_256,
-        "4c1240f514de94c81b70709b0f9a80c7e3297598ea7c83f39dc00b18ee5be60c",
+        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+        819_394_848,
+        "c3d5afbef5287953acd57b4043d2269456e5761a4eaccb3b71b062996970aea5",
     ),
 ];
 
@@ -55,12 +55,12 @@ pub(crate) fn file(name: &str) -> Result<PathBuf> {
     Ok(target)
 }
 
-/// Root cache directory for the Qwen2.5-VL model files.
+/// Root cache directory for the Qwen3-VL model files.
 fn cache_dir() -> Result<PathBuf> {
     let dir = dirs::cache_dir()
         .context("no user cache directory is available on this platform")?
         .join("readseek")
-        .join("qwen2.5-vl-3b");
+        .join("qwen3-vl-2b");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     Ok(dir)
 }
