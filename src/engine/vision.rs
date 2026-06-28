@@ -52,6 +52,12 @@ const CTX: u32 = 4096;
 const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
 const N_BATCH: i32 = 512;
 const MAX_NEW_TOKENS: i32 = 1024;
+/// Cap on image tokens so the encoded image, the text prompt, and up to
+/// [`MAX_NEW_TOKENS`] of generated output all fit within [`CTX`] KV-cache cells.
+/// Larger images are downscaled to this budget by the mtmd preprocessor; left
+/// unbounded, a high-resolution image alone can exceed [`CTX`] and the whole
+/// analysis fails after a costly encode.
+const IMAGE_MAX_TOKENS: i32 = 2048;
 const LOC_BINS: f32 = 1000.0;
 const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
@@ -118,7 +124,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
         media_marker: CString::new(llama_cpp_2::mtmd::mtmd_default_marker())
             .context("media marker contains null")?,
         image_min_tokens: -1,
-        image_max_tokens: -1,
+        image_max_tokens: IMAGE_MAX_TOKENS,
     };
     let mtmd_ctx =
         MtmdContext::init_from_file(&mmproj_path.to_string_lossy(), &model, &mtmd_params)?;
