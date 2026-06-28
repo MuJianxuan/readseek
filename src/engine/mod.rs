@@ -20,3 +20,4 @@ pub(crate) mod source;
 pub(crate) mod symbols;
 pub(crate) mod target;
 pub(crate) mod vision;
+pub(crate) mod vision_cache;

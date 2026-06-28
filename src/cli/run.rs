@@ -14,7 +14,7 @@ use crate::engine::output::SearchOutput;
 use crate::engine::paths::command_paths;
 use crate::engine::source::SourceFile;
 use crate::engine::target::Target;
-use crate::engine::{def, output, refs, rename, repo};
+use crate::engine::{def, output, refs, rename, repo, vision_cache};
 
 /// Parses arguments and runs the requested command, writing its output.
 pub(crate) fn run() -> Result<()> {
@@ -79,10 +79,53 @@ impl cli::DetectCommand {
                 return;
             }
         };
-        match crate::engine::vision::analyze(&bytes, request) {
-            Ok(analysis) => output.set_analysis(analysis),
-            Err(error) => log::warn!("vision skipped: {error:#}"),
+
+        // Resolve the cache root from CWD (or an ancestor); None disables caching.
+        let readseek_dir = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| repo::find_readseek_dir(&cwd));
+        let hash = crate::engine::hash::hash_bytes(&bytes);
+
+        let mut entry = readseek_dir
+            .as_deref()
+            .and_then(|dir| vision_cache::load(dir, &hash))
+            .unwrap_or_else(vision_cache::CacheEntry::new_empty);
+
+        // Run only the requested tasks that are not already cached.
+        let missing = crate::engine::vision::Request {
+            transcribe: request.transcribe && entry.transcribe.is_none(),
+            caption: request.caption && entry.caption.is_none(),
+            objects: request.objects && entry.objects.is_none(),
+        };
+        if missing.transcribe || missing.caption || missing.objects {
+            match crate::engine::vision::analyze(&bytes, missing) {
+                Ok(analysis) => {
+                    if missing.transcribe {
+                        entry.transcribe = analysis.transcribe;
+                    }
+                    if missing.caption {
+                        entry.caption = analysis.caption;
+                    }
+                    if missing.objects {
+                        entry.objects = analysis.objects;
+                    }
+                    if let Some(dir) = readseek_dir.as_deref() {
+                        vision_cache::store(dir, &hash, &entry);
+                    }
+                }
+                Err(error) => log::warn!("vision skipped: {error:#}"),
+            }
         }
+
+        output.set_analysis(crate::engine::vision::Analysis {
+            transcribe: if request.transcribe {
+                entry.transcribe
+            } else {
+                None
+            },
+            caption: if request.caption { entry.caption } else { None },
+            objects: if request.objects { entry.objects } else { None },
+        });
     }
 }
 

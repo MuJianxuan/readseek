@@ -41,7 +41,7 @@ unsafe extern "C" {
 }
 
 unsafe extern "C" fn noop_log(_level: c_int, _text: *const c_char, _user_data: *mut c_void) {}
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::ffi::CString;
 use std::io::IsTerminal as _;
 use std::num::NonZeroU32;
@@ -62,21 +62,21 @@ const FIELD_CAPTION: &str = "\"caption\": a single paragraph describing the imag
 const FIELD_OBJECTS: &str = "\"objects\": an array of {\"label\": string, \"bbox\": [x1,y1,x2,y2]} for the salient objects, where bbox is the axis-aligned bounding box with coordinates normalized to 0-1000 relative to image width and height";
 
 /// Text recognized in an image, with per-region bounding quads.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct OcrText {
     text: String,
     regions: Vec<OcrRegion>,
 }
 
 /// One recognized text run with its bounding quad `[x1,y1,x2,y2,x3,y3,x4,y4]`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct OcrRegion {
     text: String,
     quad: [i32; 8],
 }
 
 /// A detected object with its category label and bounding box `[x1,y1,x2,y2]`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct DetectedObject {
     label: String,
     bbox: [i32; 4],

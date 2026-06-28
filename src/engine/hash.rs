@@ -69,3 +69,8 @@ pub(crate) fn hash_line(text: &str) -> LineHash {
 pub(crate) fn hash_text(text: &str) -> String {
     blake3::hash(text.as_bytes()).to_string()
 }
+
+/// Compute a BLAKE3 content hash for raw bytes as a 64-char lowercase hex string.
+pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_string()
+}

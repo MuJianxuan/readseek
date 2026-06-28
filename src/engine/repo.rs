@@ -427,7 +427,7 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<D
     Ok(Some(index.get(name).cloned().unwrap_or_default()))
 }
 
-fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let dir = path.parent().context("map path has no parent")?;
     let ts = SystemTime::now()
@@ -488,6 +488,12 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     remove_stale_index_shards(&readseek_dir, &written_prefixes)?;
     remove_legacy_index(&readseek_dir);
     stats.removed += remove_stale_maps(&readseek_dir, &active_hashes)?;
+
+    let active_image_hashes: HashSet<String> = paths
+        .par_iter()
+        .filter_map(|path| crate::engine::vision_cache::image_hash(path))
+        .collect();
+    stats.removed += crate::engine::vision_cache::remove_stale(&readseek_dir, &active_image_hashes)?;
 
     Ok(stats)
 }
