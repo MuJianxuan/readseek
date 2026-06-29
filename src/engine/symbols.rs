@@ -82,26 +82,31 @@ pub(crate) fn parse_diagnostics(source: &SourceFile) -> Result<Vec<Diagnostic>> 
     Ok(diagnostics)
 }
 
-fn collect_diagnostics(node: Node<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    let kind = if node.is_missing() {
-        Some(DiagnosticKind::Missing)
-    } else if node.is_error() {
-        Some(DiagnosticKind::Error)
-    } else {
-        None
-    };
-    if let Some(kind) = kind {
-        let (start_line, end_line) = node_line_range(node);
-        diagnostics.push(Diagnostic {
-            kind,
-            start_line,
-            end_line,
-        });
-    }
+fn collect_diagnostics(root: Node<'_>, diagnostics: &mut Vec<Diagnostic>) {
+    let mut stack: Vec<Node<'_>> = vec![root];
+    while let Some(node) = stack.pop() {
+        let kind = if node.is_missing() {
+            Some(DiagnosticKind::Missing)
+        } else if node.is_error() {
+            Some(DiagnosticKind::Error)
+        } else {
+            None
+        };
+        if let Some(kind) = kind {
+            let (start_line, end_line) = node_line_range(node);
+            diagnostics.push(Diagnostic {
+                kind,
+                start_line,
+                end_line,
+            });
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_diagnostics(child, diagnostics);
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        // Push in reverse to preserve DFS order.
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
@@ -152,32 +157,33 @@ pub(crate) fn tree_sitter_language(language: Language) -> Option<tree_sitter::La
 }
 
 fn collect_symbols(
-    node: Node<'_>,
+    root: Node<'_>,
     source: &str,
     language: Language,
     parent: Option<&str>,
     lines: &[SourceLine],
     symbols: &mut Vec<Symbol>,
 ) {
-    let symbol = symbol_for_node(node, source, language, parent, lines);
-    let next_parent = symbol
-        .as_ref()
-        .map(|symbol| symbol.qualified_name.clone())
-        .or_else(|| parent.map(ToOwned::to_owned));
-    if let Some(symbol) = symbol {
-        symbols.push(symbol);
-    }
+    // Iterative DFS using an explicit stack to avoid stack overflow on
+    // deep ASTs (the tree-sitter CST for a single C file can be thousands
+    // of nodes deep in debug builds where each stack frame is large).
+    let mut stack: Vec<(Node<'_>, Option<String>)> = vec![(root, parent.map(ToOwned::to_owned))];
+    while let Some((node, current_parent)) = stack.pop() {
+        let symbol = symbol_for_node(node, source, language, current_parent.as_deref(), lines);
+        let next_parent = symbol
+            .as_ref()
+            .map(|symbol| symbol.qualified_name.clone())
+            .or(current_parent);
+        if let Some(symbol) = symbol {
+            symbols.push(symbol);
+        }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_symbols(
-            child,
-            source,
-            language,
-            next_parent.as_deref(),
-            lines,
-            symbols,
-        );
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        // Push in reverse to preserve DFS order.
+        for child in children.into_iter().rev() {
+            stack.push((child, next_parent.clone()));
+        }
     }
 }
 
@@ -489,15 +495,17 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     }
 }
 
-fn descendant_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
-    if node.kind() == kind {
-        return Some(node);
-    }
-
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if let Some(node) = descendant_of_kind(child, kind) {
+fn descendant_of_kind<'tree>(root: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut stack: Vec<Node<'tree>> = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == kind {
             return Some(node);
+        }
+
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.named_children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
         }
     }
 
