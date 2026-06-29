@@ -223,9 +223,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # A fully static (crt-static) glibc binary has no dynamic dependencies, so
-      # it runs on any Linux distribution (glibc or musl). onnxruntime is linked
-      # in statically by `ort`; the Florence-2 model is fetched by build.rs.
+      # Build a fully static binary so it runs on any Linux distribution
+      # (glibc or musl). crt-static only static-links glibc itself; the
+      # llama-cpp-2 `static-stdcxx` and `static-openmp` features (enabled in
+      # Cargo.toml) static-link libstdc++ and libgomp. Without those features
+      # libstdc++ pulls in a second, dynamic glibc, producing a half-static
+      # binary that segfaults at startup.
       - name: Build (Linux static-glibc)
         if: runner.os == 'Linux'
         env:
@@ -256,6 +259,14 @@ jobs:
           mkdir -p artifacts
           tar -C "${{ matrix.package_dir }}/bin" -czf \
             "artifacts/${{ matrix.package }}.tar.gz" "${{ matrix.binary }}"
+
+      # Smoke test the staged binary so a broken build (e.g. a half-static
+      # binary that segfaults at startup) fails here instead of publishing.
+      - name: Smoke test staged binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ matrix.package_dir }}/bin/${{ matrix.binary }}" --version
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
