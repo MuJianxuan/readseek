@@ -163,15 +163,20 @@ fn workspace_others(request: &Request, old_name: &str) -> Result<Vec<RenameFileO
 
 /// Build the edit plan for a single non-cursor file, or `None` when nothing in
 /// it matches the old name.
+///
+/// Occurrences always come from a byte-level `name_scan` because the workspace
+/// rename is name-based across files — the binding resolver is too conservative
+/// and misses occurrences inside `#define` bodies, token-pasted arguments, and
+/// parse-error subtrees. Conflicts are sourced from `cross_file_matches` when
+/// available, so we still flag naming collisions the binding resolver detects.
 fn build_other(source: &SourceFile, old_name: &str, new_name: &str) -> Option<RenameFileOutput> {
-    let (occurrences, conflict_bytes) =
-        match binding::cross_file_matches(source, old_name, new_name) {
-            Some(matches) => (matches.occurrences, matches.conflicts),
-            None => (name_scan(source, old_name), Vec::new()),
-        };
+    let occurrences = name_scan(source, old_name);
     if occurrences.is_empty() {
         return None;
     }
+    let conflict_bytes = binding::cross_file_matches(source, old_name, new_name)
+        .map(|m| m.conflicts)
+        .unwrap_or_default();
 
     let edits = occurrences
         .into_iter()
