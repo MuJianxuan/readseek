@@ -187,7 +187,7 @@ pub(crate) fn cross_file_matches(
 /// declaration, flagging any where `new_name` already binds locally (capture).
 #[allow(clippy::too_many_arguments)]
 fn collect_free_occurrences(
-    node: Node<'_>,
+    root: Node<'_>,
     src: &[u8],
     table: &BindingTable,
     name: &str,
@@ -195,20 +195,24 @@ fn collect_free_occurrences(
     declarations: &[Declaration<'_>],
     out: &mut CrossFileMatches,
 ) {
-    if is_identifier_kind(node.kind(), table)
-        && node.child_count() == 0
-        && (table.is_reference)(node)
-        && node.utf8_text(src) == Ok(name)
-        && resolve_node(node, name, declarations, table).is_none()
-    {
-        out.occurrences.push((node.start_byte(), node.end_byte()));
-        if resolve_node(node, new_name, declarations, table).is_some() {
-            out.conflicts.push(node.start_byte());
+    let mut stack: Vec<Node<'_>> = vec![root];
+    while let Some(node) = stack.pop() {
+        if is_identifier_kind(node.kind(), table)
+            && node.child_count() == 0
+            && (table.is_reference)(node)
+            && node.utf8_text(src) == Ok(name)
+            && resolve_node(node, name, declarations, table).is_none()
+        {
+            out.occurrences.push((node.start_byte(), node.end_byte()));
+            if resolve_node(node, new_name, declarations, table).is_some() {
+                out.conflicts.push(node.start_byte());
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_free_occurrences(child, src, table, name, new_name, declarations, out);
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
@@ -283,23 +287,27 @@ fn node_root(node: Node<'_>) -> Node<'_> {
 }
 
 fn collect_declarations<'tree>(
-    node: Node<'tree>,
+    root: Node<'tree>,
     src: &[u8],
     table: &BindingTable,
     out: &mut Vec<Declaration<'tree>>,
 ) {
-    for ident in (table.declared_idents)(node, src) {
-        if let Ok(name) = ident.utf8_text(src) {
-            out.push(Declaration {
-                name: name.to_owned(),
-                ident,
-                scope: scope_of(ident, table),
-            });
+    let mut stack: Vec<Node<'tree>> = vec![root];
+    while let Some(node) = stack.pop() {
+        for ident in (table.declared_idents)(node, src) {
+            if let Ok(name) = ident.utf8_text(src) {
+                out.push(Declaration {
+                    name: name.to_owned(),
+                    ident,
+                    scope: scope_of(ident, table),
+                });
+            }
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_declarations(child, src, table, out);
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
@@ -356,7 +364,7 @@ fn resolve_node(
 
 #[allow(clippy::too_many_arguments)]
 fn collect_occurrences(
-    node: Node<'_>,
+    root: Node<'_>,
     src: &[u8],
     table: &BindingTable,
     name: &str,
@@ -364,30 +372,34 @@ fn collect_occurrences(
     declarations: &[Declaration<'_>],
     out: &mut Vec<Occurrence>,
 ) {
-    if is_identifier_kind(node.kind(), table)
-        && node.child_count() == 0
-        && (table.is_reference)(node)
-        && node.utf8_text(src) == Ok(name)
-    {
-        let resolved = resolve_node(node, name, declarations, table);
-        let kind = if resolved == Some(target_def) {
-            if node.start_byte() == target_def {
-                OccurrenceKind::Definition
+    let mut stack: Vec<Node<'_>> = vec![root];
+    while let Some(node) = stack.pop() {
+        if is_identifier_kind(node.kind(), table)
+            && node.child_count() == 0
+            && (table.is_reference)(node)
+            && node.utf8_text(src) == Ok(name)
+        {
+            let resolved = resolve_node(node, name, declarations, table);
+            let kind = if resolved == Some(target_def) {
+                if node.start_byte() == target_def {
+                    OccurrenceKind::Definition
+                } else {
+                    OccurrenceKind::Reference
+                }
             } else {
-                OccurrenceKind::Reference
-            }
-        } else {
-            OccurrenceKind::Shadowed
-        };
-        out.push(Occurrence {
-            start_byte: node.start_byte(),
-            end_byte: node.end_byte(),
-            kind,
-        });
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_occurrences(child, src, table, name, target_def, declarations, out);
+                OccurrenceKind::Shadowed
+            };
+            out.push(Occurrence {
+                start_byte: node.start_byte(),
+                end_byte: node.end_byte(),
+                kind,
+            });
+        }
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children.into_iter().rev() {
+            stack.push(child);
+        }
     }
 }
 
