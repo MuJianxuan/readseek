@@ -325,7 +325,9 @@ fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analy
 
     let mut analysis = Analysis::default();
     if request.transcribe {
-        analysis.transcribe = parsed.regions.map(|regions| build_ocr(regions, width, height));
+        analysis.transcribe = parsed
+            .regions
+            .map(|regions| build_ocr(regions, width, height));
     }
     if request.caption {
         analysis.caption = parsed.caption.map(|caption| strip_special(&caption));

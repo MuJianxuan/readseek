@@ -110,8 +110,12 @@ fn git_paths(
             if !path_is_in_scope(&relative, &scope.scope) {
                 continue;
             }
+            let full_path = scope.workdir.join(&relative);
+            if !full_path.is_file() {
+                continue;
+            }
             insert_if_matches(
-                &scope.workdir.join(&relative),
+                &full_path,
                 scope.output_root.join(&relative),
                 name_filter,
                 &mut paths,

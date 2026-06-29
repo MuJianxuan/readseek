@@ -493,7 +493,8 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
         .par_iter()
         .filter_map(|path| crate::engine::vision_cache::image_hash(path))
         .collect();
-    stats.removed += crate::engine::vision_cache::remove_stale(&readseek_dir, &active_image_hashes)?;
+    stats.removed +=
+        crate::engine::vision_cache::remove_stale(&readseek_dir, &active_image_hashes)?;
 
     Ok(stats)
 }
