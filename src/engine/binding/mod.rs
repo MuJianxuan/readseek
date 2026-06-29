@@ -128,13 +128,48 @@ pub(crate) fn identifier_at(source: &SourceFile, byte: usize) -> Option<String> 
     if let Some((table, tree)) = parse_source(source) {
         let root = tree.root_node();
         let lookup = byte.min(source.text.len().saturating_sub(1));
-        let leaf = identifier_leaf(root.descendant_for_byte_range(lookup, lookup)?, table)?;
-        return leaf
-            .utf8_text(source.text.as_bytes())
-            .ok()
-            .map(str::to_owned);
+        if let Some(leaf) = root
+            .descendant_for_byte_range(lookup, lookup)
+            .and_then(|node| identifier_leaf(node, table))
+        {
+            return leaf
+                .utf8_text(source.text.as_bytes())
+                .ok()
+                .map(str::to_owned);
+        }
     }
-    crate::engine::symbols::token_at(source, byte).map(|token| token.text)
+    // Byte-level fallback for identifiers inside preprocessor bodies
+    // (tree-sitter-c treats #define bodies as opaque `preproc_arg` nodes),
+    // parse-error subtrees, and languages without a binding table.
+    identifier_at_byte(source.text.as_bytes(), byte)
+}
+
+/// Extract the identifier covering `byte` with a byte-level scan.
+///
+/// Scans backward and forward for identifier characters; returns `None` when
+/// the cursor byte is not an identifier character or the extracted span starts
+/// with a digit. This is the fallback when tree-sitter cannot resolve the token
+/// (e.g. inside `#define` bodies, which tree-sitter-c stores as opaque
+/// `preproc_arg` nodes).
+fn identifier_at_byte(text: &[u8], byte: usize) -> Option<String> {
+    let pos = byte.min(text.len().saturating_sub(1));
+    if !text[pos].is_ascii_alphanumeric() && text[pos] != b'_' {
+        return None;
+    }
+    let mut start = pos;
+    while start > 0 && (text[start - 1].is_ascii_alphanumeric() || text[start - 1] == b'_') {
+        start -= 1;
+    }
+    // Reject spans starting with a digit: they are number literals, not
+    // identifiers, even inside preprocessor bodies.
+    if text[start].is_ascii_digit() {
+        return None;
+    }
+    let mut end = pos + 1;
+    while end < text.len() && (text[end].is_ascii_alphanumeric() || text[end] == b'_') {
+        end += 1;
+    }
+    String::from_utf8(text[start..end].to_vec()).ok()
 }
 
 /// Name occurrences a cross-file rename should touch within one file.
