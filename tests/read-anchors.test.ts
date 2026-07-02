@@ -27,7 +27,41 @@ const { executeRead } = await import("../src/read.js");
 describe("executeRead anchor tracking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.unstubAllEnvs();
 	});
+
+	async function writeImage(cwd: string): Promise<string> {
+		const filePath = path.join(cwd, "image.png");
+		const png = Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+			"base64",
+		);
+		await writeFile(filePath, png);
+		return filePath;
+	}
+
+	function mockImageDetection(filePath: string) {
+		const imageDetection = {
+			kind: "image",
+			type: "image/png",
+			file: filePath,
+			mime: "image/png",
+			format: "png",
+			width: 1,
+			height: 1,
+			animated: false,
+		};
+		readseekDetectMock.mockImplementation((_filePath: string, options?: { transcribe?: boolean }) =>
+			Promise.resolve(
+				options?.transcribe
+					? {
+							...imageDetection,
+							transcribe: { text: "OCR TEXT", regions: [{ text: "OCR TEXT", quad: [0, 0, 1, 0, 1, 1, 0, 1] }] },
+						}
+					: imageDetection,
+			),
+		);
+	}
 
 	it("marks text reads with readseek lines as anchored", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
@@ -66,33 +100,8 @@ describe("executeRead anchor tracking", () => {
 	it("appends OCR text to image reads and does not mark them as anchored", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
-			const filePath = path.join(cwd, "image.png");
-			// 1x1 PNG — binary content so the read path classifies it via readseek detect.
-			const png = Buffer.from(
-				"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
-				"base64",
-			);
-			await writeFile(filePath, png);
-			const imageDetection = {
-				kind: "image",
-				type: "image/png",
-				file: filePath,
-				mime: "image/png",
-				format: "png",
-				width: 1,
-				height: 1,
-				animated: false,
-			};
-			readseekDetectMock.mockImplementation((_filePath: string, options?: { transcribe?: boolean }) =>
-				Promise.resolve(
-					options?.transcribe
-						? {
-								...imageDetection,
-								transcribe: { text: "OCR TEXT", regions: [{ text: "OCR TEXT", quad: [0, 0, 1, 0, 1, 1, 0, 1] }] },
-							}
-						: imageDetection,
-				),
-			);
+			const filePath = await writeImage(cwd);
+			mockImageDetection(filePath);
 			createReadToolExecuteMock.mockResolvedValueOnce({
 				content: [{ type: "text", text: "image attachment" }],
 			});
@@ -111,6 +120,60 @@ describe("executeRead anchor tracking", () => {
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
 			expect(text).toContain("image attachment");
 			expect(text).toContain("OCR TEXT");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("skips OCR when ocrMode is off", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			vi.stubEnv("READSEEK_READ_OCR_MODE", "off");
+			const filePath = await writeImage(cwd);
+			mockImageDetection(filePath);
+			createReadToolExecuteMock.mockResolvedValueOnce({
+				content: [{ type: "text", text: "image attachment" }],
+			});
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "image.png" },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+				modelSupportsImages: false,
+			});
+
+			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
+			expect(text).toBe("image attachment");
+			expect(readseekDetectMock).toHaveBeenCalledTimes(1);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("skips OCR for image-capable models when ocrMode is auto", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			vi.stubEnv("READSEEK_READ_OCR_MODE", "auto");
+			const filePath = await writeImage(cwd);
+			mockImageDetection(filePath);
+			createReadToolExecuteMock.mockResolvedValueOnce({
+				content: [{ type: "text", text: "image attachment" }],
+			});
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "image.png" },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+				modelSupportsImages: true,
+			});
+
+			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
+			expect(text).toBe("image attachment");
+			expect(readseekDetectMock).toHaveBeenCalledTimes(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
