@@ -473,7 +473,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				onUpdate,
 				cwd: ctx.cwd,
 				onSuccessfulRead: options.onSuccessfulRead,
-				modelSupportsImages: pi.model?.input.includes("image") ?? false,
+				modelSupportsImages: ctx.model?.input.includes("image") ?? false,
 			});
 		},
 		renderCall(args: any, theme: any, ...rest: any[]) {
