@@ -5,6 +5,7 @@ import { join } from "node:path";
 interface ReadSeekJsonSettings {
   grep?: { maxLines?: number; maxBytes?: number };
   edit?: { diffDisplay?: "collapsed" | "expanded" };
+  read?: { ocrMode?: "on" | "off" | "auto" };
 }
 
 interface ReadSeekSettingsWarning {
@@ -75,6 +76,16 @@ function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult 
     if (Object.keys(edit).length > 0) settings.edit = edit;
   }
 
+  if (isRecord(raw.read)) {
+    const read: NonNullable<ReadSeekJsonSettings["read"]> = {};
+    if ("ocrMode" in raw.read) {
+      const value = raw.read.ocrMode;
+      if (value === "on" || value === "off" || value === "auto") read.ocrMode = value;
+      else warnings.push(invalid(source, "read.ocrMode"));
+    }
+    if (Object.keys(read).length > 0) settings.read = read;
+  }
+
   return { settings, warnings };
 }
 
@@ -96,6 +107,8 @@ function mergeSettings(base: ReadSeekJsonSettings, override: ReadSeekJsonSetting
   if (Object.keys(grep).length > 0) merged.grep = grep;
   const edit = { ...(base.edit ?? {}), ...(override.edit ?? {}) };
   if (Object.keys(edit).length > 0) merged.edit = edit;
+  const read = { ...(base.read ?? {}), ...(override.read ?? {}) };
+  if (Object.keys(read).length > 0) merged.read = read;
   return merged;
 }
 
@@ -117,4 +130,15 @@ export function resolveEditDiffDisplay(env: NodeJS.ProcessEnv = process.env): "c
   const json = resolveReadSeekJsonSettings().settings.edit?.diffDisplay;
   if (json === "expanded" || json === "collapsed") return json;
   return "collapsed";
+}
+
+export function resolveReadSeekOcrMode(env: NodeJS.ProcessEnv = process.env): "on" | "off" | "auto" {
+  const raw = env.READSEEK_READ_OCR_MODE;
+  if (typeof raw === "string") {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === "on" || normalized === "off" || normalized === "auto") return normalized;
+  }
+  const json = resolveReadSeekJsonSettings().settings.read?.ocrMode;
+  if (json === "on" || json === "off" || json === "auto") return json;
+  return "on";
 }
