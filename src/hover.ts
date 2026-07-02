@@ -7,6 +7,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
+import { formatFsError } from "./fs-error.js";
 import { classifyReadSeekFailure, readseekIdentify } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
@@ -48,8 +49,9 @@ export async function executeHover(opts: ExecuteHoverOptions): Promise<any> {
 	let content: string;
 	try {
 		content = await readFile(filePath, "utf-8");
-	} catch {
-		return buildToolErrorResult("hover", "file-not-found", `hover could not read ${p.path}`);
+	} catch (err: any) {
+		const { code, message } = formatFsError(err, "hover-error");
+		return buildToolErrorResult("hover", code, message, { path: p.path });
 	}
 
 	try {

@@ -12,7 +12,7 @@ import { HashlineMismatchError, applyHashlineEdits, computeLineHash, ensureHashI
 import { resolveToCwd } from "./path-utils.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { throwIfAborted } from "./runtime.js";
-import { classifyFsError } from "./fs-error.js";
+import { formatFsError } from "./fs-error.js";
 import { buildEditOutput } from "./edit-output.js";
 import { classifyEdit, isDifftAvailable, runDifftastic } from "./edit-classify.js";
 import type { SemanticSummary } from "./readseek-value.js";
@@ -104,19 +104,9 @@ function buildEditError(
 	};
 }
 
-function mapEditFileError(err: any, filePath: string, displayPath: string, phase: "read" | "write"): ReturnType<typeof buildEditError> {
-	const code = err?.code;
-	if (code === "ENOENT" && phase === "write") {
-		return buildEditError(filePath, "file-not-found", `Failed to write file: ${displayPath}`);
-	}
-	const fsError = classifyFsError(err, displayPath);
-	if (fsError) {
-		return buildEditError(filePath, fsError.code, fsError.message, fsError.hint);
-	}
-	const prefix = phase === "write" ? "Failed to write file" : "File not readable";
-	const message = `${prefix}: ${displayPath}${err?.message ? ` — ${err.message}` : ""}`;
-	return buildEditError(filePath, "fs-error", message, undefined,
-		{ fsCode: code, fsMessage: err?.message });
+function mapEditFileError(err: any, filePath: string, _displayPath: string, _phase: "read" | "write"): ReturnType<typeof buildEditError> {
+	const { code, message } = formatFsError(err, "edit-error");
+	return buildEditError(filePath, code, message);
 }
 
 export interface EditToolOptions {

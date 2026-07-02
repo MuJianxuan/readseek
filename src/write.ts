@@ -9,7 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
 import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, buildToolErrorResult, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
-import { classifyFsError, type FsErrorCode } from "./fs-error.js";
+import { formatFsError } from "./fs-error.js";
 import { getOrGenerateMap } from "./file-map.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
 
@@ -120,57 +120,12 @@ export interface WriteToolOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
-type MappedFsError = {
-  code: FsErrorCode | "fs-error";
-  message: string;
-  hint?: string;
-  includeMeta: boolean;
-};
-
-function mapFsWriteError(err: any, path: string): MappedFsError {
-  const phase: "mkdir" | "write" | undefined = err?.__phase;
-  const fsCode = err?.code as string | undefined;
-
-  if (fsCode === "ENOENT" && phase === "mkdir") {
-    return {
-      code: "fs-error",
-      message: `Cannot create parent directories for ${path}: ${err?.message ?? String(err)}`,
-      includeMeta: true,
-    };
-  }
-  if (fsCode === "ENOSPC") {
-    return {
-      code: "fs-error",
-      message: `No space left on device — cannot write: ${path}`,
-      includeMeta: true,
-    };
-  }
-  if (fsCode === "EROFS") {
-    return {
-      code: "fs-error",
-      message: `Read-only filesystem — cannot write: ${path}`,
-      includeMeta: true,
-    };
-  }
-  const fsError = classifyFsError(err, path);
-  if (fsError) {
-    return { code: fsError.code, message: fsError.message, hint: fsError.hint, includeMeta: false };
-  }
-  return {
-    code: "fs-error",
-    message: `Error writing ${path}: ${err?.message ?? String(err)}`,
-    includeMeta: true,
-  };
-}
-
 function buildWriteFsErrorResult(err: any, absolutePath: string) {
-  const mapped = mapFsWriteError(err, absolutePath);
-  return buildToolErrorResult("write", mapped.code, mapped.message, {
-    path: absolutePath,
-    hint: mapped.hint,
-    extra: { lines: [], warnings: [] },
-    details: mapped.includeMeta ? { fsCode: err?.code, fsMessage: err?.message } : undefined,
-  });
+	const { code, message } = formatFsError(err, "write-error");
+	return buildToolErrorResult("write", code, message, {
+		path: absolutePath,
+		extra: { lines: [], warnings: [] },
+	});
 }
 
 export async function executeWrite(opts: {
@@ -218,21 +173,10 @@ export async function executeWrite(opts: {
   const previousContent = await readPreviousTextForDiff(filePath);
   const existedBeforeWrite = await access(filePath).then(() => true, () => false);
 
-  // Create parent directories
-  try {
-    await mkdir(dirname(filePath), { recursive: true });
-  } catch (err: any) {
-    err.__phase = "mkdir";
-    throw err;
-  }
-  // Write file
-  try {
-    await writeFile(filePath, content, "utf-8");
-  } catch (err: any) {
-    err.__phase = "write";
-    throw err;
-  }
-
+	// Create parent directories
+	await mkdir(dirname(filePath), { recursive: true });
+	// Write file
+	await writeFile(filePath, content, "utf-8");
   // Compute hashlines
   const rawLines = content.split("\n");
   const readseekLines: ReadSeekLine[] = [];

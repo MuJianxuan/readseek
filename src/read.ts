@@ -17,7 +17,7 @@ import { buildReadSeekWarning, buildToolErrorResult, renderReadSeekLines, type R
 import { looksLikeBinary } from "./binary-detect.js";
 import { resolveToCwd } from "./path-utils.js";
 import { throwIfAborted } from "./runtime.js";
-import { classifyFsError } from "./fs-error.js";
+import { formatFsError } from "./fs-error.js";
 import { getOrGenerateMap } from "./file-map.js";
 import { formatFileMapWithBudget } from "./readseek/formatter.js";
 import { findSymbol, type SymbolMatch } from "./readseek/symbol-lookup.js";
@@ -144,16 +144,10 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	try {
 		rawBuffer = await fsReadFile(absolutePath);
 	} catch (err: any) {
-		const code = err?.code;
-		const fsError = classifyFsError(err, rawPath);
-		if (fsError) {
-			return buildToolErrorResult("read", fsError.code, fsError.message, {
-				path: rawParams.path,
-				...(fsError.hint ? { hint: fsError.hint } : {}),
-			});
-		}
-		const message = `File not readable: ${rawPath}${err?.message ? ` — ${err.message}` : ""}`;
-		return buildToolErrorResult("read", "fs-error", message, { path: rawParams.path, details: { fsCode: code, fsMessage: err?.message } });
+		const { code, message } = formatFsError(err, "read-error");
+		return buildToolErrorResult("read", code, message, {
+			path: rawParams.path,
+		});
 	}
 
 	const hasBinaryContent = looksLikeBinary(rawBuffer);

@@ -1,30 +1,33 @@
-export type FsErrorCode = "path-is-directory" | "permission-denied" | "file-not-found";
+const SYSLOG_PATH_SUFFIX = /,\s+[a-z]+(\s+'.*')?$/;
 
-export interface FsErrorInfo {
-  code: FsErrorCode;
-  message: string;
-  hint?: string;
+/**
+ * Derive the canonical OS strerror from a Node {@link err.message} by
+ * stripping the trailing syscall and optional path suffix so the result
+ * is portable and never duplicates information already carried in the
+ * error-envelope `path` field.
+ */
+function strerror(err: { message?: unknown }): string {
+	const raw = String(err?.message ?? String(err));
+	return raw.replace(SYSLOG_PATH_SUFFIX, "");
 }
 
 /**
- * Translate a Node `fs` errno into the shared readseek error taxonomy with a
- * canonical message. Returns null for errno values without a dedicated code so
- * callers fall back to their own `fs-error` handling.
+ * Build a readseek error from a Node `fs` errno exception.
+ *
+ * Every errno maps to its own canonical code automatically — no
+ * hand-curated switch, no `"fs-error"` catch-all.
+ *
+ * @param err  The caught exception (carries `err.code` and `err.message`).
+ * @param domain  Tool-level prefix for the message: `"read-error"`,
+ *                `"edit-error"`, `"write-error"`, `"stat-error"`.
  */
-export function classifyFsError(err: { code?: unknown }, path: string): FsErrorInfo | null {
-  switch (err?.code) {
-    case "EISDIR":
-      return {
-        code: "path-is-directory",
-        message: `Path is a directory: ${path}`,
-        hint: `Use ls(${JSON.stringify(path)}) to inspect directories.`,
-      };
-    case "EACCES":
-    case "EPERM":
-      return { code: "permission-denied", message: `Permission denied: ${path}` };
-    case "ENOENT":
-      return { code: "file-not-found", message: `File not found: ${path}` };
-    default:
-      return null;
-  }
+export function formatFsError(
+	err: { code?: unknown; message?: string },
+	domain: string,
+): { code: string; message: string } {
+	const errno = typeof err.code === "string" ? err.code : "EIO";
+	return {
+		code: errno,
+		message: `${domain}: ${errno}: ${strerror(err)}`,
+	};
 }
