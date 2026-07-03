@@ -57,6 +57,8 @@ export interface ExecuteReadOptions {
 	onUpdate: any;
 	cwd: string;
 	onSuccessfulRead?: FileAnchoredCallback;
+	/** Whether the active model accepts image input natively. When true, skip local OCR. */
+	modelSupportsImages?: boolean;
 }
 
 function hasReadAnchors(result: AgentToolResult<any>): boolean {
@@ -152,25 +154,37 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 
 	const hasBinaryContent = looksLikeBinary(rawBuffer);
 	if (hasBinaryContent) {
-		// Images are always binary; classify and transcribe in a single readseek detect call.
+		// Images are always binary; classify without running local OCR first (fast, ~50 ms).
+		// When the model supports native image input the builtin attachment is sufficient;
+		// only fall back to CPU-heavy local Qwen3-VL transcription for text-only models.
 		let detection: ReadSeekDetection | undefined;
 		try {
-			detection = await readseekDetect(absolutePath, { transcribe: true, signal });
+			detection = await readseekDetect(absolutePath, { signal });
 		} catch {
 			// detect unavailable — fall through to binary-as-text handling below
 		}
 		if (detection?.kind === "image") {
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
-			const transcript = detection.transcribe?.text?.trim();
-			if (transcript) {
-				return succeed({
-					...builtinResult,
-					content: [
-						...(builtinResult.content ?? []),
-						{ type: "text" as const, text: `Transcribed text from image:\n${transcript}` },
-					],
-				});
+			if (opts.modelSupportsImages) {
+				// Model has native vision — the attachment already carries full image content.
+				return succeed(builtinResult);
+			}
+			// Text-only model: run local OCR so image content reaches the model as text.
+			try {
+				const ocrDetection = await readseekDetect(absolutePath, { transcribe: true, signal });
+				const transcript = ocrDetection.kind === "image" ? ocrDetection.transcribe?.text?.trim() : undefined;
+				if (transcript) {
+					return succeed({
+						...builtinResult,
+						content: [
+							...(builtinResult.content ?? []),
+							{ type: "text" as const, text: `Transcribed text from image:\n${transcript}` },
+						],
+					});
+				}
+			} catch {
+				// OCR unavailable — return attachment without transcript
 			}
 			return succeed(builtinResult);
 		}
@@ -459,6 +473,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				onUpdate,
 				cwd: ctx.cwd,
 				onSuccessfulRead: options.onSuccessfulRead,
+				modelSupportsImages: pi.model?.input.includes("image") ?? false,
 			});
 		},
 		renderCall(args: any, theme: any, ...rest: any[]) {
