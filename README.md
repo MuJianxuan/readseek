@@ -24,8 +24,9 @@ npm install --save-dev @jarkkojs/readseek
 ## Tools
 
 - **read** — reads text files with `LINE:HASH` anchors for later `edit` calls;
-  images are returned as attachments. Supports `symbol`, `map`, and `bundle`
-  options powered by `@jarkkojs/readseek`.
+  images are returned as attachments and may include local OCR, caption, and
+  object text. Supports `symbol`, `map`, and `bundle` options powered by
+  `@jarkkojs/readseek`.
 - **edit** — changes existing text files using fresh anchors from `read`,
   `grep`, `search`, or `write`. Variants: `set_line`, `replace_lines`,
   `insert_after`, `replace_symbol`, `replace`. Set `new_text` to `""` to
@@ -39,6 +40,38 @@ npm install --save-dev @jarkkojs/readseek
   a symbol.
 - **write** — creates or overwrites whole files and returns anchors for
   immediate follow-up edits.
+
+## Settings
+
+`pi-readseek` reads optional JSON settings from:
+
+| Location | Scope |
+| --- | --- |
+| `~/.pi/agent/readseek/settings.json` | Global |
+| `.pi/readseek/settings.json` | Project |
+
+Project settings override global settings. Image OCR behavior is controlled by
+`read.ocrMode`:
+
+```json
+{
+  "read": {
+    "ocrMode": "on"
+  }
+}
+```
+
+Modes:
+
+- `"on"` — always run local image OCR/caption/object analysis. This is the
+  default.
+- `"off"` — return only the image attachment. Use this as a workaround if the
+  local readseek image-analysis path crashes.
+- `"auto"` — run local image analysis only when the active model does not
+  support native image input.
+
+`READSEEK_READ_OCR_MODE=on|off|auto` overrides the JSON setting for one
+process.
 
 ## Related
 

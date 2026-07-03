@@ -1,4 +1,4 @@
-Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `edit`; supported images return attachments instead of anchors. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `edit`; supported images return attachments and may append OCR/caption/object text depending on `read.ocrMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
 
 ## Choose the right read
 
