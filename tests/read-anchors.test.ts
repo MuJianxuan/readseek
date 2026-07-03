@@ -99,6 +99,45 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
+	it("falls back to image attachment when OCR detect crashes", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			const filePath = await writeImage(cwd);
+			const imageDetection = {
+				kind: "image",
+				type: "image/png",
+				file: filePath,
+				mime: "image/png",
+				format: "png",
+				width: 1,
+				height: 1,
+				animated: false,
+			};
+			readseekDetectMock
+				.mockImplementationOnce(() => Promise.resolve(imageDetection))
+				.mockRejectedValueOnce(new Error("readseek crashed with SIGFPE"));
+			createReadToolExecuteMock.mockResolvedValueOnce({
+				content: [{ type: "text", text: "image attachment" }],
+			});
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "image.png" },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+			});
+
+			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
+			expect(text).toBe("image attachment");
+			expect(text).not.toContain("binary");
+			const details = (result as any).details;
+			expect(details?.readseekValue).toBeUndefined();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("appends OCR text to image reads and does not mark them as anchored", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
