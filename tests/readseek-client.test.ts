@@ -108,6 +108,30 @@ describe("readseek client parsing", () => {
 		await expect(readseekRead("/tmp/file.txt")).rejects.toThrow("readseek killed by signal SIGFPE");
 	});
 
+	it("times out stuck readseek invocations", async () => {
+		const previousTimeout = process.env.READSEEK_TIMEOUT_MS;
+		process.env.READSEEK_TIMEOUT_MS = "50";
+		try {
+			const stuck = new EventEmitter() as EventEmitter & {
+				stdout: PassThrough;
+				stderr: PassThrough;
+				kill: ReturnType<typeof vi.fn>;
+			};
+			stuck.stdout = new PassThrough();
+			stuck.stderr = new PassThrough();
+			stuck.kill = vi.fn();
+			spawnMock
+				.mockImplementationOnce(() => spawnResult(""))
+				.mockImplementationOnce(() => stuck);
+
+			await expect(readseekRead("/tmp/file.txt")).rejects.toThrow("readseek timed out after 50 ms");
+			expect(stuck.kill).toHaveBeenCalledWith("SIGKILL");
+		} finally {
+			if (previousTimeout === undefined) delete process.env.READSEEK_TIMEOUT_MS;
+			else process.env.READSEEK_TIMEOUT_MS = previousTimeout;
+		}
+	});
+
 	it("accepts readseek 0.4 search matches without pattern_index", async () => {
 		const searchOutput = JSON.stringify({
 			results: [

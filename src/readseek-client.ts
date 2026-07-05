@@ -286,23 +286,36 @@ function directoryExists(dirPath: string): boolean {
 	}
 }
 
+const ownRepositoryByDir = new Map<string, boolean>();
+
 function isOwnReadSeekRepository(cwd = process.cwd()): boolean {
-	let dir = path.resolve(cwd);
+	const start = path.resolve(cwd);
+	const cached = ownRepositoryByDir.get(start);
+	if (cached !== undefined) return cached;
+
+	let dir = start;
+	let result = false;
 	while (true) {
 		const packageJsonPath = path.join(dir, "package.json");
 		if (existsSync(packageJsonPath)) {
 			try {
 				const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
-				if (typeof packageJson.name === "string" && READSEEK_REPO_PACKAGE_NAMES.has(packageJson.name)) return true;
+				if (typeof packageJson.name === "string" && READSEEK_REPO_PACKAGE_NAMES.has(packageJson.name)) {
+					result = true;
+					break;
+				}
 			} catch {
 				// Ignore unreadable or invalid package manifests while walking up.
 			}
 		}
 
 		const parent = path.dirname(dir);
-		if (parent === dir) return false;
+		if (parent === dir) break;
 		dir = parent;
 	}
+
+	ownRepositoryByDir.set(start, result);
+	return result;
 }
 
 function defaultReadSeekDir(): string | null {
@@ -310,23 +323,43 @@ function defaultReadSeekDir(): string | null {
 	return home ? path.join(home, ".pi", "readseek") : null;
 }
 
+const DEFAULT_READSEEK_TIMEOUT_MS = 120_000;
+
+function readseekTimeoutMs(): number {
+	const raw = process.env.READSEEK_TIMEOUT_MS;
+	if (raw !== undefined && raw !== "") {
+		const parsed = Number(raw);
+		if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	}
+	return DEFAULT_READSEEK_TIMEOUT_MS;
+}
+
 async function spawnReadSeekRaw(args: string[], options: RunReadSeekOptions = {}): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const fail = (error: Error): void => {
 			if (settled) return;
 			settled = true;
+			if (timeout !== undefined) clearTimeout(timeout);
 			reject(error);
 		};
 		const succeed = (value: string): void => {
 			if (settled) return;
 			settled = true;
+			if (timeout !== undefined) clearTimeout(timeout);
 			resolve(value);
 		};
 
 		const stdin = options.stdin;
 		const stdio: StdioOptions = [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"];
 		const child = spawn(readseekBinaryPath(), args, { stdio, signal: options.signal });
+		const timeoutMs = options.timeoutMs ?? readseekTimeoutMs();
+		timeout = setTimeout(() => {
+			child.kill("SIGKILL");
+			fail(new Error(`readseek timed out after ${timeoutMs} ms`));
+		}, timeoutMs);
+		timeout.unref?.();
 		const childStdout = child.stdout;
 		const childStderr = child.stderr;
 		const childStdin = child.stdin;
@@ -396,6 +429,7 @@ async function readseekInvocationArgs(args: string[]): Promise<string[]> {
 interface RunReadSeekOptions {
 	signal?: AbortSignal;
 	stdin?: string;
+	timeoutMs?: number;
 }
 
 async function runReadSeekRaw(args: string[], options: RunReadSeekOptions = {}): Promise<string> {
