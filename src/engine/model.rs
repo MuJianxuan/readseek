@@ -70,7 +70,13 @@ fn cache_dir() -> Result<PathBuf> {
 fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
     let url = format!("{BASE}/{remote}");
     let part = target.with_extension("part");
-    let response = ureq::get(&url)
+    let agent = ureq::Agent::with_parts(
+        ureq::config::Config::default(),
+        ureq::unversioned::transport::DefaultConnector::default(),
+        crate::engine::resolver::DohResolver,
+    );
+    let response = agent
+        .get(&url)
         .call()
         .with_context(|| format!("download {url}"))?;
     let total = response.body().content_length();

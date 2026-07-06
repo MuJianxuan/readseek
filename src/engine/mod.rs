@@ -15,6 +15,7 @@ pub(crate) mod paths;
 pub(crate) mod refs;
 pub(crate) mod rename;
 pub(crate) mod repo;
+pub(crate) mod resolver;
 pub(crate) mod search;
 pub(crate) mod source;
 pub(crate) mod symbols;
