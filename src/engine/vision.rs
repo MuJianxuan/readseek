@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Image vision analysis: captioning (Moondream) and object detection
-//! (YOLOv8-nano). Both models run on CPU through the pure-Rust `candle` stack
-//! and are fetched lazily into the user cache directory (see
-//! [`crate::engine::model`]). Caption and object detection run independently,
-//! so a failure in one leaves the other's results intact.
+//! Image vision analysis: captioning (Moondream), object detection
+//! (YOLOv8-nano), and OCR (ocrs). Models run on CPU through pure-Rust
+//! inference stacks and are fetched lazily into the user cache directory (see
+//! [`crate::engine::model`]). Tasks run independently, so a failure in one
+//! leaves the other's results intact.
 
 // Bounding-box and token-count casts are intentional and bounded by the model
 // output shapes and image dimensions.
@@ -16,6 +16,8 @@
     clippy::cast_possible_wrap
 )]
 
+use crate::engine::model;
+use crate::engine::yolo::{COCO_CLASSES, Multiples, YoloV8};
 use anyhow::{Context as _, Result, anyhow};
 use candle::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Module, VarBuilder};
@@ -25,13 +27,12 @@ use candle_transformers::{
     quantized_var_builder,
 };
 use indicatif::ProgressBar;
+use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
+use rten::Model;
 use serde::{Deserialize, Serialize};
 use std::io::IsTerminal as _;
 use std::time::{Duration, Instant};
 use tokenizers::Tokenizer;
-
-use crate::engine::model;
-use crate::engine::yolo::{COCO_CLASSES, Multiples, YoloV8};
 
 const CAPTION_MAX_TOKENS: usize = 256;
 const YOLO_CONFIDENCE: f32 = 0.25;
@@ -56,6 +57,7 @@ pub(crate) struct DetectedObject {
 pub(crate) struct Request {
     pub(crate) caption: bool,
     pub(crate) objects: bool,
+    pub(crate) ocr: bool,
 }
 
 /// Results of the requested vision tasks.
@@ -63,6 +65,7 @@ pub(crate) struct Request {
 pub(crate) struct Analysis {
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
+    pub(crate) ocr: Option<String>,
 }
 
 /// Run the requested tasks against `image_bytes`. Each task runs independently;
@@ -81,6 +84,12 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
         match detect_objects(&image) {
             Ok(objects) => analysis.objects = Some(objects),
             Err(error) => log::warn!("vision objects skipped: {error:#}"),
+        }
+    }
+    if request.ocr {
+        match ocr_text(&image) {
+            Ok(text) => analysis.ocr = Some(text),
+            Err(error) => log::warn!("vision OCR skipped: {error:#}"),
         }
     }
     Ok(analysis)
@@ -176,6 +185,28 @@ fn detect_objects(image: &image::DynamicImage) -> Result<Vec<DetectedObject>> {
     let predictions = yolo.forward(&input)?.squeeze(0)?;
     progress.maybe_reveal();
     objects_from_predictions(&predictions, orig_w, orig_h, model_w, model_h)
+}
+
+/// Extract text from `image` with the ocrs detection and recognition models.
+fn ocr_text(image: &image::DynamicImage) -> Result<String> {
+    let detection_model_path = model::file("text-detection.rten")?;
+    let recognition_model_path = model::file("text-recognition.rten")?;
+    let detection_model = Model::load_file(detection_model_path)?;
+    let recognition_model = Model::load_file(recognition_model_path)?;
+    let engine = OcrEngine::new(OcrEngineParams {
+        detection_model: Some(detection_model),
+        recognition_model: Some(recognition_model),
+        ..Default::default()
+    })?;
+
+    let image = image.to_rgb8();
+    let source = ImageSource::from_bytes(image.as_raw(), image.dimensions())?;
+    let input = engine.prepare_input(source)?;
+    let mut progress = InferenceProgress::new();
+    progress.maybe_reveal();
+    let text = engine.get_text(&input)?;
+    progress.maybe_reveal();
+    Ok(text.trim().to_string())
 }
 
 /// Resize `image` to a 32-divisible size fitting 640px on the longer side and

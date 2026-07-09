@@ -94,6 +94,7 @@ impl DetectOutput {
         if let Self::Image(image) = self {
             image.caption = analysis.caption;
             image.objects = analysis.objects;
+            image.ocr = analysis.ocr;
         }
     }
 }
@@ -127,6 +128,8 @@ pub(crate) struct DetectImageOutput {
     caption: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     objects: Option<Vec<DetectedObject>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ocr: Option<String>,
 }
 
 impl DetectImageOutput {
@@ -138,6 +141,7 @@ impl DetectImageOutput {
             image,
             caption: None,
             objects: None,
+            ocr: None,
         }
     }
 }

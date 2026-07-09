@@ -67,8 +67,9 @@ impl cli::DetectCommand {
         let request = crate::engine::vision::Request {
             caption: self.caption,
             objects: self.objects,
+            ocr: self.ocr,
         };
-        if (!request.caption && !request.objects) || !output.is_image() {
+        if (!request.caption && !request.objects && !request.ocr) || !output.is_image() {
             return;
         }
         let bytes = match std::fs::read(&target.path) {
@@ -94,8 +95,9 @@ impl cli::DetectCommand {
         let missing = crate::engine::vision::Request {
             caption: request.caption && entry.caption.is_none(),
             objects: request.objects && entry.objects.is_none(),
+            ocr: request.ocr && entry.ocr.is_none(),
         };
-        if missing.caption || missing.objects {
+        if missing.caption || missing.objects || missing.ocr {
             match crate::engine::vision::analyze(&bytes, missing) {
                 Ok(analysis) => {
                     if missing.caption {
@@ -103,6 +105,9 @@ impl cli::DetectCommand {
                     }
                     if missing.objects {
                         entry.objects = analysis.objects;
+                    }
+                    if missing.ocr {
+                        entry.ocr = analysis.ocr;
                     }
                     if let Some(dir) = readseek_dir.as_deref() {
                         vision_cache::store(dir, &hash, &entry);
@@ -115,6 +120,7 @@ impl cli::DetectCommand {
         output.set_analysis(crate::engine::vision::Analysis {
             caption: if request.caption { entry.caption } else { None },
             objects: if request.objects { entry.objects } else { None },
+            ocr: if request.ocr { entry.ocr } else { None },
         });
     }
 }

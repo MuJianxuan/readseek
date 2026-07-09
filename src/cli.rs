@@ -71,6 +71,10 @@ pub(crate) struct DetectCommand {
     /// detect objects in an image, with category labels and bounding boxes
     #[argh(switch)]
     pub(crate) objects: bool,
+
+    /// extract text from an image with OCR
+    #[argh(switch)]
+    pub(crate) ocr: bool,
 }
 
 /// read and hash from a line range

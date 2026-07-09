@@ -3,7 +3,7 @@
 
 //! Content-addressed cache for image vision-analysis results under
 //! `.readseek/vision/`. Entries are keyed by the BLAKE3 hash of the image bytes
-//! and hold the per-task results (caption/objects) independently, so
+//! and hold the per-task results (caption/objects/OCR) independently, so
 //! a later request for a new task reuses tasks computed by earlier runs. A
 //! schema version and model-identity tag guard against serving results produced
 //! by an incompatible cache format or a different vision model.
@@ -20,7 +20,7 @@ const VISION_CACHE_DIR: &str = "vision";
 const CACHE_SCHEMA_VERSION: u32 = 1;
 /// Bump (or change) whenever the deployed vision model changes, so entries
 /// produced by the previous model are treated as a miss and recomputed.
-const MODEL_IDENTITY: &str = "moondream-q4_0+yolov8n";
+const MODEL_IDENTITY: &str = "moondream-q4_0+yolov8n+ocrs-0.12";
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
 
@@ -39,6 +39,7 @@ pub(crate) struct CacheEntry {
     model_identity: String,
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
+    pub(crate) ocr: Option<String>,
 }
 
 impl CacheEntry {
@@ -50,6 +51,7 @@ impl CacheEntry {
             model_identity: MODEL_IDENTITY.to_string(),
             caption: None,
             objects: None,
+            ocr: None,
         }
     }
 

@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Vision model cache: lazily downloads and SHA-256-verifies the Moondream
-//! caption model (GGUF + tokenizer) and the YOLOv8-nano object-detection
-//! weights into the user cache directory (`dirs::cache_dir`) on first use. A
-//! progress bar is shown while downloading when stdout is a TTY.
+//! caption model (GGUF + tokenizer), the YOLOv8-nano object-detection weights,
+//! and the ocrs text detection/recognition models into the user cache
+//! directory (`dirs::cache_dir`) on first use. A progress bar is shown while
+//! downloading when stdout is a TTY.
 
 use anyhow::{Context as _, Result, anyhow};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -40,6 +41,22 @@ const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
         "yolov8n",
         6_369_332,
         "5788ff529e26961281ebeb26facecaea38ec9a79a3ad2282995ab899eb905626",
+    ),
+    (
+        "robertknight/ocrs",
+        "text-detection-ssfbcj81.rten",
+        "text-detection.rten",
+        "ocrs",
+        2_523_564,
+        "614aafabf27c94d386f7aa036c967c2e47e4b9938fa11531ca8f5698c1ca4c36",
+    ),
+    (
+        "robertknight/ocrs",
+        "text-rec-checkpoint-s52qdbqt.rten",
+        "text-recognition.rten",
+        "ocrs",
+        9_716_444,
+        "606d9a0414c6b73c99df75b707c11c70d1c8b12e1d4f900922e185fc37bfca65",
     ),
 ];
 
