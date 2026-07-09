@@ -50,19 +50,19 @@ readseek identify src/main.rs:42 --column 8 | readseek def --from-identify src -
 ## Images
 
 `detect` reports format, dimensions, and animation status for images. Add a vision
-flag to analyze image contents with the Qwen3-VL vision model:
+flag to analyze image contents with the Moondream and YOLOv8-nano models:
 
 ```sh
-readseek detect screenshot.png --transcribe  # text + per-region bounding quads
 readseek detect photo.jpg --caption        # detailed natural-language caption
 readseek detect photo.jpg --objects        # object labels + bounding boxes
 ```
 
-The flags can be combined; the model loads once per invocation. The model files
-(~1.1 GB GGUF + ~0.8 GB multimodal projection) are downloaded lazily into the
-user cache directory on first vision use and reused on subsequent runs; a
-progress bar is shown while downloading when stdout is an interactive TTY.
-Inference is CPU-only and takes a few to tens of seconds per image.
+The flags can be combined; each model loads once per invocation. The model files
+(~1 GB Moondream GGUF + ~6 MB YOLOv8-nano) are downloaded lazily into the user
+cache directory on first vision use and reused on subsequent runs; a progress
+bar is shown while downloading when stdout is an interactive TTY. Inference is
+CPU-only; object detection takes seconds and captioning up to a couple of
+minutes per image.
 
 ## Cache
 
@@ -88,6 +88,8 @@ native binaries are licensed under `LGPL-2.1-or-later`. Corresponding source for
 each published native binary is available from the GitHub repository tag that
 matches the package version.
 
-readseek downloads the Qwen3-VL vision model (`Qwen/Qwen3-VL-2B-Instruct-GGUF`,
-quantized from `Qwen/Qwen3-VL-2B-Instruct`) into the user cache directory on
-first use. It is licensed under `Apache-2.0`.
+readseek downloads the Moondream caption model (`santiagomed/candle-moondream`,
+a quantized GGUF) and the YOLOv8-nano object-detection model
+(`lmz/candle-yolo-v8`) into the user cache directory on first use. Moondream is
+licensed under `Apache-2.0`; YOLOv8-nano is derived from Ultralytics YOLOv8
+(`AGPL-3.0`).

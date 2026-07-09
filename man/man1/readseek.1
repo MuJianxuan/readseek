@@ -8,7 +8,7 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek\fR [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--transcribe\fR] [\fB--caption\fR] [\fB--objects\fR]
+    [\fB--caption\fR] [\fB--objects\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
@@ -144,11 +144,11 @@ contains the exact MIME type detected by inspecting the file content, or
 \fBtext/plain\fR as a fallback. Source files include the detected language, parser
 engine, support flag, optional MIME type, and optional syntax name. Image files
 also include format, width, height, and animation status. With
-\fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR the image is analyzed with
-the Qwen3-VL vision model (downloaded to the user cache directory on first use): \fB--transcribe\fR adds a \fItranscribe\fR object
-with the recognized \fItext\fR and per-region bounding quads, \fB--caption\fR adds
-a \fIcaption\fR string, and \fB--objects\fR adds an \fIobjects\fR array of category
-labels with bounding boxes.
+\fB--caption\fR or \fB--objects\fR the image is analyzed with the Moondream
+caption model and the YOLOv8-nano object-detection model (downloaded to the
+user cache directory on first use): \fB--caption\fR adds a \fIcaption\fR string,
+and \fB--objects\fR adds an \fIobjects\fR array of category labels with
+bounding boxes.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
@@ -357,9 +357,13 @@ Sharded JSON definition index used by \fBdef\fR directory lookup.
 .I .readseek/def-index.json
 Legacy definition index removed during cache refresh when present.
 .TP
-.I $XDG_CACHE_HOME/readseek/qwen3-vl-2b/
-Qwen3-VL vision model files (GGUF and multimodal projection), downloaded
-lazily on first use of \fB--transcribe\fR, \fB--caption\fR, or \fB--objects\fR.
+.I $XDG_CACHE_HOME/readseek/moondream/
+Moondream caption model (GGUF and tokenizer), downloaded lazily on first use
+of \fB--caption\fR.
+.TP
+.I $XDG_CACHE_HOME/readseek/yolov8n/
+YOLOv8-nano object-detection weights, downloaded lazily on first use of
+\fB--objects\fR.
 
 .SH EXAMPLES
 
