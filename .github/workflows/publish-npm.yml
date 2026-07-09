@@ -223,17 +223,23 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Build a fully static binary so it runs on any Linux distribution
-      # (glibc or musl). crt-static only static-links glibc itself; the
-      # llama-cpp-2 `static-stdcxx` and `static-openmp` features (enabled in
-      # Cargo.toml) static-link libstdc++ and libgomp. Without those features
-      # libstdc++ pulls in a second, dynamic glibc, producing a half-static
-      # binary that segfaults at startup.
-      - name: Build (Linux static-glibc)
+      # Install the musl toolchain so the Linux binary is fully static and
+      # runs on any distribution (glibc or musl). The vision stack has no C++
+      # or OpenMP; the only native dependency is Oniguruma (C), pulled via
+      # candle-core's tokenizer dependency, which musl-gcc compiles cleanly.
+      - name: Install musl toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Build (Linux static-musl)
         if: runner.os == 'Linux'
         env:
-          RUSTFLAGS: "-C target-feature=+crt-static"
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Build (macOS / Windows)
         if: runner.os != 'Linux'
@@ -244,7 +250,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            bin_path="target/x86_64-unknown-linux-gnu/release/readseek"
+            bin_path="target/x86_64-unknown-linux-musl/release/readseek"
           else
             bin_path="target/release/readseek"
           fi
