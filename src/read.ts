@@ -74,8 +74,8 @@ function hasReadAnchors(result: AgentToolResult<any>): boolean {
 function formatImageAnalysis(detection: ReadSeekDetection): string | undefined {
 	if (detection.kind !== "image") return undefined;
 	const sections: string[] = [];
-	const transcript = detection.transcribe?.text?.trim();
-	if (transcript) sections.push(`Transcribed text from image:\n${transcript}`);
+	const ocr = detection.ocr?.trim();
+	if (ocr) sections.push(`OCR text from image:\n${ocr}`);
 	const caption = detection.caption?.trim();
 	if (caption) sections.push(`Image caption:\n${caption}`);
 	if (detection.objects?.length) {
@@ -178,13 +178,13 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
 			const ocrMode = resolveReadSeekOcrMode();
-			const shouldTranscribe = ocrMode === "on" || (ocrMode === "auto" && !opts.modelSupportsImages);
-			if (!shouldTranscribe) return succeed(builtinResult);
+			const shouldRunVision = ocrMode === "on" || (ocrMode === "auto" && !opts.modelSupportsImages);
+			if (!shouldRunVision) return succeed(builtinResult);
 
 			let ocrFailed = false;
 			try {
 				const ocrDetection = await readseekDetect(absolutePath, {
-					transcribe: true,
+					ocr: true,
 					caption: true,
 					objects: true,
 					signal,

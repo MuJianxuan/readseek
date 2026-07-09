@@ -217,10 +217,10 @@ describe("readseek client parsing", () => {
 
 		expect(detection.kind).toBe("image");
 		expect(detection.type).toBe("image/png");
-		if (detection.kind === "image") expect(detection.transcribe).toBeUndefined();
+		if (detection.kind === "image") expect(detection.ocr).toBeUndefined();
 	});
 
-	it("parses image captions and objects from requested detections", async () => {
+	it("parses image OCR, captions, and objects from requested detections", async () => {
 		const imageOutput = JSON.stringify({
 			type: "image/png",
 			file: "/tmp/image.png",
@@ -229,6 +229,7 @@ describe("readseek client parsing", () => {
 			width: 10,
 			height: 20,
 			animated: false,
+			ocr: "OCR TEXT",
 			caption: "A tiny test image.",
 			objects: [{ label: "dot", bbox: [1, 2, 3, 4] }],
 		});
@@ -236,15 +237,16 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(imageOutput));
 
-		const detection = await readseekDetect("/tmp/image.png", { caption: true, objects: true });
+		const detection = await readseekDetect("/tmp/image.png", { ocr: true, caption: true, objects: true });
 
 		expect(spawnMock).toHaveBeenLastCalledWith(
 			"/bin/readseek",
-			["detect", "--caption", "--objects", "/tmp/image.png"],
+			["detect", "--ocr", "--caption", "--objects", "/tmp/image.png"],
 			expect.any(Object),
 		);
 		expect(detection.kind).toBe("image");
 		if (detection.kind === "image") {
+			expect(detection.ocr).toBe("OCR TEXT");
 			expect(detection.caption).toBe("A tiny test image.");
 			expect(detection.objects).toEqual([{ label: "dot", bbox: [1, 2, 3, 4] }]);
 		}

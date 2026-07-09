@@ -108,15 +108,7 @@ export interface ReadSeekCheckOutput {
 	diagnostics: ReadSeekDiagnostic[];
 }
 
-export interface ReadSeekTranscriptRegion {
-	text: string;
-	quad: [number, number, number, number, number, number, number, number];
-}
-
-export interface ReadSeekTranscript {
-	text: string;
-	regions: ReadSeekTranscriptRegion[];
-}
+export type ReadSeekOcrText = string;
 
 export interface ReadSeekDetectedObject {
 	label: string;
@@ -143,7 +135,7 @@ export type ReadSeekDetection =
 			width: number;
 			height: number;
 			animated: boolean;
-			transcribe?: ReadSeekTranscript;
+			ocr?: ReadSeekOcrText;
 			caption?: string;
 			objects?: ReadSeekDetectedObject[];
 		}
@@ -163,7 +155,7 @@ interface ReadSeekSearchOptions {
 }
 
 interface ReadSeekDetectOptions {
-	transcribe?: boolean;
+	ocr?: boolean;
 	caption?: boolean;
 	objects?: boolean;
 	signal?: AbortSignal;
@@ -693,24 +685,8 @@ export async function readseekCheck(
 	);
 }
 
-function parseTranscript(value: unknown): ReadSeekTranscript | undefined {
-	if (value === undefined || value === null) return undefined;
-	if (typeof value !== "object") throw new Error("invalid readseek detect transcribe");
-	const transcribe = value as Record<string, unknown>;
-	if (!Array.isArray(transcribe.regions)) throw new Error("invalid readseek detect transcribe.regions");
-	return {
-		text: requireString(transcribe.text, "transcribe.text"),
-		regions: transcribe.regions.map((region) => {
-			if (!region || typeof region !== "object") throw new Error("invalid readseek detect transcribe region");
-			const item = region as Record<string, unknown>;
-			const quad = item.quad;
-			if (!Array.isArray(quad) || quad.length !== 8) throw new Error("invalid readseek detect transcribe quad");
-			return {
-				text: requireString(item.text, "transcribe.region.text"),
-				quad: quad.map((n, i) => requireNumber(n, `transcribe.region.quad[${i}]`)) as ReadSeekTranscriptRegion["quad"],
-			};
-		}),
-	};
+function parseOcrText(value: unknown): ReadSeekOcrText | undefined {
+	return optionalString(value, "ocr");
 }
 
 function parseDetectedObjects(value: unknown): ReadSeekDetectedObject[] | undefined {
@@ -750,7 +726,7 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 			width: requireNumber(output.width, "width"),
 			height: requireNumber(output.height, "height"),
 			animated: requireBoolean(output.animated, "animated"),
-			transcribe: parseTranscript(output.transcribe),
+			ocr: parseOcrText(output.ocr),
 			caption: optionalString(output.caption, "caption"),
 			objects: parseDetectedObjects(output.objects),
 		};
@@ -775,7 +751,7 @@ export async function readseekDetect(
 	options: ReadSeekDetectOptions = {},
 ): Promise<ReadSeekDetection> {
 	const args = ["detect"];
-	if (options.transcribe) args.push("--transcribe");
+	if (options.ocr) args.push("--ocr");
 	if (options.caption) args.push("--caption");
 	if (options.objects) args.push("--objects");
 	args.push(filePath);
