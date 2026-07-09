@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Vision model cache: lazily downloads and SHA-256-verifies the Moondream
+//! Vision model cache: lazily downloads and SHA-256-verifies the BLIP
 //! caption model (GGUF + tokenizer), the YOLOv8-nano object-detection weights,
 //! and the ocrs text detection/recognition models into the user cache
 //! directory (`dirs::cache_dir`) on first use. A progress bar is shown while
@@ -19,20 +19,20 @@ const HF_BASE: &str = "https://huggingface.co";
 /// `(repo, remote path, local file name, cache subdir, byte size, sha256)`.
 const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
     (
-        "santiagomed/candle-moondream",
-        "model-q4_0.gguf",
-        "moondream-q4_0.gguf",
-        "moondream",
-        1_513_740_160,
-        "cdde43dcf5f4249111ad36cadd8810ea88bf3aabb33de2bab0146e50a31d78c0",
+        "lmz/candle-blip",
+        "blip-image-captioning-large-q4k.gguf",
+        "blip-image-captioning-large-q4k.gguf",
+        "blip",
+        270_847_360,
+        "c7f7a3e19a562c0cfef02d023562705050fa555a79296f5d44d5047167571533",
     ),
     (
-        "santiagomed/candle-moondream",
+        "Salesforce/blip-image-captioning-large",
         "tokenizer.json",
         "tokenizer.json",
-        "moondream",
-        2_114_924,
-        "337da36be7a71a6e88aa9148967a7bc8736f4b47c7de8e19ba92b89e80734cfc",
+        "blip",
+        711_396,
+        "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
     ),
     (
         "lmz/candle-yolo-v8",

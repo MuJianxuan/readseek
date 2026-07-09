@@ -20,7 +20,7 @@ const VISION_CACHE_DIR: &str = "vision";
 const CACHE_SCHEMA_VERSION: u32 = 1;
 /// Bump (or change) whenever the deployed vision model changes, so entries
 /// produced by the previous model are treated as a miss and recomputed.
-const MODEL_IDENTITY: &str = "moondream-q4_0+yolov8n+ocrs-0.12";
+const MODEL_IDENTITY: &str = "blip-large-q4k+yolov8n+ocrs-0.12";
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Image vision analysis: captioning (Moondream), object detection
+//! Image vision analysis: captioning (BLIP), object detection
 //! (YOLOv8-nano), and OCR (ocrs). Models run on CPU through pure-Rust
 //! inference stacks and are fetched lazily into the user cache directory (see
 //! [`crate::engine::model`]). Tasks run independently, so a failure in one
@@ -22,7 +22,7 @@ use anyhow::{Context as _, Result, anyhow};
 use candle::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Module, VarBuilder};
 use candle_transformers::{
-    models::{moondream, quantized_moondream},
+    models::{blip, quantized_blip},
     object_detection::{Bbox, KeyPoint, non_maximum_suppression},
     quantized_var_builder,
 };
@@ -37,9 +37,10 @@ use tokenizers::Tokenizer;
 const CAPTION_MAX_TOKENS: usize = 256;
 const YOLO_CONFIDENCE: f32 = 0.25;
 const YOLO_NMS: f32 = 0.45;
-const MOONDREAM_PROMPT: &str = "\n\nQuestion: Describe this image concisely.\n\nAnswer:";
-/// Token sequence emitted by Moondream to mark the end of an answer.
-const END_TOKENS: &[u32] = &[27, 10619, 29];
+/// BLIP decoder start token (`[DEC]`) that seeds caption generation.
+const BLIP_DEC_TOKEN: u32 = 30522;
+/// BLIP separator token (`[SEP]`) that marks the end of a caption.
+const BLIP_SEP_TOKEN: u32 = 102;
 
 const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
@@ -95,50 +96,37 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     Ok(analysis)
 }
 
-/// Generate a concise caption for `image` with the quantized Moondream model.
+/// Generate a concise caption for `image` with the quantized BLIP model,
+/// mirroring the `candle-examples/examples/blip` decoder loop.
 fn caption(image: &image::DynamicImage) -> Result<String> {
     let device = Device::Cpu;
-    let model_path = model::file("moondream-q4_0.gguf")?;
+    let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
     let tokenizer_path = model::file("tokenizer.json")?;
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
-    let config = moondream::Config::v2();
+    let config = blip::Config::image_captioning_large();
     let vb = quantized_var_builder::VarBuilder::from_gguf(&model_path, &device)?;
-    let mut model = quantized_moondream::Model::new(&config, vb)?;
+    let mut model = quantized_blip::BlipForConditionalGeneration::new(&config, vb)?;
 
-    let image_embeds = moondream_image(image, &device)?
+    let image_embeds = blip_image(image, &device)?
         .unsqueeze(0)?
-        .apply(model.vision_encoder())?;
+        .apply(model.vision_model())?;
 
-    let encoded = tokenizer
-        .encode(MOONDREAM_PROMPT, true)
-        .map_err(|e| anyhow!(e))?;
-    let mut tokens = encoded.get_ids().to_vec();
-    let eos = *tokenizer
-        .get_vocab(true)
-        .get("")
-        .ok_or_else(|| anyhow!("moondream eos token not found"))?;
-
+    let mut tokens = vec![BLIP_DEC_TOKEN];
     let mut progress = InferenceProgress::new();
     let mut output = String::new();
     for index in 0..CAPTION_MAX_TOKENS {
         progress.maybe_reveal();
-        let context = if index > 0 { 1 } else { tokens.len() };
-        let ctxt = &tokens[tokens.len().saturating_sub(context)..];
-        let input = Tensor::new(ctxt, &device)?.unsqueeze(0)?;
-        let logits = if index > 0 {
-            model.text_model.forward(&input)?
-        } else {
-            let bos = Tensor::new(&[eos], &device)?.unsqueeze(0)?;
-            model
-                .text_model
-                .forward_with_img(&bos, &input, &image_embeds)?
-        };
-        let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+        let context_size = if index > 0 { 1 } else { tokens.len() };
+        let start_pos = tokens.len().saturating_sub(context_size);
+        let input = Tensor::new(&tokens[start_pos..], &device)?.unsqueeze(0)?;
+        let logits = model.text_decoder().forward(&input, &image_embeds)?;
+        let logits = logits.squeeze(0)?;
+        let logits = logits.get(logits.dim(0)? - 1)?;
         let next = argmax_token(&logits)?;
-        tokens.push(next);
-        if next == eos || tokens.ends_with(END_TOKENS) {
+        if next == BLIP_SEP_TOKEN {
             break;
         }
+        tokens.push(next);
         if let Ok(piece) = tokenizer.decode(&[next], true) {
             output.push_str(&piece);
         }
@@ -146,15 +134,15 @@ fn caption(image: &image::DynamicImage) -> Result<String> {
     Ok(output.trim().to_string())
 }
 
-/// Decode, resize to 378x378, and normalize `image` into a `(3, 378, 378)`
-/// f32 tensor for the Moondream vision encoder.
-fn moondream_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
+/// Decode, resize to 384x384, and normalize `image` into a `(3, 384, 384)`
+/// f32 tensor for the BLIP vision encoder (`OpenAI` normalization).
+fn blip_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
     let img = image
-        .resize_to_fill(378, 378, image::imageops::FilterType::Triangle)
+        .resize_to_fill(384, 384, image::imageops::FilterType::Triangle)
         .to_rgb8();
-    let data = Tensor::from_vec(img.into_raw(), (378, 378, 3), device)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
+    let data = Tensor::from_vec(img.into_raw(), (384, 384, 3), device)?.permute((2, 0, 1))?;
+    let mean = Tensor::new(&[0.481_454_66f32, 0.457_827_5, 0.408_210_73], device)?.reshape((3, 1, 1))?;
+    let std = Tensor::new(&[0.268_629_54f32, 0.261_302_6, 0.275_777_1], device)?.reshape((3, 1, 1))?;
     Ok((data.to_dtype(DType::F32)? / 255.)?
         .broadcast_sub(&mean)?
         .broadcast_div(&std)?)

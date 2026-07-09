@@ -145,7 +145,7 @@ contains the exact MIME type detected by inspecting the file content, or
 engine, support flag, optional MIME type, and optional syntax name. Image files
 also include format, width, height, and animation status. With
 \fB--caption\fR, \fB--objects\fR, or \fB--ocr\fR the image is analyzed with the
-Moondream caption model, the YOLOv8-nano object-detection model, and the ocrs
+BLIP caption model, the YOLOv8-nano object-detection model, and the ocrs
 text-recognition models (downloaded to the user cache directory on first use):
 \fB--caption\fR adds a \fIcaption\fR string, \fB--objects\fR adds an \fIobjects\fR
 array of category labels with bounding boxes, and \fB--ocr\fR adds an \fIocr\fR
@@ -358,8 +358,8 @@ Sharded JSON definition index used by \fBdef\fR directory lookup.
 .I .readseek/def-index.json
 Legacy definition index removed during cache refresh when present.
 .TP
-.I $XDG_CACHE_HOME/readseek/moondream/
-Moondream caption model (GGUF and tokenizer), downloaded lazily on first use
+.I $XDG_CACHE_HOME/readseek/blip/
+BLIP caption model (GGUF and tokenizer), downloaded lazily on first use
 of \fB--caption\fR.
 .TP
 .I $XDG_CACHE_HOME/readseek/yolov8n/
