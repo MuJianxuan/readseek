@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 
 import { resolveToCwd } from "./path-utils.js";
 import { ensureHashInit, formatHashlineDisplay } from "./hashline.js";
-import { buildReadSeekError, buildReadSeekLine, buildReadSeekWarning, buildToolErrorResult, type ReadSeekLine, type ReadSeekWarning } from "./readseek-value.js";
+import { buildReadSeekLine, buildReadSeekWarning, buildToolErrorResult, type ReadSeekLine, type ReadSeekWarning, type ToolErrorResult } from "./readseek-value.js";
 import { looksLikeBinary } from "./binary-detect.js";
 import { formatFsError } from "./fs-error.js";
 import { getOrGenerateMap } from "./file-map.js";
@@ -91,6 +91,13 @@ export interface WriteResult extends WriteDiffFields {
   };
 }
 
+
+type ExecuteWriteResult = WriteResult | ToolErrorResult;
+
+function isToolErrorResult(result: ExecuteWriteResult): result is ToolErrorResult {
+  return "isError" in result;
+}
+
 async function readPreviousTextForDiff(filePath: string): Promise<string> {
   try {
     const previous = await readFile(filePath);
@@ -131,7 +138,7 @@ export async function executeWrite(opts: {
   content: string;
   map?: boolean;
   cwd?: string;
-}): Promise<WriteResult> {
+}): Promise<ExecuteWriteResult> {
   await ensureHashInit();
 
   const { path: filePath, content, map: requestMap, cwd } = opts;
@@ -142,30 +149,19 @@ export async function executeWrite(opts: {
     const message = "File content contains bare CR (\\r) line endings; write refuses to emit anchors that read/edit would normalize differently.";
     warnings.push(message);
     readseekWarnings.push(buildReadSeekWarning("bare-cr", message));
-    return {
-      text: `Cannot write ${filePath}\n⚠️ ${message}`,
-      warnings,
-      readseekValue: {
-        tool: "write",
-        path: filePath,
-        lines: [],
-        warnings: readseekWarnings,
-      },
-    };
+    return buildToolErrorResult("write", "bare-cr", `Cannot write ${filePath}\n⚠️ ${message}`, {
+      path: filePath,
+      extra: { lines: [], warnings: readseekWarnings },
+    });
   }
   if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
-    warnings.push("File content appears to be binary.");
-    readseekWarnings.push(buildReadSeekWarning("binary-content", "File content appears to be binary."));
-    return {
-      text: `Cannot write ${filePath}\n⚠️ File content appears to be binary — refusing to write.`,
-      warnings,
-      readseekValue: {
-        tool: "write",
-        path: filePath,
-        lines: [],
-        warnings: readseekWarnings,
-      },
-    };
+    const message = "File content appears to be binary.";
+    warnings.push(message);
+    readseekWarnings.push(buildReadSeekWarning("binary-content", message));
+    return buildToolErrorResult("write", "binary-content", `Cannot write ${filePath}\n⚠️ ${message} — refusing to write.`, {
+      path: filePath,
+      extra: { lines: [], warnings: readseekWarnings },
+    });
   }
 
   const previousContent = await readPreviousTextForDiff(filePath);
@@ -265,7 +261,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       const absolutePath = resolveToCwd(params.path, cwd);
       try {
         return await withFileMutationQueue(absolutePath, async () => {
-          let result: WriteResult;
+          let result: ExecuteWriteResult;
           try {
             result = await executeWrite({
               path: absolutePath,
@@ -277,30 +273,10 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
             return buildWriteFsErrorResult(err, absolutePath);
           }
 
+          if (isToolErrorResult(result)) return result;
+
           if (result.readseekValue.lines.length > 0) {
             options.onFileAnchored?.(absolutePath);
-          }
-
-          // Lift binary-content signal into a fatal readseekValue.error envelope so
-          // downstream consumers get the same taxonomy shape as every other tool.
-          // The existing ReadSeekWarning entry is preserved on readseekValue.warnings for
-          // backward compatibility.
-          for (const code of ["binary-content", "bare-cr"] as const) {
-            const warning = result.readseekValue.warnings.find((w) => w.code === code);
-            if (warning) {
-              return {
-                content: [{ type: "text" as const, text: result.text }],
-                isError: true,
-                details: {
-                  readseekValue: {
-                    ...result.readseekValue,
-                    ok: false,
-                    error: buildReadSeekError(code, warning.message),
-                  },
-                  warnings: result.warnings,
-                },
-              };
-            }
           }
 
           return {
