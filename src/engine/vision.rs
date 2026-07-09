@@ -142,8 +142,10 @@ fn blip_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
         .resize_to_fill(384, 384, image::imageops::FilterType::Triangle)
         .to_rgb8();
     let data = Tensor::from_vec(img.into_raw(), (384, 384, 3), device)?.permute((2, 0, 1))?;
-    let mean = Tensor::new(&[0.481_454_66f32, 0.457_827_5, 0.408_210_73], device)?.reshape((3, 1, 1))?;
-    let std = Tensor::new(&[0.268_629_54f32, 0.261_302_6, 0.275_777_1], device)?.reshape((3, 1, 1))?;
+    let mean =
+        Tensor::new(&[0.481_454_66f32, 0.457_827_5, 0.408_210_73], device)?.reshape((3, 1, 1))?;
+    let std =
+        Tensor::new(&[0.268_629_54f32, 0.261_302_6, 0.275_777_1], device)?.reshape((3, 1, 1))?;
     Ok((data.to_dtype(DType::F32)? / 255.)?
         .broadcast_sub(&mean)?
         .broadcast_div(&std)?)
@@ -198,25 +200,131 @@ struct TrOcrConfig {
     decoder: trocr::TrOCRConfig,
 }
 
-/// Extract text from `image` with the `TrOCR` printed-text recognition model,
-/// mirroring the `candle-examples/examples/trocr` encoder/decoder loop.
+/// Extract text from `image` with the `TrOCR` printed-text recognition model.
+///
+/// `TrOCR`-printed is a single-line recognizer (fine-tuned on SROIE receipt
+/// line crops), so feeding it a full page makes every line too short to read
+/// and it collapses to a single garbage token. A page is therefore split into
+/// per-line crops with a horizontal ink projection; each crop is recognized
+/// with one shared model and the results are joined with newlines. When no text
+/// rows are found the whole image is recognized as a fallback.
 fn ocr_text(image: &image::DynamicImage) -> Result<String> {
     let device = Device::Cpu;
     let model_path = model::file("trocr-base-printed.safetensors")?;
     let tokenizer_path = model::file("trocr-tokenizer.json")?;
     let config_path = model::file("trocr-config.json")?;
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
-    let config: TrOcrConfig = serde_json::from_slice(
-        &std::fs::read(&config_path).context("read trocr config")?,
-    )?;
-    let vb =
-        unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
+    let config: TrOcrConfig =
+        serde_json::from_slice(&std::fs::read(&config_path).context("read trocr config")?)?;
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
     let mut model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
 
     let mut progress = InferenceProgress::new();
-    progress.maybe_reveal();
-    let input = trocr_image(image, &device)?.unsqueeze(0)?;
+    let lines = text_lines(image);
+    let crops: Vec<image::DynamicImage> = if lines.is_empty() {
+        vec![image.clone()]
+    } else {
+        lines
+            .into_iter()
+            .map(|(y0, y1)| image.crop_imm(0, y0, image.width(), y1 - y0))
+            .collect()
+    };
+
+    let mut text = Vec::with_capacity(crops.len());
+    for crop in crops {
+        progress.maybe_reveal();
+        let line = recognize_line(
+            &crop,
+            &mut model,
+            &config,
+            &tokenizer,
+            &device,
+            &mut progress,
+        )?;
+        if !line.is_empty() {
+            text.push(line);
+        }
+    }
+    Ok(text.join("\n").trim().to_string())
+}
+
+/// Minimum dark-pixel fraction of an image row for it to count as text.
+const LINE_INK_FRACTION: f32 = 0.02;
+/// Merge text-line bands whose vertical gap is at most this many pixels.
+const LINE_MERGE_GAP: u32 = 8;
+/// Drop bands shorter than this many pixels as noise.
+const LINE_MIN_HEIGHT: u32 = 6;
+
+/// Split `image` into text-line bands `[y0, y1)` using a horizontal ink
+/// projection (count of dark pixels per row). Returns bands in reading order, or
+/// an empty vec when no text rows are detected. This is the segmentation that
+/// lets the single-line `TrOCR`-printed model read a multi-line page.
+fn text_lines(image: &image::DynamicImage) -> Vec<(u32, u32)> {
+    let gray = image.to_luma8();
+    let (width, height) = gray.dimensions();
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+    let threshold = ((width as f32) * LINE_INK_FRACTION).ceil().max(1.) as usize;
+
+    let mut ink: Vec<u32> = vec![0; height as usize];
+    for (_, y, pixel) in gray.enumerate_pixels() {
+        if pixel[0] < 128 {
+            ink[y as usize] += 1;
+        }
+    }
+
+    // Raw bands of consecutive rows that meet the ink threshold.
+    let mut bands: Vec<(u32, u32)> = Vec::new();
+    let mut start = 0u32;
+    let mut in_line = false;
+    for (y, &count) in ink.iter().enumerate() {
+        let is_text = (count as usize) >= threshold;
+        if is_text && !in_line {
+            in_line = true;
+            start = y as u32;
+        } else if !is_text && in_line {
+            in_line = false;
+            bands.push((start, y as u32));
+        }
+    }
+    if in_line {
+        bands.push((start, height));
+    }
+
+    // Merge bands split by small gaps within a single line, then drop noise.
+    let mut merged: Vec<(u32, u32)> = Vec::new();
+    for (start, end) in bands {
+        let should_merge = merged
+            .last()
+            .is_some_and(|(_, prev_end)| start.saturating_sub(*prev_end) <= LINE_MERGE_GAP);
+        if should_merge {
+            if let Some((_, prev_end)) = merged.last_mut()
+                && end > *prev_end
+            {
+                *prev_end = end;
+            }
+            continue;
+        }
+        merged.push((start, end));
+    }
+    merged.retain(|&(start, end)| end - start >= LINE_MIN_HEIGHT);
+    merged
+}
+
+/// Recognize text in a single-line `image` crop with `TrOCR`, mirroring the
+/// `candle-examples/examples/trocr` encoder/decoder loop.
+fn recognize_line(
+    image: &image::DynamicImage,
+    model: &mut trocr::TrOCRModel,
+    config: &TrOcrConfig,
+    tokenizer: &Tokenizer,
+    device: &Device,
+    progress: &mut InferenceProgress,
+) -> Result<String> {
+    let input = trocr_image(image, device)?.unsqueeze(0)?;
     let encoder_xs = model.encoder().forward(&input)?;
+    model.reset_kv_cache();
     progress.maybe_reveal();
 
     let mut tokens = vec![config.decoder.decoder_start_token_id];
@@ -226,7 +334,7 @@ fn ocr_text(image: &image::DynamicImage) -> Result<String> {
         progress.maybe_reveal();
         let context_size = if index >= 1 { 1 } else { tokens.len() };
         let start_pos = tokens.len().saturating_sub(context_size);
-        let input_ids = Tensor::new(&tokens[start_pos..], &device)?.unsqueeze(0)?;
+        let input_ids = Tensor::new(&tokens[start_pos..], device)?.unsqueeze(0)?;
         let logits = model.decode(&input_ids, &encoder_xs, start_pos)?;
         let logits = logits.squeeze(0)?;
         let logits = logits.get(logits.dim(0)? - 1)?;

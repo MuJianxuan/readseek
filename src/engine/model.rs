@@ -107,13 +107,7 @@ fn cache_dir() -> Result<PathBuf> {
 
 /// Downloads `remote` from `repo` into `target` via a `.part` file, then
 /// atomically renames. A progress bar is shown when stdout is a TTY.
-fn download(
-    repo: &str,
-    revision: &str,
-    remote: &str,
-    local: &str,
-    target: &PathBuf,
-) -> Result<()> {
+fn download(repo: &str, revision: &str, remote: &str, local: &str, target: &PathBuf) -> Result<()> {
     let url = format!(
         "{HF_BASE}/{repo}/resolve/{}/{}",
         revision.replace('/', "%2F"),
