@@ -50,19 +50,20 @@ readseek identify src/main.rs:42 --column 8 | readseek def --from-identify src -
 ## Images
 
 `detect` reports format, dimensions, and animation status for images. Add a vision
-flag to analyze image contents with the Moondream and YOLOv8-nano models:
+flag to analyze image contents with the Moondream, YOLOv8-nano, and ocrs models:
 
 ```sh
 readseek detect photo.jpg --caption        # detailed natural-language caption
 readseek detect photo.jpg --objects        # object labels + bounding boxes
+readseek detect photo.jpg --ocr            # extracted text
 ```
 
 The flags can be combined; each model loads once per invocation. The model files
-(~1 GB Moondream GGUF + ~6 MB YOLOv8-nano) are downloaded lazily into the user
-cache directory on first vision use and reused on subsequent runs; a progress
-bar is shown while downloading when stdout is an interactive TTY. Inference is
-CPU-only; object detection takes seconds and captioning up to a couple of
-minutes per image.
+(~1 GB Moondream GGUF + ~6 MB YOLOv8-nano + ~12 MB ocrs) are downloaded lazily
+into the user cache directory on first vision use and reused on subsequent runs;
+a progress bar is shown while downloading when stdout is an interactive TTY.
+Inference is CPU-only; object detection and OCR take seconds and captioning up to
+a couple of minutes per image.
 
 ## Cache
 

@@ -8,7 +8,7 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek\fR [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--caption\fR] [\fB--objects\fR]
+    [\fB--caption\fR] [\fB--objects\fR] [\fB--ocr\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
@@ -144,11 +144,12 @@ contains the exact MIME type detected by inspecting the file content, or
 \fBtext/plain\fR as a fallback. Source files include the detected language, parser
 engine, support flag, optional MIME type, and optional syntax name. Image files
 also include format, width, height, and animation status. With
-\fB--caption\fR or \fB--objects\fR the image is analyzed with the Moondream
-caption model and the YOLOv8-nano object-detection model (downloaded to the
-user cache directory on first use): \fB--caption\fR adds a \fIcaption\fR string,
-and \fB--objects\fR adds an \fIobjects\fR array of category labels with
-bounding boxes.
+\fB--caption\fR, \fB--objects\fR, or \fB--ocr\fR the image is analyzed with the
+Moondream caption model, the YOLOv8-nano object-detection model, and the ocrs
+text-recognition models (downloaded to the user cache directory on first use):
+\fB--caption\fR adds a \fIcaption\fR string, \fB--objects\fR adds an \fIobjects\fR
+array of category labels with bounding boxes, and \fB--ocr\fR adds an \fIocr\fR
+string.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
