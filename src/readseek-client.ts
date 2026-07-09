@@ -836,9 +836,44 @@ interface RenameOptions {
 	signal?: AbortSignal;
 }
 
+function parseRenameConflicts(value: unknown, field: string): RenameConflict[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) throw new Error(`invalid readseek ${field}`);
+	return value.map((item) => {
+		if (!item || typeof item !== "object") throw new Error(`invalid readseek ${field} entry`);
+		const c = item as Record<string, unknown>;
+		return {
+			line: requireNumber(c.line, `${field}.line`),
+			column: requireNumber(c.column, `${field}.column`),
+			reason: requireString(c.reason, `${field}.reason`),
+		};
+	});
+}
+
+function parseRenameEdits(value: unknown, field: string): RenameEdit[] {
+	if (value === undefined) return [];
+	if (!Array.isArray(value)) throw new Error(`invalid readseek ${field}`);
+	return value.map((item) => {
+		if (!item || typeof item !== "object") throw new Error(`invalid readseek ${field} entry`);
+		const e = item as Record<string, unknown>;
+		return {
+			line: requireNumber(e.line, `${field}.line`),
+			start_column: requireNumber(e.start_column, `${field}.start_column`),
+			end_column: requireNumber(e.end_column, `${field}.end_column`),
+			start_byte: requireNumber(e.start_byte, `${field}.start_byte`),
+			end_byte: requireNumber(e.end_byte, `${field}.end_byte`),
+			occurrence: requireString(e.occurrence, `${field}.occurrence`),
+			line_hash: requireString(e.line_hash, `${field}.line_hash`),
+			text: requireString(e.text, `${field}.text`),
+		};
+	});
+}
+
 function parseRenameOutput(value: unknown): RenameOutput {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek rename output");
 	const output = value as Record<string, unknown>;
+	const others = output.others;
+	if (others !== undefined && !Array.isArray(others)) throw new Error("invalid readseek others");
 	return {
 		file: requireString(output.file, "file"),
 		language: requireString(output.language, "language"),
@@ -847,42 +882,20 @@ function parseRenameOutput(value: unknown): RenameOutput {
 		old_name: requireString(output.old_name, "old_name"),
 		new_name: requireString(output.new_name, "new_name"),
 		applied: requireBoolean(output.applied, "applied"),
-		conflicts: (output.conflicts as any[] | undefined)?.map((c: Record<string, unknown>) => ({
-			line: requireNumber(c.line, "conflict.line"),
-			column: requireNumber(c.column, "conflict.column"),
-			reason: requireString(c.reason, "conflict.reason"),
-		})) ?? [],
-		edits: (output.edits as any[] | undefined)?.map((e: Record<string, unknown>) => ({
-			line: requireNumber(e.line, "edit.line"),
-			start_column: requireNumber(e.start_column, "edit.start_column"),
-			end_column: requireNumber(e.end_column, "edit.end_column"),
-			start_byte: requireNumber(e.start_byte, "edit.start_byte"),
-			end_byte: requireNumber(e.end_byte, "edit.end_byte"),
-			occurrence: requireString(e.occurrence, "edit.occurrence"),
-			line_hash: requireString(e.line_hash, "edit.line_hash"),
-			text: requireString(e.text, "edit.text"),
-		})) ?? [],
-		others: (output.others as any[] | undefined)?.map((o: Record<string, unknown>) => ({
-			file: requireString(o.file, "other.file"),
-			language: requireString(o.language, "other.language"),
-			engine: optionalString(o.engine, "other.engine"),
-			file_hash: requireString(o.file_hash, "other.file_hash"),
-			conflicts: (o.conflicts as any[] | undefined)?.map((c: Record<string, unknown>) => ({
-				line: requireNumber(c.line, "conflict.line"),
-				column: requireNumber(c.column, "conflict.column"),
-				reason: requireString(c.reason, "conflict.reason"),
-			})) ?? [],
-			edits: (o.edits as any[] | undefined)?.map((e: Record<string, unknown>) => ({
-				line: requireNumber(e.line, "edit.line"),
-				start_column: requireNumber(e.start_column, "edit.start_column"),
-				end_column: requireNumber(e.end_column, "edit.end_column"),
-				start_byte: requireNumber(e.start_byte, "edit.start_byte"),
-				end_byte: requireNumber(e.end_byte, "edit.end_byte"),
-				occurrence: requireString(e.occurrence, "edit.occurrence"),
-				line_hash: requireString(e.line_hash, "edit.line_hash"),
-				text: requireString(e.text, "edit.text"),
-			})) ?? [],
-		})) ?? [],
+		conflicts: parseRenameConflicts(output.conflicts, "conflicts"),
+		edits: parseRenameEdits(output.edits, "edits"),
+		others: (others as unknown[] | undefined)?.map((entry) => {
+			if (!entry || typeof entry !== "object") throw new Error("invalid readseek other");
+			const o = entry as Record<string, unknown>;
+			return {
+				file: requireString(o.file, "other.file"),
+				language: requireString(o.language, "other.language"),
+				engine: optionalString(o.engine, "other.engine"),
+				file_hash: requireString(o.file_hash, "other.file_hash"),
+				conflicts: parseRenameConflicts(o.conflicts, "other.conflicts"),
+				edits: parseRenameEdits(o.edits, "other.edits"),
+			};
+		}) ?? [],
 	};
 }
 
