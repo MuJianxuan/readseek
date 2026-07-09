@@ -114,7 +114,7 @@ fn caption(image: &image::DynamicImage) -> Result<String> {
 
     let mut tokens = vec![BLIP_DEC_TOKEN];
     let mut progress = InferenceProgress::new();
-    let mut output = String::new();
+    let mut generated = Vec::new();
     for index in 0..CAPTION_MAX_TOKENS {
         progress.maybe_reveal();
         let context_size = if index > 0 { 1 } else { tokens.len() };
@@ -128,10 +128,12 @@ fn caption(image: &image::DynamicImage) -> Result<String> {
             break;
         }
         tokens.push(next);
-        if let Ok(piece) = tokenizer.decode(&[next], true) {
-            output.push_str(&piece);
-        }
+        generated.push(next);
     }
+    // Decode the whole sequence at once so the WordPiece decoder can join `##`
+    // continuation tokens to their preceding word instead of leaving the `##`
+    // markers in place (which happens when tokens are decoded one at a time).
+    let output = tokenizer.decode(&generated, true).unwrap_or_default();
     Ok(output.trim().to_string())
 }
 
