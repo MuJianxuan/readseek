@@ -1,7 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 
-import { withFileMutationQueue, type ExtensionAPI, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
+import { withFileMutationQueue, truncateHead, type ExtensionAPI, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
@@ -66,8 +66,6 @@ function pendingWritePreviewParts(summary: string, preview: PendingDiffPreviewRe
   return { lines: [summary, headerLine], diffData: expanded ? diffData : undefined };
 }
 
-const MAX_LINES = 2000;
-const MAX_BYTES = 50 * 1024;
 const WRITE_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/write.md", import.meta.url),
   promptSnippet: "Create or overwrite a complete file and return edit anchors",
@@ -189,15 +187,15 @@ export async function executeWrite(opts: {
     displayLines.push(formatHashlineDisplay(lineNum, rawLines[i]));
   }
 
-  let text = displayLines.join("\n");
-  if (rawLines.length > MAX_LINES) {
-    text = displayLines.slice(0, MAX_LINES).join("\n");
-    text += `\n[… ${rawLines.length - MAX_LINES} more lines not shown — full anchors in readseekValue]`;
-  }
-  const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_BYTES) {
-    text = Buffer.from(text, "utf8").subarray(0, MAX_BYTES).toString("utf8");
-    text += "\n[… output truncated at 50 KB — full anchors in readseekValue]";
+  const fullText = displayLines.join("\n");
+  const truncated = truncateHead(fullText);
+  let text = truncated.content;
+  if (truncated.truncated) {
+    if (truncated.truncatedBy === "lines") {
+      text += `\n[… ${truncated.totalLines - truncated.outputLines} more lines not shown — full anchors in readseekValue]`;
+    } else {
+      text += "\n[… output truncated at 50 KB — full anchors in readseekValue]";
+    }
   }
 
   // Optional structural map
