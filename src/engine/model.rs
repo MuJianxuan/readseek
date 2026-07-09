@@ -3,9 +3,9 @@
 
 //! Vision model cache: lazily downloads and SHA-256-verifies the BLIP
 //! caption model (GGUF + tokenizer), the YOLOv8-nano object-detection weights,
-//! and the ocrs text detection/recognition models into the user cache
-//! directory (`dirs::cache_dir`) on first use. A progress bar is shown while
-//! downloading when stdout is a TTY.
+//! and the `TrOCR` printed-text recognition model (weights + config + tokenizer)
+//! into the `models/` subdirectory of the user cache (`dirs::cache_dir`) on
+//! first use. A progress bar is shown while downloading when stdout is a TTY.
 
 use anyhow::{Context as _, Result, anyhow};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -15,48 +15,58 @@ use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
 const HF_BASE: &str = "https://huggingface.co";
+const CACHE_SUBDIR: &str = "models";
 
 /// `(repo, remote path, local file name, cache subdir, byte size, sha256)`.
+/// `(repo, revision, remote path, local file name, byte size, sha256)`.
 const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
     (
         "lmz/candle-blip",
+        "main",
         "blip-image-captioning-large-q4k.gguf",
         "blip-image-captioning-large-q4k.gguf",
-        "blip",
         270_847_360,
         "c7f7a3e19a562c0cfef02d023562705050fa555a79296f5d44d5047167571533",
     ),
     (
         "Salesforce/blip-image-captioning-large",
+        "main",
         "tokenizer.json",
-        "tokenizer.json",
-        "blip",
+        "blip-tokenizer.json",
         711_396,
         "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
     ),
     (
         "lmz/candle-yolo-v8",
+        "main",
         "yolov8n.safetensors",
         "yolov8n.safetensors",
-        "yolov8n",
         6_369_332,
         "5788ff529e26961281ebeb26facecaea38ec9a79a3ad2282995ab899eb905626",
     ),
     (
-        "robertknight/ocrs",
-        "text-detection-ssfbcj81.rten",
-        "text-detection.rten",
-        "ocrs",
-        2_523_564,
-        "614aafabf27c94d386f7aa036c967c2e47e4b9938fa11531ca8f5698c1ca4c36",
+        "microsoft/trocr-base-printed",
+        "refs/pr/7",
+        "model.safetensors",
+        "trocr-base-printed.safetensors",
+        1_333_384_464,
+        "1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596",
     ),
     (
-        "robertknight/ocrs",
-        "text-rec-checkpoint-s52qdbqt.rten",
-        "text-recognition.rten",
-        "ocrs",
-        9_716_444,
-        "606d9a0414c6b73c99df75b707c11c70d1c8b12e1d4f900922e185fc37bfca65",
+        "microsoft/trocr-base-printed",
+        "refs/pr/7",
+        "config.json",
+        "trocr-config.json",
+        4_126,
+        "5bda1deab455661feb3d91906656e5600e2ca520d5c00a2a03836614b850c93e",
+    ),
+    (
+        "ToluClassics/candle-trocr-tokenizer",
+        "main",
+        "tokenizer.json",
+        "trocr-tokenizer.json",
+        2_108_614,
+        "2f1a555a1ee93656b4e6f67aa75d492a843c225e5ef754bae24c36bd85851cd7",
     ),
 ];
 
@@ -64,18 +74,18 @@ const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
 /// on first use. Subsequent calls reuse the cached file when its size matches,
 /// avoiding a full re-hash of multi-gigabyte models on every run.
 pub(crate) fn file(name: &str) -> Result<PathBuf> {
-    let (repo, remote, local, subdir, size, sha) = FILES
+    let (repo, revision, remote, local, size, sha) = FILES
         .iter()
-        .find(|(_, _, local, _, _, _)| *local == name)
+        .find(|(_, _, _, local, _, _)| *local == name)
         .copied()
         .ok_or_else(|| anyhow!("unknown model file `{name}`"))?;
-    let dir = cache_dir()?.join(subdir);
+    let dir = cache_dir()?.join(CACHE_SUBDIR);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let target = dir.join(local);
     if fs::metadata(&target).is_ok_and(|meta| meta.len() == size) {
         return Ok(target);
     }
-    download(repo, remote, local, &target)?;
+    download(repo, revision, remote, local, &target)?;
     let got = sha256_file(&target);
     if got != sha {
         let _ = fs::remove_file(&target);
@@ -97,8 +107,18 @@ fn cache_dir() -> Result<PathBuf> {
 
 /// Downloads `remote` from `repo` into `target` via a `.part` file, then
 /// atomically renames. A progress bar is shown when stdout is a TTY.
-fn download(repo: &str, remote: &str, local: &str, target: &PathBuf) -> Result<()> {
-    let url = format!("{HF_BASE}/{repo}/resolve/main/{remote}");
+fn download(
+    repo: &str,
+    revision: &str,
+    remote: &str,
+    local: &str,
+    target: &PathBuf,
+) -> Result<()> {
+    let url = format!(
+        "{HF_BASE}/{repo}/resolve/{}/{}",
+        revision.replace('/', "%2F"),
+        remote,
+    );
     let part = target.with_extension("part");
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),

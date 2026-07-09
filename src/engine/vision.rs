@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Image vision analysis: captioning (BLIP), object detection
-//! (YOLOv8-nano), and OCR (ocrs). Models run on CPU through pure-Rust
+//! (YOLOv8-nano), and OCR (`TrOCR`). Models run on CPU through pure-Rust
 //! inference stacks and are fetched lazily into the user cache directory (see
 //! [`crate::engine::model`]). Tasks run independently, so a failure in one
 //! leaves the other's results intact.
@@ -22,19 +22,20 @@ use anyhow::{Context as _, Result, anyhow};
 use candle::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Module, VarBuilder};
 use candle_transformers::{
-    models::{blip, quantized_blip},
+    models::{blip, quantized_blip, trocr, vit},
     object_detection::{Bbox, KeyPoint, non_maximum_suppression},
     quantized_var_builder,
 };
 use indicatif::ProgressBar;
-use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
-use rten::Model;
 use serde::{Deserialize, Serialize};
 use std::io::IsTerminal as _;
 use std::time::{Duration, Instant};
 use tokenizers::Tokenizer;
 
 const CAPTION_MAX_TOKENS: usize = 256;
+/// Maximum tokens generated for OCR text; bounded by the `TrOCR` decoder
+/// `max_position_embeddings` (512) so position indices stay in range.
+const OCR_MAX_TOKENS: usize = 512;
 const YOLO_CONFIDENCE: f32 = 0.25;
 const YOLO_NMS: f32 = 0.45;
 /// BLIP decoder start token (`[DEC]`) that seeds caption generation.
@@ -101,7 +102,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
 fn caption(image: &image::DynamicImage) -> Result<String> {
     let device = Device::Cpu;
     let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
-    let tokenizer_path = model::file("tokenizer.json")?;
+    let tokenizer_path = model::file("blip-tokenizer.json")?;
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
     let config = blip::Config::image_captioning_large();
     let vb = quantized_var_builder::VarBuilder::from_gguf(&model_path, &device)?;
@@ -148,6 +149,20 @@ fn blip_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
         .broadcast_div(&std)?)
 }
 
+/// Decode, resize to 384x384, and normalize `image` into a `(3, 384, 384)`
+/// f32 tensor for the `TrOCR` `ViT` encoder (mean/std 0.5 normalization).
+fn trocr_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
+    let img = image
+        .resize_exact(384, 384, image::imageops::FilterType::Triangle)
+        .to_rgb8();
+    let data = Tensor::from_vec(img.into_raw(), (384, 384, 3), device)?.permute((2, 0, 1))?;
+    let mean = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
+    let std = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
+    Ok((data.to_dtype(DType::F32)? / 255.)?
+        .broadcast_sub(&mean)?
+        .broadcast_div(&std)?)
+}
+
 /// Greedy argmax over the last-axis logits, returning the best token id.
 fn argmax_token(logits: &Tensor) -> Result<u32> {
     let values = logits.to_vec1::<f32>()?;
@@ -175,26 +190,56 @@ fn detect_objects(image: &image::DynamicImage) -> Result<Vec<DetectedObject>> {
     objects_from_predictions(&predictions, orig_w, orig_h, model_w, model_h)
 }
 
-/// Extract text from `image` with the ocrs detection and recognition models.
-fn ocr_text(image: &image::DynamicImage) -> Result<String> {
-    let detection_model_path = model::file("text-detection.rten")?;
-    let recognition_model_path = model::file("text-recognition.rten")?;
-    let detection_model = Model::load_file(detection_model_path)?;
-    let recognition_model = Model::load_file(recognition_model_path)?;
-    let engine = OcrEngine::new(OcrEngineParams {
-        detection_model: Some(detection_model),
-        recognition_model: Some(recognition_model),
-        ..Default::default()
-    })?;
+/// `TrOCR` `config.json` shape: a `ViT` encoder config paired with a BART-style
+/// decoder config, parsed so the model is built from the exact weights it ships.
+#[derive(Deserialize)]
+struct TrOcrConfig {
+    encoder: vit::Config,
+    decoder: trocr::TrOCRConfig,
+}
 
-    let image = image.to_rgb8();
-    let source = ImageSource::from_bytes(image.as_raw(), image.dimensions())?;
-    let input = engine.prepare_input(source)?;
+/// Extract text from `image` with the `TrOCR` printed-text recognition model,
+/// mirroring the `candle-examples/examples/trocr` encoder/decoder loop.
+fn ocr_text(image: &image::DynamicImage) -> Result<String> {
+    let device = Device::Cpu;
+    let model_path = model::file("trocr-base-printed.safetensors")?;
+    let tokenizer_path = model::file("trocr-tokenizer.json")?;
+    let config_path = model::file("trocr-config.json")?;
+    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
+    let config: TrOcrConfig = serde_json::from_slice(
+        &std::fs::read(&config_path).context("read trocr config")?,
+    )?;
+    let vb =
+        unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
+    let mut model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
+
     let mut progress = InferenceProgress::new();
     progress.maybe_reveal();
-    let text = engine.get_text(&input)?;
+    let input = trocr_image(image, &device)?.unsqueeze(0)?;
+    let encoder_xs = model.encoder().forward(&input)?;
     progress.maybe_reveal();
-    Ok(text.trim().to_string())
+
+    let mut tokens = vec![config.decoder.decoder_start_token_id];
+    let eos = config.decoder.eos_token_id;
+    let mut output = String::new();
+    for index in 0..OCR_MAX_TOKENS {
+        progress.maybe_reveal();
+        let context_size = if index >= 1 { 1 } else { tokens.len() };
+        let start_pos = tokens.len().saturating_sub(context_size);
+        let input_ids = Tensor::new(&tokens[start_pos..], &device)?.unsqueeze(0)?;
+        let logits = model.decode(&input_ids, &encoder_xs, start_pos)?;
+        let logits = logits.squeeze(0)?;
+        let logits = logits.get(logits.dim(0)? - 1)?;
+        let next = argmax_token(&logits)?;
+        if next == eos {
+            break;
+        }
+        tokens.push(next);
+        if let Ok(piece) = tokenizer.decode(&[next], true) {
+            output.push_str(&piece);
+        }
+    }
+    Ok(output.trim().to_string())
 }
 
 /// Resize `image` to a 32-divisible size fitting 640px on the longer side and
