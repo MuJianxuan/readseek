@@ -65,11 +65,10 @@ impl cli::DetectCommand {
 
     fn apply_vision(&self, target: &Target, output: &mut output::DetectOutput) {
         let request = crate::engine::vision::Request {
-            transcribe: self.transcribe,
             caption: self.caption,
             objects: self.objects,
         };
-        if (!request.transcribe && !request.caption && !request.objects) || !output.is_image() {
+        if (!request.caption && !request.objects) || !output.is_image() {
             return;
         }
         let bytes = match std::fs::read(&target.path) {
@@ -93,16 +92,12 @@ impl cli::DetectCommand {
 
         // Run only the requested tasks that are not already cached.
         let missing = crate::engine::vision::Request {
-            transcribe: request.transcribe && entry.transcribe.is_none(),
             caption: request.caption && entry.caption.is_none(),
             objects: request.objects && entry.objects.is_none(),
         };
-        if missing.transcribe || missing.caption || missing.objects {
+        if missing.caption || missing.objects {
             match crate::engine::vision::analyze(&bytes, missing) {
                 Ok(analysis) => {
-                    if missing.transcribe {
-                        entry.transcribe = analysis.transcribe;
-                    }
                     if missing.caption {
                         entry.caption = analysis.caption;
                     }
@@ -118,11 +113,6 @@ impl cli::DetectCommand {
         }
 
         output.set_analysis(crate::engine::vision::Analysis {
-            transcribe: if request.transcribe {
-                entry.transcribe
-            } else {
-                None
-            },
             caption: if request.caption { entry.caption } else { None },
             objects: if request.objects { entry.objects } else { None },
         });

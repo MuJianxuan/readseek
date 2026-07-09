@@ -15,7 +15,7 @@ use crate::engine::source::{
     source_from_text, source_map,
 };
 use crate::engine::target::{Target, TargetAddress};
-use crate::engine::vision::{Analysis, DetectedObject, OcrText};
+use crate::engine::vision::{Analysis, DetectedObject};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Format {
@@ -92,7 +92,6 @@ impl DetectOutput {
 
     pub(crate) fn set_analysis(&mut self, analysis: Analysis) {
         if let Self::Image(image) = self {
-            image.transcribe = analysis.transcribe;
             image.caption = analysis.caption;
             image.objects = analysis.objects;
         }
@@ -125,8 +124,6 @@ pub(crate) struct DetectImageOutput {
     #[serde(flatten)]
     image: ImageInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
-    transcribe: Option<OcrText>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     caption: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     objects: Option<Vec<DetectedObject>>,
@@ -139,7 +136,6 @@ impl DetectImageOutput {
             file,
             mime,
             image,
-            transcribe: None,
             caption: None,
             objects: None,
         }

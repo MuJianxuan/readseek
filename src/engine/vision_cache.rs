@@ -3,13 +3,13 @@
 
 //! Content-addressed cache for image vision-analysis results under
 //! `.readseek/vision/`. Entries are keyed by the BLAKE3 hash of the image bytes
-//! and hold the per-task results (transcribe/caption/objects) independently, so
+//! and hold the per-task results (caption/objects) independently, so
 //! a later request for a new task reuses tasks computed by earlier runs. A
 //! schema version and model-identity tag guard against serving results produced
 //! by an incompatible cache format or a different vision model.
 
 use crate::engine::hash;
-use crate::engine::vision::{DetectedObject, OcrText};
+use crate::engine::vision::DetectedObject;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -20,7 +20,7 @@ const VISION_CACHE_DIR: &str = "vision";
 const CACHE_SCHEMA_VERSION: u32 = 1;
 /// Bump (or change) whenever the deployed vision model changes, so entries
 /// produced by the previous model are treated as a miss and recomputed.
-const MODEL_IDENTITY: &str = "Qwen3VL-2B-Instruct-Q4_K_M";
+const MODEL_IDENTITY: &str = "moondream-q4_0+yolov8n";
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
 
@@ -37,7 +37,6 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 pub(crate) struct CacheEntry {
     schema_version: u32,
     model_identity: String,
-    pub(crate) transcribe: Option<OcrText>,
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
 }
@@ -49,7 +48,6 @@ impl CacheEntry {
         Self {
             schema_version: CACHE_SCHEMA_VERSION,
             model_identity: MODEL_IDENTITY.to_string(),
-            transcribe: None,
             caption: None,
             objects: None,
         }

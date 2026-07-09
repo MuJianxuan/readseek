@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Qwen3-VL vision model: OCR (with regions), captioning, and object
-//! detection. The GGUF model and multimodal projection are fetched lazily into
-//! the user cache directory (see [`crate::engine::model`]) and executed via
-//! llama.cpp through the `llama-cpp-2` crate's `mtmd` (multimodal) API.
+//! Image vision analysis: captioning (Moondream) and object detection
+//! (YOLOv8-nano). Both models run on CPU through the pure-Rust `candle` stack
+//! and are fetched lazily into the user cache directory (see
+//! [`crate::engine::model`]). Caption and object detection run independently,
+//! so a failure in one leaves the other's results intact.
 
-// Coordinate math converts between normalized 0-1000 bins and pixel space;
-// these casts are intentional and bounded.
+// Bounding-box and token-count casts are intentional and bounded by the model
+// output shapes and image dimensions.
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -15,71 +16,33 @@
     clippy::cast_possible_wrap
 )]
 
-use anyhow::{Context as _, Result};
-use encoding_rs::UTF_8;
+use anyhow::{Context as _, Result, anyhow};
+use candle::{DType, Device, IndexOp, Tensor};
+use candle_nn::{Module, VarBuilder};
+use candle_transformers::{
+    models::{moondream, quantized_moondream},
+    object_detection::{Bbox, KeyPoint, non_maximum_suppression},
+    quantized_var_builder,
+};
 use indicatif::ProgressBar;
-use llama_cpp_2::LogOptions;
-use llama_cpp_2::context::LlamaContext;
-use llama_cpp_2::context::params::LlamaContextParams;
-use llama_cpp_2::llama_backend::LlamaBackend;
-use llama_cpp_2::llama_batch::LlamaBatch;
-use llama_cpp_2::model::params::LlamaModelParams;
-use llama_cpp_2::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel};
-use llama_cpp_2::mtmd::{MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputText};
-use llama_cpp_2::sampling::LlamaSampler;
-
-// llama.cpp's mtmd/clip tools keep their OWN log sinks (separate from the
-// global `ggml_log` that `send_logs_to_tracing` silences) and default to writing
-// every model-load/tensor/warmup line straight to stderr. `mtmd_helper_log_set`
-// redirects all of them (clip, mtmd, and the mtmd helper) through our callback.
-// It is an `extern "C"` symbol in libmtmd (declared in mtmd-helper.h) but not
-// exposed by `llama-cpp-sys-2`, so bind it directly.
-type GgmlLogCallback = Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>;
-
-unsafe extern "C" {
-    fn mtmd_helper_log_set(callback: GgmlLogCallback, user_data: *mut c_void);
-}
-
-unsafe extern "C" fn noop_log(_level: c_int, _text: *const c_char, _user_data: *mut c_void) {}
 use serde::{Deserialize, Serialize};
-use std::ffi::CString;
 use std::io::IsTerminal as _;
-use std::num::NonZeroU32;
-use std::os::raw::{c_char, c_int, c_void};
 use std::time::{Duration, Instant};
+use tokenizers::Tokenizer;
 
-const CTX: u32 = 8192;
-const NONZERO_CTX: NonZeroU32 = NonZeroU32::new(CTX).expect("CTX is nonzero");
-const N_BATCH: i32 = 512;
-const MAX_NEW_TOKENS: i32 = 4096;
-/// Cap on image tokens so the encoded image, the text prompt, and up to
-/// [`MAX_NEW_TOKENS`] of generated output all fit within [`CTX`] KV-cache cells.
-/// Larger images are downscaled to this budget by the mtmd preprocessor; left
-/// unbounded, a high-resolution image alone can exceed [`CTX`] and the whole
-/// analysis fails after a costly encode.
-const IMAGE_MAX_TOKENS: i32 = 2048;
-const LOC_BINS: f32 = 1000.0;
+use crate::engine::model;
+use crate::engine::yolo::{COCO_CLASSES, Multiples, YoloV8};
+
+const CAPTION_MAX_TOKENS: usize = 256;
+const YOLO_CONFIDENCE: f32 = 0.25;
+const YOLO_NMS: f32 = 0.45;
+const MOONDREAM_PROMPT: &str = "\n\nQuestion: Describe this image concisely.\n\nAnswer:";
+/// Token sequence emitted by Moondream to mark the end of an answer.
+const END_TOKENS: &[u32] = &[27, 10619, 29];
+
 const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 const PROGRESS_MSG: &str = "Analyzing image...";
-
-const FIELD_TRANSCRIBE: &str = "\"regions\": an array of {\"text\": string, \"quad\": [x1,y1,x2,y2,x3,y3,x4,y4]} for each run of visible text, where the quad is its bounding quadrilateral with coordinates normalized to 0-1000 relative to image width and height (omit the quad if you cannot localize the text)";
-const FIELD_CAPTION: &str = "\"caption\": a single paragraph describing the image";
-const FIELD_OBJECTS: &str = "\"objects\": an array of {\"label\": string, \"bbox\": [x1,y1,x2,y2]} for the salient objects, where bbox is the axis-aligned bounding box with coordinates normalized to 0-1000 relative to image width and height";
-
-/// Text recognized in an image, with per-region bounding quads.
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct OcrText {
-    text: String,
-    regions: Vec<OcrRegion>,
-}
-
-/// One recognized text run with its bounding quad `[x1,y1,x2,y2,x3,y3,x4,y4]`.
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct OcrRegion {
-    text: String,
-    quad: [i32; 8],
-}
 
 /// A detected object with its category label and bounding box `[x1,y1,x2,y2]`.
 #[derive(Debug, Serialize, Deserialize)]
@@ -91,7 +54,6 @@ pub(crate) struct DetectedObject {
 /// Which vision tasks to run against an image.
 #[derive(Clone, Copy)]
 pub(crate) struct Request {
-    pub(crate) transcribe: bool,
     pub(crate) caption: bool,
     pub(crate) objects: bool,
 }
@@ -99,76 +61,213 @@ pub(crate) struct Request {
 /// Results of the requested vision tasks.
 #[derive(Default)]
 pub(crate) struct Analysis {
-    pub(crate) transcribe: Option<OcrText>,
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
 }
 
-/// Run the requested tasks against `image_bytes` in a single pass: the image is
-/// encoded once and one combined prompt requests all selected fields, which are
-/// parsed back into the per-task results.
+/// Run the requested tasks against `image_bytes`. Each task runs independently;
+/// a task that fails is logged and left `None` so it is recomputed on a later
+/// run instead of being cached as final-empty.
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
-    llama_cpp_2::send_logs_to_tracing(LogOptions::default().with_logs_enabled(false));
-    // Safe: installs a no-op log callback; only suppresses stderr diagnostics.
-    unsafe { mtmd_helper_log_set(Some(noop_log), std::ptr::null_mut()) };
-    let backend = LlamaBackend::init()?;
-    let model_path = crate::engine::model::file("Qwen3VL-2B-Instruct-Q4_K_M.gguf")?;
-    let mmproj_path = crate::engine::model::file("mmproj-Qwen3VL-2B-Instruct-F16.gguf")?;
-    let model = LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default())?;
-
-    let n_threads = num_cpus::get_physical() as i32;
-    let mtmd_params = MtmdContextParams {
-        use_gpu: false,
-        print_timings: false,
-        n_threads,
-        media_marker: CString::new(llama_cpp_2::mtmd::mtmd_default_marker())
-            .context("media marker contains null")?,
-        image_min_tokens: -1,
-        image_max_tokens: IMAGE_MAX_TOKENS,
-    };
-    let mtmd_ctx =
-        MtmdContext::init_from_file(&mmproj_path.to_string_lossy(), &model, &mtmd_params)?;
-    let chat_template = model.chat_template(None)?;
-    let bitmap = MtmdBitmap::from_buffer(&mtmd_ctx, image_bytes, false)?;
-    let width = bitmap.nx();
-    let height = bitmap.ny();
-
-    let context_params = LlamaContextParams::default()
-        .with_n_threads(n_threads)
-        .with_n_threads_batch(n_threads)
-        .with_n_batch(N_BATCH.try_into()?)
-        .with_n_ctx(Some(NONZERO_CTX));
-    let mut context = model.new_context(&backend, context_params)?;
-
-    let prompt = build_prompt(request);
-    let raw = generate(
-        &model,
-        &mtmd_ctx,
-        &chat_template,
-        &mut context,
-        &bitmap,
-        &prompt,
-    )?;
-    Ok(parse_analysis(&raw, request, width, height))
-}
-
-/// Build a combined instruction requesting exactly the selected fields in one
-/// JSON object, so the image is encoded once for all tasks.
-fn build_prompt(request: Request) -> String {
-    let mut fields = Vec::new();
-    if request.transcribe {
-        fields.push(FIELD_TRANSCRIBE);
-    }
+    let image = image::load_from_memory(image_bytes).context("decode image")?;
+    let mut analysis = Analysis::default();
     if request.caption {
-        fields.push(FIELD_CAPTION);
+        match caption(&image) {
+            Ok(text) => analysis.caption = Some(text),
+            Err(error) => log::warn!("vision caption skipped: {error:#}"),
+        }
     }
     if request.objects {
-        fields.push(FIELD_OBJECTS);
+        match detect_objects(&image) {
+            Ok(objects) => analysis.objects = Some(objects),
+            Err(error) => log::warn!("vision objects skipped: {error:#}"),
+        }
     }
-    format!(
-        "Analyze the image and respond with a single JSON object containing {}. Output only the JSON object.",
-        fields.join(", ")
-    )
+    Ok(analysis)
+}
+
+/// Generate a concise caption for `image` with the quantized Moondream model.
+fn caption(image: &image::DynamicImage) -> Result<String> {
+    let device = Device::Cpu;
+    let model_path = model::file("moondream-q4_0.gguf")?;
+    let tokenizer_path = model::file("tokenizer.json")?;
+    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
+    let config = moondream::Config::v2();
+    let vb = quantized_var_builder::VarBuilder::from_gguf(&model_path, &device)?;
+    let mut model = quantized_moondream::Model::new(&config, vb)?;
+
+    let image_embeds = moondream_image(image, &device)?
+        .unsqueeze(0)?
+        .apply(model.vision_encoder())?;
+
+    let encoded = tokenizer
+        .encode(MOONDREAM_PROMPT, true)
+        .map_err(|e| anyhow!(e))?;
+    let mut tokens = encoded.get_ids().to_vec();
+    let eos = *tokenizer
+        .get_vocab(true)
+        .get("")
+        .ok_or_else(|| anyhow!("moondream eos token not found"))?;
+
+    let mut progress = InferenceProgress::new();
+    let mut output = String::new();
+    for index in 0..CAPTION_MAX_TOKENS {
+        progress.maybe_reveal();
+        let context = if index > 0 { 1 } else { tokens.len() };
+        let ctxt = &tokens[tokens.len().saturating_sub(context)..];
+        let input = Tensor::new(ctxt, &device)?.unsqueeze(0)?;
+        let logits = if index > 0 {
+            model.text_model.forward(&input)?
+        } else {
+            let bos = Tensor::new(&[eos], &device)?.unsqueeze(0)?;
+            model
+                .text_model
+                .forward_with_img(&bos, &input, &image_embeds)?
+        };
+        let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
+        let next = argmax_token(&logits)?;
+        tokens.push(next);
+        if next == eos || tokens.ends_with(END_TOKENS) {
+            break;
+        }
+        if let Ok(piece) = tokenizer.decode(&[next], true) {
+            output.push_str(&piece);
+        }
+    }
+    Ok(output.trim().to_string())
+}
+
+/// Decode, resize to 378x378, and normalize `image` into a `(3, 378, 378)`
+/// f32 tensor for the Moondream vision encoder.
+fn moondream_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
+    let img = image
+        .resize_to_fill(378, 378, image::imageops::FilterType::Triangle)
+        .to_rgb8();
+    let data = Tensor::from_vec(img.into_raw(), (378, 378, 3), device)?.permute((2, 0, 1))?;
+    let mean = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
+    let std = Tensor::new(&[0.5f32, 0.5, 0.5], device)?.reshape((3, 1, 1))?;
+    Ok((data.to_dtype(DType::F32)? / 255.)?
+        .broadcast_sub(&mean)?
+        .broadcast_div(&std)?)
+}
+
+/// Greedy argmax over the last-axis logits, returning the best token id.
+fn argmax_token(logits: &Tensor) -> Result<u32> {
+    let values = logits.to_vec1::<f32>()?;
+    let (id, _) = values
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .expect("non-empty logits");
+    Ok(id as u32)
+}
+
+/// Detect salient objects with YOLOv8-nano, returning labeled bounding boxes in
+/// the original image's pixel space.
+fn detect_objects(image: &image::DynamicImage) -> Result<Vec<DetectedObject>> {
+    let device = Device::Cpu;
+    let model_path = model::file("yolov8n.safetensors")?;
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
+    let yolo = YoloV8::load(vb, Multiples::n(), 80)?;
+
+    let (input, model_w, model_h, orig_w, orig_h) = yolo_image(image, &device)?;
+    let mut progress = InferenceProgress::new();
+    progress.maybe_reveal();
+    let predictions = yolo.forward(&input)?.squeeze(0)?;
+    progress.maybe_reveal();
+    objects_from_predictions(&predictions, orig_w, orig_h, model_w, model_h)
+}
+
+/// Resize `image` to a 32-divisible size fitting 640px on the longer side and
+/// scale pixels to `[0, 1]`, returning the `(1, 3, H, W)` tensor plus the model
+/// and original dimensions for mapping boxes back to pixel space.
+fn yolo_image(
+    image: &image::DynamicImage,
+    device: &Device,
+) -> Result<(Tensor, usize, usize, u32, u32)> {
+    let orig_w = image.width();
+    let orig_h = image.height();
+    let (w, h) = {
+        let w = orig_w as usize;
+        let h = orig_h as usize;
+        if w < h {
+            let w = w * 640 / h;
+            (w / 32 * 32, 640)
+        } else {
+            let h = h * 640 / w;
+            (640, h / 32 * 32)
+        }
+    };
+    let resized = image.resize_exact(w as u32, h as u32, image::imageops::FilterType::CatmullRom);
+    let data = resized.to_rgb8().into_raw();
+    let tensor = Tensor::from_vec(data, (h, w, 3), device)?
+        .permute((2, 0, 1))?
+        .unsqueeze(0)?
+        .to_dtype(DType::F32)?;
+    let tensor = (tensor * (1. / 255.))?;
+    Ok((tensor, w, h, orig_w, orig_h))
+}
+
+/// Extract confident boxes from the `YOLOv8` predictions, run per-class
+/// non-maximum suppression, and scale survivors back to original pixel space.
+fn objects_from_predictions(
+    predictions: &Tensor,
+    orig_w: u32,
+    orig_h: u32,
+    model_w: usize,
+    model_h: usize,
+) -> Result<Vec<DetectedObject>> {
+    let predictions = predictions.to_device(&Device::Cpu)?;
+    let (pred_size, npreds) = predictions.dims2()?;
+    let nclasses = pred_size - 4;
+    let mut bboxes: Vec<Vec<Bbox<Vec<KeyPoint>>>> = (0..nclasses).map(|_| Vec::new()).collect();
+    for index in 0..npreds {
+        let pred = Vec::<f32>::try_from(predictions.i((.., index))?)?;
+        let confidence = pred[4..]
+            .iter()
+            .max_by(|a, b| a.total_cmp(b))
+            .copied()
+            .unwrap_or(0.);
+        if confidence <= YOLO_CONFIDENCE {
+            continue;
+        }
+        let mut class_index = 0;
+        for class in 0..nclasses {
+            if pred[4 + class] > pred[4 + class_index] {
+                class_index = class;
+            }
+        }
+        if pred[class_index + 4] > 0. {
+            bboxes[class_index].push(Bbox {
+                xmin: pred[0] - pred[2] / 2.,
+                ymin: pred[1] - pred[3] / 2.,
+                xmax: pred[0] + pred[2] / 2.,
+                ymax: pred[1] + pred[3] / 2.,
+                confidence,
+                data: Vec::new(),
+            });
+        }
+    }
+    non_maximum_suppression(&mut bboxes, YOLO_NMS);
+
+    let w_ratio = orig_w as f32 / model_w as f32;
+    let h_ratio = orig_h as f32 / model_h as f32;
+    let mut objects = Vec::new();
+    for (class_index, class_bboxes) in bboxes.iter().enumerate() {
+        let label = COCO_CLASSES.get(class_index).copied().unwrap_or("unknown");
+        for bbox in class_bboxes {
+            objects.push(DetectedObject {
+                label: label.to_string(),
+                bbox: [
+                    (bbox.xmin * w_ratio).round().max(0.) as i32,
+                    (bbox.ymin * h_ratio).round().max(0.) as i32,
+                    (bbox.xmax * w_ratio).round().max(0.) as i32,
+                    (bbox.ymax * h_ratio).round().max(0.) as i32,
+                ],
+            });
+        }
+    }
+    Ok(objects)
 }
 
 /// Spinner that stays silent until inference exceeds `PROGRESS_DEADLINE`, then
@@ -213,185 +312,4 @@ impl Drop for InferenceProgress {
             bar.finish_and_clear();
         }
     }
-}
-/// Greedily decode the model's answer for `prompt` given the image bitmap,
-/// returning the generated text. Generation is capped at [`MAX_NEW_TOKENS`] and
-/// further to whatever [`CTX`] KV-cache cells remain after the prompt, so a long
-/// answer is bounded rather than overflowing the context.
-fn generate(
-    model: &LlamaModel,
-    mtmd_ctx: &MtmdContext,
-    chat_template: &LlamaChatTemplate,
-    context: &mut LlamaContext,
-    bitmap: &MtmdBitmap,
-    prompt: &str,
-) -> Result<String> {
-    let marker = llama_cpp_2::mtmd::mtmd_default_marker();
-    let full_prompt = if prompt.contains(marker) {
-        prompt.to_string()
-    } else {
-        format!("{prompt}{marker}")
-    };
-    let msg = LlamaChatMessage::new("user".to_string(), full_prompt)?;
-    let formatted = model.apply_chat_template(chat_template, &[msg], true)?;
-    let input = MtmdInputText {
-        text: formatted,
-        add_special: true,
-        parse_special: true,
-    };
-    let chunks = mtmd_ctx.tokenize(input, &[bitmap])?;
-
-    let mut batch = LlamaBatch::new(1, 1);
-    let mut progress = InferenceProgress::new();
-    let n_past_start = chunks.eval_chunks(mtmd_ctx, context, 0, 0, N_BATCH, true)?;
-    progress.maybe_reveal();
-    let budget = (CTX as i32 - chunks.total_tokens() as i32).clamp(0, MAX_NEW_TOKENS);
-
-    let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
-    let mut output = String::new();
-    let mut decoder = UTF_8.new_decoder();
-    for n_past in (n_past_start..).take(budget as usize) {
-        progress.maybe_reveal();
-        let token = sampler.sample(context, -1);
-        sampler.accept(token);
-        if model.is_eog_token(token) {
-            break;
-        }
-        let piece = model.token_to_piece(token, &mut decoder, true, None)?;
-        output.push_str(&piece);
-        batch.clear();
-        batch.add(token, n_past, &[0], true)?;
-        context.decode(&mut batch)?;
-    }
-    Ok(output)
-}
-
-/// Convert a normalized 0-1000 coordinate to a pixel coordinate.
-fn loc_to_px(loc: i32, dim: u32) -> i32 {
-    ((loc as f32 + 0.5) / LOC_BINS * dim as f32).round() as i32
-}
-
-/// Extract the first JSON object or array substring from `raw`, tolerating
-/// prose before/after the JSON.
-fn extract_json(raw: &str) -> Option<&str> {
-    let (open, close) = if raw.contains('{') {
-        ('{', '}')
-    } else if raw.contains('[') {
-        ('[', ']')
-    } else {
-        return None;
-    };
-    let start = raw.find(open)?;
-    let end = raw.rfind(close)?;
-    if end >= start {
-        Some(&raw[start..=end])
-    } else {
-        None
-    }
-}
-
-/// JSON shape of one OCR region in the model's response.
-#[derive(serde::Deserialize)]
-struct RegionJson {
-    text: String,
-    quad: Vec<i32>,
-}
-
-/// JSON shape of one detected object in the model's response.
-#[derive(serde::Deserialize)]
-struct ObjectJson {
-    label: String,
-    bbox: Vec<i32>,
-}
-
-/// Combined JSON object returned for a single multi-task prompt.
-#[derive(Default, serde::Deserialize)]
-struct CombinedJson {
-    regions: Option<Vec<RegionJson>>,
-    caption: Option<String>,
-    objects: Option<Vec<ObjectJson>>,
-}
-
-/// Parse the combined response. A requested field is filled only when the model
-/// actually produced it, so an absent field (or unparseable output) stays `None`
-/// and is recomputed on a later run instead of being cached as final-empty.
-fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analysis {
-    let parsed = extract_json(raw)
-        .and_then(|json| serde_json::from_str::<CombinedJson>(json).ok())
-        .unwrap_or_else(|| {
-            log::warn!("vision JSON parse failed, returning empty results");
-            CombinedJson::default()
-        });
-
-    let mut analysis = Analysis::default();
-    if request.transcribe {
-        analysis.transcribe = parsed
-            .regions
-            .map(|regions| build_ocr(regions, width, height));
-    }
-    if request.caption {
-        analysis.caption = parsed.caption.map(|caption| strip_special(&caption));
-    }
-    if request.objects {
-        analysis.objects = parsed
-            .objects
-            .map(|objects| build_objects(objects, width, height));
-    }
-    analysis
-}
-
-/// Convert parsed OCR regions into pixel-space [`OcrText`]. A `quad` may be a
-/// full quadrilateral `[x1,y1,...,x4,y4]` or an axis-aligned box `[x1,y1,x2,y2]`,
-/// which is expanded to its four corners.
-fn build_ocr(regions: Vec<RegionJson>, width: u32, height: u32) -> OcrText {
-    let mut parsed = Vec::new();
-    for region in regions {
-        if region.text.is_empty() {
-            continue;
-        }
-        let corners = match *region.quad.as_slice() {
-            [x1, y1, x2, y2] => [x1, y1, x2, y1, x2, y2, x1, y2],
-            [x1, y1, x2, y2, x3, y3, x4, y4] => [x1, y1, x2, y2, x3, y3, x4, y4],
-            _ => continue,
-        };
-        let mut quad = [0i32; 8];
-        for (i, &loc) in corners.iter().enumerate() {
-            quad[i] = loc_to_px(loc, if i % 2 == 0 { width } else { height });
-        }
-        parsed.push(OcrRegion {
-            text: region.text,
-            quad,
-        });
-    }
-    let text = parsed
-        .iter()
-        .map(|region| region.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    OcrText {
-        text,
-        regions: parsed,
-    }
-}
-
-/// Convert parsed objects into pixel-space [`DetectedObject`]s.
-fn build_objects(objects: Vec<ObjectJson>, width: u32, height: u32) -> Vec<DetectedObject> {
-    objects
-        .into_iter()
-        .filter(|object| !object.label.is_empty() && object.bbox.len() == 4)
-        .map(|object| DetectedObject {
-            label: object.label,
-            bbox: [
-                loc_to_px(object.bbox[0], width),
-                loc_to_px(object.bbox[1], height),
-                loc_to_px(object.bbox[2], width),
-                loc_to_px(object.bbox[3], height),
-            ],
-        })
-        .collect()
-}
-
-/// Remove special tokens and trim whitespace from generated text.
-fn strip_special(raw: &str) -> String {
-    raw.replace("<|im_end|>", "").trim().to_string()
 }

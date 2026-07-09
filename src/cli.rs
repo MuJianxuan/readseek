@@ -64,10 +64,6 @@ pub(crate) struct DetectCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// transcribe text from an image, including per-region bounding quads
-    #[argh(switch)]
-    pub(crate) transcribe: bool,
-
     /// describe an image with a detailed natural-language caption
     #[argh(switch)]
     pub(crate) caption: bool,
