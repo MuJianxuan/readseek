@@ -129,16 +129,16 @@ export function buildReadSeekError(
 export interface ToolErrorResult {
   content: [{ type: "text"; text: string }];
   isError: true;
-  details: { readseekValue: Record<string, unknown> };
+  details: { readSeekValue: Record<string, unknown> };
 }
 
 /**
  * Build the standard failure envelope shared by every read-family tool: a text
- * content block plus a `readseekValue` carrying `ok: false` and a
+ * content block plus a `readSeekValue` carrying `ok: false` and a
  * {@link buildReadSeekError} payload.
  *
  * `path` is included only when provided, and `extra` is merged into
- * `readseekValue` so callers can attach tool-specific fields (e.g. write's
+ * `readSeekValue` so callers can attach tool-specific fields (e.g. write's
  * `lines`/`warnings`).
  */
 export function buildToolErrorResult(
@@ -151,7 +151,7 @@ export function buildToolErrorResult(
     content: [{ type: "text", text: message }],
     isError: true,
     details: {
-      readseekValue: {
+      readSeekValue: {
         tool,
         ...(opts.extra ?? {}),
         ok: false,

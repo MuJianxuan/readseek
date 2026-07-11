@@ -44,7 +44,7 @@ describe("executeGrep summary mode", () => {
 			expect(textBlock?.text).toContain(`${path.join(cwd, "missing.ts")}: 2 matches`);
 			expect(textBlock?.text).toContain(`${path.join(cwd, "other.ts")}: 1 matches`);
 			expect(textBlock?.text).not.toContain(">>");
-			expect(result.details.readseekValue).toEqual({
+			expect(result.details.readSeekValue).toEqual({
 				tool: "grep",
 				summary: true,
 				totalMatches: 3,

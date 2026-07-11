@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
 import type { FileMap } from "./readseek/types.js";
-import { readseekMap } from "./readseek-client.js";
+import { readSeekMap } from "./readseek-client.js";
 
 /**
  * Fetch a structural file map from readseek, which maintains its own on-disk
@@ -10,7 +10,7 @@ import { readseekMap } from "./readseek-client.js";
 export async function getOrGenerateMap(absPath: string): Promise<FileMap | null> {
 	try {
 		const { size } = await stat(absPath);
-		return await readseekMap(absPath, size);
+		return await readSeekMap(absPath, size);
 	} catch {
 		return null;
 	}

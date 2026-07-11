@@ -37,4 +37,4 @@ Useful `lang` values include `assembly`, `bash`, `c`, `cpp`, `csharp`, `css`, `d
 
 When searching a directory inside a Git repository, readseek defaults to tracked/indexed files plus untracked non-ignored files. Use `cached`, `others`, and `ignored` to narrow or expand that selection. `ignored` requires `others`.
 
-Use `grep` for plain text and `search` for structure.
+Use `readSeek_grep` for plain text and `readSeek_search` for structure.

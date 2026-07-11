@@ -2,7 +2,7 @@
 tools: rename
 ---
 
-Use rename to rename an identifier (variable, function, type, etc.) with
+Use `readSeek_rename` to rename an identifier (variable, function, type, etc.) with
 binding accuracy. The tool calls `readseek rename` which resolves the
 lexical binding under the cursor and renames every occurrence that binds
 to the same declaration.
@@ -27,5 +27,5 @@ to the same declaration.
 
 ## When not to use
 
-- For search-and-replace across files, use grep or sg.
-- For refactoring that requires adding/removing parameters, use edit.
+- For search-and-replace across files, use `readSeek_grep` or `readSeek_search`.
+- For refactoring that requires adding/removing parameters, use `readSeek_edit`.

@@ -16,7 +16,12 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { resolveReadSeekJsonSettings, resolveReadSeekOcrMode } = await import("../src/readseek-settings.js");
+const {
+	resolveReadSeekExcludeTools,
+	resolveReadSeekJsonSettings,
+	resolveReadSeekOcrMode,
+	resolveReadSeekSyntaxValidation,
+} = await import("../src/readseek-settings.js");
 
 describe("readseek settings", () => {
 	let tempHome: string;
@@ -49,44 +54,64 @@ describe("readseek settings", () => {
 		await writeFile(path.join(dir, "settings.json"), JSON.stringify(settings));
 	}
 
-	it("defaults ocrMode to on", () => {
-		expect(resolveReadSeekOcrMode()).toBe("on");
+	it("defaults ocrMode to force", () => {
+		expect(resolveReadSeekOcrMode()).toBe("force");
 	});
 
 	it("reads ocrMode from global settings", async () => {
-		await writeGlobal({ read: { ocrMode: "auto" } });
+		await writeGlobal({ readseek: { ocrMode: "auto" } });
 		expect(resolveReadSeekOcrMode()).toBe("auto");
+	});
+
+	it("accepts on as an ocrMode alias for force", async () => {
+		await writeGlobal({ readseek: { ocrMode: "on" } });
+		expect(resolveReadSeekOcrMode()).toBe("force");
 	});
 
 	it("lets project settings override global", async () => {
-		await writeGlobal({ read: { ocrMode: "auto" } });
-		await writeProject({ read: { ocrMode: "off" } });
+		await writeGlobal({ readseek: { ocrMode: "auto" } });
+		await writeProject({ readseek: { ocrMode: "off" } });
 		expect(resolveReadSeekOcrMode()).toBe("off");
 	});
 
-	it("warns on invalid ocrMode and falls back to on", async () => {
-		await writeGlobal({ read: { ocrMode: "maybe" } });
+	it("warns on invalid ocrMode and falls back to force", async () => {
+		await writeGlobal({ readseek: { ocrMode: "maybe" } });
 		const { settings, warnings } = resolveReadSeekJsonSettings();
-		expect(settings.read?.ocrMode).toBeUndefined();
+		expect(settings.ocrMode).toBeUndefined();
 		expect(warnings).toHaveLength(1);
-		expect(warnings[0]?.path).toBe("read.ocrMode");
-		expect(resolveReadSeekOcrMode()).toBe("on");
+		expect(warnings[0]?.path).toBe("readseek.ocrMode");
+		expect(resolveReadSeekOcrMode()).toBe("force");
 	});
 
-	it("lets env var override settings", async () => {
-		await writeGlobal({ read: { ocrMode: "off" } });
-		expect(resolveReadSeekOcrMode({ READSEEK_READ_OCR_MODE: "auto" })).toBe("auto");
+	it("merges nested grep settings", async () => {
+		await writeGlobal({ readseek: { grep: { maxLines: 50, maxBytes: 1000 } } });
+		await writeProject({ readseek: { grep: { maxLines: 25 } } });
+		expect(resolveReadSeekJsonSettings().settings.grep).toEqual({ maxLines: 25, maxBytes: 1000 });
+	});
+
+	it("reads excludeTools and syntaxValidation", async () => {
+		await writeGlobal({ readseek: { excludeTools: ["read", "edit"], syntaxValidation: "block" } });
+		expect(resolveReadSeekExcludeTools()).toEqual(["read", "edit"]);
+		expect(resolveReadSeekSyntaxValidation()).toBe("block");
+	});
+
+	it("warns on invalid excludeTools", async () => {
+		await writeGlobal({ readseek: { excludeTools: ["read", ""] } });
+		const { warnings } = resolveReadSeekJsonSettings();
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]?.path).toBe("readseek.excludeTools");
+		expect(resolveReadSeekExcludeTools()).toEqual([]);
 	});
 
 	it("picks up settings changes and deletions despite caching", async () => {
-		await writeGlobal({ read: { ocrMode: "auto" } });
+		await writeGlobal({ readseek: { ocrMode: "auto" } });
 		expect(resolveReadSeekOcrMode()).toBe("auto");
 		expect(resolveReadSeekOcrMode()).toBe("auto");
 
-		await writeGlobal({ read: { ocrMode: "off" } });
+		await writeGlobal({ readseek: { ocrMode: "off" } });
 		expect(resolveReadSeekOcrMode()).toBe("off");
 
 		await rm(path.join(tempHome, ".pi", "agent", "readseek", "settings.json"));
-		expect(resolveReadSeekOcrMode()).toBe("on");
+		expect(resolveReadSeekOcrMode()).toBe("force");
 	});
 });

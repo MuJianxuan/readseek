@@ -253,7 +253,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 					),
 					details: {
 						...(typeof result.details === "object" && result.details !== null ? result.details : {}),
-						readseekValue: {
+						readSeekValue: {
 							tool: "grep",
 							summary: !!p.summary,
 							totalMatches: 0,
@@ -410,7 +410,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 			...result,
 			details: {
 				...passthroughDetails,
-				readseekValue: {
+				readSeekValue: {
 					tool: "grep",
 					summary: true,
 					totalMatches: 0,
@@ -436,7 +436,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 				...passthroughDetails,
 				hashlinePassthrough: true,
 				hashlineWarning: warning,
-				readseekValue: {
+				readSeekValue: {
 					tool: "grep",
 					summary: !!p.summary,
 					totalMatches: 0,
@@ -477,20 +477,20 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		renderedGroups = scoped.groups;
 		scopeWarnings = scoped.warnings;
 	}
-	const readseekRecords = recordsFromGroups(renderedGroups);
+	const readSeekRecords = recordsFromGroups(renderedGroups);
 	const builtOutput = buildGrepOutput({
 		summary: !!summary,
 		totalMatches,
 		groups: renderedGroups,
 		limit: effectiveLimit,
-		records: readseekRecords,
+		records: readSeekRecords,
 		scopeMode: p.scope === "symbol" && !summary ? "symbol" : undefined,
 		scopeWarnings,
 		passthroughLines,
 	});
 
-	if (!summary && readseekRecords.length > 0) {
-		const anchoredPaths = new Set(readseekRecords.map((record) => record.path));
+	if (!summary && readSeekRecords.length > 0) {
+		const anchoredPaths = new Set(readSeekRecords.map((record) => record.path));
 		for (const absolutePath of anchoredPaths) {
 			onFileAnchored?.(absolutePath);
 		}
@@ -508,18 +508,14 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 		),
 		details: {
 			...compactDetails,
-			readseekValue: builtOutput.readseekValue,
+			readSeekValue: builtOutput.readSeekValue,
 		},
 	};
 }
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		policy: "read-only",
-		pythonName: "grep",
-		defaultExposure: "safe-by-default",
-	}, {
-		name: "grep",
+		name: "readSeek_grep",
 		label: "grep",
 		description: GREP_PROMPT_METADATA.description,
 		parameters: grepSchema,
@@ -558,14 +554,14 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
-			if (isPartial) return renderPendingResult("pending search", width);
+			if (isPartial) return renderPendingResult("pending grep", width);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";
 
 			if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
 
-			const readseekValue = (result.details as any)?.readseekValue as {
+			const readSeekValue = (result.details as any)?.readSeekValue as {
 				tool: "grep";
 				summary: boolean;
 				totalMatches: number;
@@ -575,26 +571,26 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 			const hasBinaryWarning = textContent.includes("appears to be a binary file");
 
 			const fileSet = new Set<string>();
-			for (const r of readseekValue?.records ?? []) {
+			for (const r of readSeekValue?.records ?? []) {
 				if (r.path) fileSet.add(r.path);
 			}
 
 			const info = formatGrepResultText({
-				totalMatches: readseekValue?.totalMatches ?? 0,
-				summary: readseekValue?.summary ?? false,
-				records: readseekValue?.records ?? [],
+				totalMatches: readSeekValue?.totalMatches ?? 0,
+				summary: readSeekValue?.summary ?? false,
+				records: readSeekValue?.records ?? [],
 				fileCount: fileSet.size,
 				hasBinaryWarning,
 			});
 
 			if (info.noMatches && !hasBinaryWarning) return new Text(summaryLine("no matches"), 0, 0);
-			const matchCount = readseekValue?.totalMatches ?? 0;
+			const matchCount = readSeekValue?.totalMatches ?? 0;
 			const matchWord = matchCount === 1 ? "match" : "matches";
 			let text = summaryLine(`${matchCount} ${matchWord} returned`, { hidden: !!textContent && !expanded });
 			for (const badge of info.badges) text += theme.fg(badge.startsWith("⚠") ? "warning" : "dim", `  ${badge}`);
-			if (expanded && readseekValue?.records) {
+			if (expanded && readSeekValue?.records) {
 				const fileCounts = new Map<string, number>();
-				for (const r of readseekValue.records) if (r.path && r.kind === "match") fileCounts.set(r.path, (fileCounts.get(r.path) ?? 0) + 1);
+				for (const r of readSeekValue.records) if (r.path && r.kind === "match") fileCounts.set(r.path, (fileCounts.get(r.path) ?? 0) + 1);
 				for (const [filePath, count] of [...fileCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
 					const display = path.relative(cwd, filePath) || filePath;
 					text += "\n" + theme.fg("dim", `  ${display} (${count})`);

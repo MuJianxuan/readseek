@@ -8,7 +8,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { formatFsError } from "./fs-error.js";
-import { classifyReadSeekFailure, readseekIdentify } from "./readseek-client.js";
+import { classifyReadSeekFailure, readSeekIdentify } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
 import { clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
@@ -55,7 +55,7 @@ export async function executeHover(opts: ExecuteHoverOptions): Promise<any> {
 	}
 
 	try {
-		const output = await readseekIdentify(filePath, content, {
+		const output = await readSeekIdentify(filePath, content, {
 			line: p.line,
 			column: p.column,
 			signal,
@@ -77,7 +77,7 @@ export async function executeHover(opts: ExecuteHoverOptions): Promise<any> {
 		return {
 			content: [{ type: "text", text: lines.join("\n") }],
 			details: {
-				readseekValue: {
+				readSeekValue: {
 					tool: "hover",
 					ok: true,
 					path: filePath,
@@ -93,11 +93,7 @@ export async function executeHover(opts: ExecuteHoverOptions): Promise<any> {
 
 export function registerHoverTool(pi: ExtensionAPI) {
 	registerReadSeekTool(pi, {
-		policy: "read-only",
-		pythonName: "hover",
-		defaultExposure: "opt-in",
-	}, {
-		name: "hover",
+		name: "readSeek_hover",
 		label: "Hover",
 		description: HOVER_PROMPT_METADATA.description,
 		promptSnippet: HOVER_PROMPT_METADATA.promptSnippet,

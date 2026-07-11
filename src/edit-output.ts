@@ -17,7 +17,7 @@ export interface BuildEditOutputInput {
 export interface EditOutputResult {
   text: string;
   patch: string;
-  readseekValue: ReturnType<typeof buildReadSeekEditResult>;
+  readSeekValue: ReturnType<typeof buildReadSeekEditResult>;
 }
 
 const EDIT_OPERATION_NAMES = ["set_line", "replace_lines", "insert_after", "replace"] as const;
@@ -84,7 +84,7 @@ function formatReplaceHint(edits: unknown[] | undefined, noopEdits: unknown[]): 
   const counts = countEditTypes(edits);
   if (counts.replace === 0) return undefined;
   if (counts.replace !== counts.total) return undefined;
-  return "[info: this edit used replace (unverified). For safer future edits, prefer set_line/replace_lines with an anchor from read/grep/search.]";
+  return "[info: this edit used replace (unverified). For safer future edits, prefer set_line/replace_lines with an anchor from readSeek_read/readSeek_grep/readSeek_search.]";
 }
 export function buildEditOutput(input: BuildEditOutputInput): EditOutputResult {
   const summary = `Updated ${input.displayPath}`;
@@ -99,7 +99,7 @@ export function buildEditOutput(input: BuildEditOutputInput): EditOutputResult {
   return {
     text,
     patch: input.patch ?? "",
-    readseekValue: buildReadSeekEditResult({
+    readSeekValue: buildReadSeekEditResult({
       path: input.path,
       summary,
       diff: input.diff,

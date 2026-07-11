@@ -6,8 +6,8 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildReadSeekLineWithHash, buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { classifyReadSeekFailure, readseekDef } from "./readseek-client.js";
-import { searchPathParam, langParam, readseekGitSearchParams } from "./readseek-params.js";
+import { classifyReadSeekFailure, readSeekDef } from "./readseek-client.js";
+import { searchPathParam, langParam, readSeekGitSearchParams } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
@@ -22,7 +22,6 @@ type DefParams = {
 	name?: string;
 	path?: string;
 	lang?: string;
-	fromIdentify?: boolean;
 	cached?: boolean;
 	others?: boolean;
 	ignored?: boolean;
@@ -43,8 +42,8 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 	const { params, signal, cwd, onFileAnchored } = opts;
 	const p = params as DefParams;
 
-	if (!p.fromIdentify && (!p.name || !p.name.trim())) {
-		return buildToolErrorResult("def", "invalid-parameter", "def requires 'name' or 'fromIdentify'");
+	if (!p.name || !p.name.trim()) {
+		return buildToolErrorResult("def", "invalid-parameter", "def requires 'name'");
 	}
 
 	const searchPath = resolveToCwd(p.path ?? ".", cwd);
@@ -53,9 +52,8 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 	if (!statResult.ok) return statResult.error;
 
 	try {
-		const definitions = await readseekDef(searchPath, {
+		const definitions = await readSeekDef(searchPath, {
 			name: p.name,
-			fromIdentify: p.fromIdentify,
 			language: p.lang,
 			cached: p.cached,
 			others: p.others,
@@ -67,7 +65,7 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 			return {
 				content: [{ type: "text", text: "no definitions found" }],
 				details: {
-					readseekValue: { tool: "def", ok: true, path: searchPath, definitions: [] },
+					readSeekValue: { tool: "def", ok: true, path: searchPath, definitions: [] },
 				},
 			};
 		}
@@ -92,14 +90,14 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 		for (const file of fileList) {
 			textParts.push(file.displayPath);
 			for (const line of file.lines) {
-			textParts.push(`  ${line.line}:${line.hash} ${line.display}`);
+				textParts.push(`  ${line.line}:${line.hash} ${line.display}`);
 			}
 		}
 
 		return {
 			content: [{ type: "text", text: textParts.join("\n") }],
 			details: {
-				readseekValue: { tool: "def", ok: true, path: searchPath, definitions },
+				readSeekValue: { tool: "def", ok: true, path: searchPath, definitions },
 			},
 		};
 	} catch (err: any) {
@@ -110,21 +108,16 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 
 export function registerDefTool(pi: ExtensionAPI, options: DefToolOptions = {}) {
 	registerReadSeekTool(pi, {
-		policy: "read-only",
-		pythonName: "def",
-		defaultExposure: "opt-in",
-	}, {
-		name: "def",
+		name: "readSeek_def",
 		label: "Definition",
 		description: DEF_PROMPT_METADATA.description,
 		promptSnippet: DEF_PROMPT_METADATA.promptSnippet,
 		promptGuidelines: DEF_PROMPT_METADATA.promptGuidelines,
 		parameters: Type.Object({
-			name: Type.Optional(Type.String({ description: "Qualified or unqualified symbol name" })),
+			name: Type.String({ description: "Qualified or unqualified symbol name" }),
 			path: searchPathParam(),
 			lang: langParam(),
-			fromIdentify: Type.Optional(Type.Boolean({ description: "Read identify output from stdin to choose the symbol name" })),
-			...readseekGitSearchParams(),
+			...readSeekGitSearchParams(),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			return executeDef({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
@@ -133,7 +126,7 @@ export function registerDefTool(pi: ExtensionAPI, options: DefToolOptions = {}) 
 			return renderReadSeekSearchCall(args, theme, rest, {
 				label: "def",
 				accent: args.name,
-				flags: [args.fromIdentify && "from-identify", args.cached && "cached", args.others && "others", args.ignored && "ignored"],
+				flags: [args.cached && "cached", args.others && "others", args.ignored && "ignored"],
 			});
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {

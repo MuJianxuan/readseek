@@ -9,7 +9,19 @@ import { registerHoverTool } from "./src/hover.js";
 import { registerWriteTool } from "./src/write.js";
 import { registerDefTool } from "./src/def.js";
 import { SessionAnchors } from "./src/session-anchors.js";
-import { isReadSeekAvailable } from "./src/readseek-client.js";
+import { resolveReadSeekExcludeTools } from "./src/readseek-settings.js";
+
+const READSEEK_TOOL_NAMES = [
+	"readSeek_read",
+	"readSeek_edit",
+	"readSeek_grep",
+	"readSeek_search",
+	"readSeek_refs",
+	"readSeek_rename",
+	"readSeek_hover",
+	"readSeek_write",
+	"readSeek_def",
+];
 
 export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const sessionAnchors = new SessionAnchors();
@@ -18,10 +30,7 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 
 	registerReadTool(pi, { onSuccessfulRead: markAnchored });
 	registerEditTool(pi, { wasReadInSession: hasFreshAnchors });
-	const searchAvailable = isReadSeekAvailable();
-	const searchGuideline = searchAvailable
-		? "Use grep summary for counts; use search for structural code patterns."
-		: "Use grep summary for counts; search is unavailable (readseek native backend not loaded).";
+	const searchGuideline = "Use readSeek_grep summary for counts; use readSeek_search for structural code patterns.";
 
 	registerGrepTool(pi, { searchGuideline, onFileAnchored: markAnchored });
 	registerSgTool(pi, { onFileAnchored: markAnchored });
@@ -30,4 +39,11 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	registerHoverTool(pi);
 	registerDefTool(pi, { onFileAnchored: markAnchored });
 	registerWriteTool(pi, { onFileAnchored: markAnchored });
+
+	pi.on("session_start", () => {
+		const excludeTools = new Set(resolveReadSeekExcludeTools());
+		const activeTools = [...pi.getActiveTools(), ...READSEEK_TOOL_NAMES]
+			.filter((name) => !excludeTools.has(name));
+		pi.setActiveTools([...new Set(activeTools)]);
+	});
 }

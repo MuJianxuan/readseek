@@ -15,7 +15,7 @@ export interface BuildSgOutputInput {
 
 export interface SgOutputResult {
   text: string;
-  readseekValue: {
+  readSeekValue: {
     tool: "search";
     files: Array<{
       path: string;
@@ -29,7 +29,7 @@ export function buildSgOutput(input: BuildSgOutputInput): SgOutputResult {
   if (input.files.length === 0) {
     return {
       text: `No matches found for pattern: ${input.pattern}`,
-      readseekValue: {
+      readSeekValue: {
         tool: "search",
         files: [],
       },
@@ -38,7 +38,7 @@ export function buildSgOutput(input: BuildSgOutputInput): SgOutputResult {
 
   return {
     text: formatAnchoredFileBlocks(input.files),
-    readseekValue: {
+    readSeekValue: {
       tool: "search",
       files: input.files.map((file) => ({
         path: file.path,

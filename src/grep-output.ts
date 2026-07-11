@@ -68,7 +68,7 @@ interface BuildGrepOutputInput {
 
 interface GrepOutputResult {
   text: string;
-  readseekValue: {
+  readSeekValue: {
     tool: "grep";
     summary: boolean;
     totalMatches: number;
@@ -159,7 +159,7 @@ export function buildGrepOutput(input: BuildGrepOutputInput): GrepOutputResult {
   if (truncated.truncated) {
     text = `${truncated.content}\n\n[Output truncated: showing ${truncated.outputLines} of ${truncated.totalLines} lines (${formatSize(truncated.outputBytes)} of ${formatSize(truncated.totalBytes)}). Refine pattern or increase limit.]`;
   }
-  const readseekValue: GrepOutputResult["readseekValue"] = {
+  const readSeekValue: GrepOutputResult["readSeekValue"] = {
     tool: "grep",
     summary: input.summary,
     totalMatches: input.totalMatches,
@@ -171,11 +171,11 @@ export function buildGrepOutput(input: BuildGrepOutputInput): GrepOutputResult {
     })),
   };
   if (!input.summary && input.scopeMode === "symbol") {
-    readseekValue.scopes = buildScopeMetadata(input.groups, scopeWarnings);
+    readSeekValue.scopes = buildScopeMetadata(input.groups, scopeWarnings);
   }
 
   return {
     text,
-    readseekValue,
+    readSeekValue,
   };
 }

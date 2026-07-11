@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "@earendil-work
 
 const COMPACT_DESCRIPTIONS: Record<string, string> = {
   "read.md": "Read text files/images by path; text has LINE:HASH anchors, images return the attachment plus OCR-extracted text.",
-  "edit.md": "Edit existing text files using fresh LINE:HASH anchors from read, grep, search, or write.",
+  "edit.md": "Edit existing text files using fresh LINE:HASH anchors from readSeek_read, readSeek_grep, readSeek_search, or readSeek_write.",
   "grep.md": "Search file contents; non-summary results include LINE:HASH anchors for edits.",
 
   "write.md": "Create or overwrite a complete file and return anchors.",
@@ -14,30 +14,30 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
 
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
-    "Use read for file contents, images/screenshots, ranges, symbols, and edit anchors.",
+    "Use readSeek_read for file contents, images/screenshots, ranges, symbols, and edit anchors.",
     "Use map or symbol mode before pulling large code files into context.",
-    "Use read for images; it returns the image attachment plus OCR-extracted text, so you don't need separate OCR tools.",
+    "Use readSeek_read for images; it returns the image attachment plus OCR-extracted text, so you don't need separate OCR tools.",
   ],
   "edit.md": [
-    "Use edit with fresh LINE:HASH anchors for existing files.",
+    "Use readSeek_edit with fresh LINE:HASH anchors for existing files.",
     "Prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
   ],
   "grep.md": [
-    "Use grep for text search and edit-ready matching anchors.",
-    "Use grep summary mode for broad count/file discovery before narrowing.",
+    "Use readSeek_grep for text search and edit-ready matching anchors.",
+    "Use readSeek_grep summary mode for broad count/file discovery before narrowing.",
   ],
 
   "write.md": [
-    "Use write to create files or intentionally overwrite whole files.",
-    "Use edit rather than write for small changes or appends to existing files.",
+    "Use readSeek_write to create files or intentionally overwrite whole files.",
+    "Use readSeek_edit rather than readSeek_write for small changes or appends to existing files.",
   ],
   "sg.md": [
-    "Use search for AST-shaped code patterns.",
-    "Use grep instead of search for plain text.",
+    "Use readSeek_search for AST-shaped code patterns.",
+    "Use readSeek_grep instead of readSeek_search for plain text.",
   ],
   "refs.md": [
-    "Use refs to find every usage of an identifier before renaming or deleting it.",
-    "Use refs with scope plus line/column to follow a specific binding instead of every same-named identifier.",
+    "Use readSeek_refs to find every usage of an identifier before renaming or deleting it.",
+    "Use readSeek_refs with scope plus line/column to follow a specific binding instead of every same-named identifier.",
   ],
 };
 
@@ -47,11 +47,19 @@ interface ToolPromptMetadata {
   promptGuidelines: string[];
 }
 
+function stripFrontmatter(prompt: string): string {
+  if (!prompt.startsWith("---\n")) return prompt;
+  const end = prompt.indexOf("\n---\n", 4);
+  return end === -1 ? prompt : prompt.slice(end + 5).trimStart();
+}
+
 function loadPrompt(promptUrl: URL): string {
-  return readFileSync(promptUrl, "utf-8")
-    .replaceAll("{{DEFAULT_MAX_LINES}}", String(DEFAULT_MAX_LINES))
-    .replaceAll("{{DEFAULT_MAX_BYTES}}", formatSize(DEFAULT_MAX_BYTES))
-    .trim();
+  return stripFrontmatter(
+    readFileSync(promptUrl, "utf-8")
+      .replaceAll("{{DEFAULT_MAX_LINES}}", String(DEFAULT_MAX_LINES))
+      .replaceAll("{{DEFAULT_MAX_BYTES}}", formatSize(DEFAULT_MAX_BYTES))
+      .trim(),
+  );
 }
 
 function firstPromptParagraph(prompt: string): string {

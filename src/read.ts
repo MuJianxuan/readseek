@@ -26,7 +26,7 @@ import { buildReadOutput } from "./read-output.js";
 
 import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { readseekRead, readseekDetect, type ReadSeekDetection } from "./readseek-client.js";
+import { readSeekRead, readSeekDetect, type ReadSeekDetection } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { resolveReadSeekOcrMode } from "./readseek-settings.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidthCached } from "./tui-render-utils.js";
@@ -65,9 +65,9 @@ export interface ExecuteReadOptions {
 function hasReadAnchors(result: AgentToolResult<any>): boolean {
 	const details = (result as { details?: unknown }).details;
 	if (!details || typeof details !== "object") return false;
-	const readseekValue = (details as { readseekValue?: unknown }).readseekValue;
-	if (!readseekValue || typeof readseekValue !== "object") return false;
-	const lines = (readseekValue as { lines?: unknown }).lines;
+	const readSeekValue = (details as { readSeekValue?: unknown }).readSeekValue;
+	if (!readSeekValue || typeof readSeekValue !== "object") return false;
+	const lines = (readSeekValue as { lines?: unknown }).lines;
 	return Array.isArray(lines) && lines.length > 0;
 }
 
@@ -171,19 +171,19 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	if (hasBinaryContent) {
 		let detection: ReadSeekDetection | undefined;
 		try {
-			detection = await readseekDetect(absolutePath, { signal });
+			detection = await readSeekDetect(absolutePath, { signal });
 		} catch {
 		}
 		if (detection?.kind === "image") {
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
 			const ocrMode = resolveReadSeekOcrMode();
-			const shouldRunVision = ocrMode === "on" || (ocrMode === "auto" && !opts.modelSupportsImages);
+			const shouldRunVision = ocrMode === "force" || (ocrMode === "auto" && !opts.modelSupportsImages);
 			if (!shouldRunVision) return succeed(builtinResult);
 
 			let ocrFailed = false;
 			try {
-				const ocrDetection = await readseekDetect(absolutePath, {
+				const ocrDetection = await readSeekDetect(absolutePath, {
 					ocr: true,
 					caption: true,
 					objects: true,
@@ -356,33 +356,33 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	}
 
 	throwIfAborted(signal);
-	let readseekOutput: Awaited<ReturnType<typeof readseekRead>>;
+	let readSeekOutput: Awaited<ReturnType<typeof readSeekRead>>;
 	try {
-		readseekOutput = total === 0
-			? await readseekRead(absolutePath, undefined, undefined, { signal })
-			: await readseekRead(absolutePath, startLine, endIdx, { signal });
+		readSeekOutput = total === 0
+			? await readSeekRead(absolutePath, undefined, undefined, { signal })
+			: await readSeekRead(absolutePath, startLine, endIdx, { signal });
 	} catch (err: any) {
 		const detail = err?.message ? ` — ${err.message}` : "";
 		const message = `readseek failed while reading ${rawPath}${detail}`;
 		return buildToolErrorResult("read", "readseek-error", message, { path: rawParams.path, hint: "Ensure @jarkkojs/readseek and its npm platform package are installed.", details: { message: err?.message } });
 	}
 	const expectedLineCount = Math.max(0, endIdx - startLine + 1);
-	const invalidLine = readseekOutput.hashlines.find((line, index) => line.line !== startLine + index);
-	if (readseekOutput.hashlines.length !== expectedLineCount || invalidLine) {
+	const invalidLine = readSeekOutput.hashlines.find((line, index) => line.line !== startLine + index);
+	if (readSeekOutput.hashlines.length !== expectedLineCount || invalidLine) {
 		const message = invalidLine
 			? `readseek returned non-sequential line ${invalidLine.line} for requested range ${startLine}-${endIdx}`
-			: `readseek returned ${readseekOutput.hashlines.length} lines for requested range ${startLine}-${endIdx} (${expectedLineCount} expected)`;
+			: `readseek returned ${readSeekOutput.hashlines.length} lines for requested range ${startLine}-${endIdx} (${expectedLineCount} expected)`;
 		return buildToolErrorResult("read", "readseek-output-mismatch", message, { path: rawParams.path });
 	}
-	const readseekLines: ReadSeekLine[] = readseekOutput.hashlines.map((line) => ({
+	const readSeekLines: ReadSeekLine[] = readSeekOutput.hashlines.map((line) => ({
 		line: line.line,
 		hash: line.hash,
 		anchor: `${line.line}:${line.hash}`,
 		raw: line.text,
 		display: escapeControlCharsForDisplay(line.text),
 	}));
-	const selected = readseekLines.map((line) => line.raw);
-	const formatted = renderReadSeekLines(readseekLines);
+	const selected = readSeekLines.map((line) => line.raw);
+	const formatted = renderReadSeekLines(readSeekLines);
 
 	const truncation = truncateHead(formatted, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
 
@@ -423,7 +423,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		endLine: endIdx,
 		totalLines: total,
 		selectedLines: selected,
-		lines: readseekLines,
+		lines: readSeekLines,
 		warnings: structuredWarnings,
 		truncation: truncation.truncated
 			? {
@@ -456,7 +456,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		content: [{ type: "text", text: readOutput.text }],
 		details: {
 			truncation: truncation.truncated ? truncation : undefined,
-			readseekValue: readOutput.readseekValue,
+			readSeekValue: readOutput.readSeekValue,
 		},
 	});
 }
@@ -469,11 +469,7 @@ function splitReadSeekLines(text: string): string[] {
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		policy: "read-only",
-		pythonName: "read",
-		defaultExposure: "safe-by-default",
-	}, {
-		name: "read",
+		name: "readSeek_read",
 		label: "Read",
 		description: READ_PROMPT_METADATA.description,
 		promptSnippet: READ_PROMPT_METADATA.promptSnippet,
@@ -529,16 +525,16 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				return new Text(clampLinesToWidth([summaryLine(errorText)], width).join("\n"), 0, 0);
 			}
 
-			const readseekValue = (result.details as any)?.readseekValue as { range: { startLine: number; endLine: number; totalLines: number }; truncation: any; symbol: any; map: any; warnings: ReadSeekWarning[] } | undefined;
-			if (!readseekValue) {
+			const readSeekValue = (result.details as any)?.readSeekValue as { range: { startLine: number; endLine: number; totalLines: number }; truncation: any; symbol: any; map: any; warnings: ReadSeekWarning[] } | undefined;
+			if (!readSeekValue) {
 				const lines = textContent.split("\n").filter(Boolean).length || textContent.split("\n").length;
 				return new Text(summaryLine(`loaded ${lines} ${lines === 1 ? "line" : "lines"}`, { hidden: !!textContent && !expanded }), 0, 0);
 			}
 
-			const info = formatReadResultText({ range: readseekValue.range, truncation: readseekValue.truncation, symbol: readseekValue.symbol, map: readseekValue.map, warnings: readseekValue.warnings });
-			const visibleLines = info.truncated && readseekValue.truncation ? readseekValue.truncation.outputLines : readseekValue.range.endLine - readseekValue.range.startLine + 1;
+			const info = formatReadResultText({ range: readSeekValue.range, truncation: readSeekValue.truncation, symbol: readSeekValue.symbol, map: readSeekValue.map, warnings: readSeekValue.warnings });
+			const visibleLines = info.truncated && readSeekValue.truncation ? readSeekValue.truncation.outputLines : readSeekValue.range.endLine - readSeekValue.range.startLine + 1;
 			const loadedWord = visibleLines === 1 ? "line" : "lines";
-			const summaryParts: string[] = [info.truncated ? `loaded ${visibleLines} of ${readseekValue.truncation?.totalLines ?? readseekValue.range.totalLines} ${loadedWord} (truncated)` : `loaded ${visibleLines} ${loadedWord}`];
+			const summaryParts: string[] = [info.truncated ? `loaded ${visibleLines} of ${readSeekValue.truncation?.totalLines ?? readSeekValue.range.totalLines} ${loadedWord} (truncated)` : `loaded ${visibleLines} ${loadedWord}`];
 			if (info.symbolBadge) summaryParts.push(info.symbolBadge);
 			for (const badge of info.badges) summaryParts.push(badge);
 			const summary = summaryParts.join(" • ");

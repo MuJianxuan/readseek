@@ -2,7 +2,7 @@
 tools: hover
 ---
 
-Use hover to identify the identifier and enclosing symbol at a cursor
+Use `readSeek_hover` to identify the identifier and enclosing symbol at a cursor
 position. Calls `readseek identify` with the file content sent via stdin
 so unsaved editor content is included.
 
@@ -14,6 +14,6 @@ so unsaved editor content is included.
 
 ## When to use
 
-- Before a rename, to confirm the identifier under the cursor.
+- Before a `readSeek_rename`, to confirm the identifier under the cursor.
 - Before a go-to-definition, to get the qualified symbol name.
 - To inspect what symbol a specific line belongs to.

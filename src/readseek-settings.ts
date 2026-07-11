@@ -2,10 +2,20 @@ import { readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export type ReadSeekOcrMode = "force" | "off" | "auto";
+export type ReadSeekSyntaxValidationMode = "warn" | "block" | "off";
+
+interface ReadSeekGrepSettings {
+  maxLines?: number;
+  maxBytes?: number;
+}
+
 interface ReadSeekJsonSettings {
-  grep?: { maxLines?: number; maxBytes?: number };
-  edit?: { diffDisplay?: "collapsed" | "expanded" };
-  read?: { ocrMode?: "on" | "off" | "auto" };
+  excludeTools?: string[];
+  ocrMode?: ReadSeekOcrMode;
+  syntaxValidation?: ReadSeekSyntaxValidationMode;
+  timeoutMs?: number;
+  grep?: ReadSeekGrepSettings;
 }
 
 interface ReadSeekSettingsWarning {
@@ -18,7 +28,6 @@ interface ReadSeekSettingsResult {
   settings: ReadSeekJsonSettings;
   warnings: ReadSeekSettingsWarning[];
 }
-
 
 function defaultGlobalSettingsPath(): string {
   return join(homedir(), ".pi/agent/readseek/settings.json");
@@ -50,40 +59,95 @@ function readPositive(
   return undefined;
 }
 
+function readEnum<T extends string>(
+  raw: Record<string, unknown>,
+  key: string,
+  values: readonly T[],
+  path: string,
+  source: string,
+  warnings: ReadSeekSettingsWarning[],
+): T | undefined {
+  if (!(key in raw)) return undefined;
+  const val = raw[key];
+  if (typeof val === "string" && (values as readonly string[]).includes(val)) return val as T;
+  warnings.push(invalid(source, path));
+  return undefined;
+}
+
+function readOcrMode(
+  raw: Record<string, unknown>,
+  source: string,
+  warnings: ReadSeekSettingsWarning[],
+): ReadSeekOcrMode | undefined {
+  if (!("ocrMode" in raw)) return undefined;
+  const val = raw.ocrMode;
+  if (val === "on") return "force";
+  if (val === "force" || val === "off" || val === "auto") return val;
+  warnings.push(invalid(source, "readseek.ocrMode"));
+  return undefined;
+}
+
+function readStringArray(
+  raw: Record<string, unknown>,
+  key: string,
+  path: string,
+  source: string,
+  warnings: ReadSeekSettingsWarning[],
+): string[] | undefined {
+  if (!(key in raw)) return undefined;
+  const value = raw[key];
+  if (!Array.isArray(value)) {
+    warnings.push(invalid(source, path));
+    return undefined;
+  }
+
+  const strings: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.trim() === "") {
+      warnings.push(invalid(source, path));
+      return undefined;
+    }
+    strings.push(item);
+  }
+  return strings;
+}
 
 function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult {
   const settings: ReadSeekJsonSettings = {};
   const warnings: ReadSeekSettingsWarning[] = [];
-  if (!isRecord(raw)) return { settings, warnings };
+  if (!isRecord(raw) || !isRecord(raw.readseek)) return { settings, warnings };
+  const section = raw.readseek;
 
-  if (isRecord(raw.grep)) {
-    const grep: NonNullable<ReadSeekJsonSettings["grep"]> = {};
-    const maxLines = readPositive(raw.grep, "maxLines", "grep.maxLines", source, warnings);
-    if (maxLines !== undefined) grep.maxLines = maxLines;
-    const maxBytes = readPositive(raw.grep, "maxBytes", "grep.maxBytes", source, warnings);
-    if (maxBytes !== undefined) grep.maxBytes = maxBytes;
-    if (Object.keys(grep).length > 0) settings.grep = grep;
-  }
+  const excludeTools = readStringArray(section, "excludeTools", "readseek.excludeTools", source, warnings);
+  if (excludeTools !== undefined) settings.excludeTools = excludeTools;
 
+  const ocrMode = readOcrMode(section, source, warnings);
+  if (ocrMode !== undefined) settings.ocrMode = ocrMode;
 
-  if (isRecord(raw.edit)) {
-    const edit: NonNullable<ReadSeekJsonSettings["edit"]> = {};
-    if ("diffDisplay" in raw.edit) {
-      const value = raw.edit.diffDisplay;
-      if (value === "collapsed" || value === "expanded") edit.diffDisplay = value;
-      else warnings.push(invalid(source, "edit.diffDisplay"));
+  const syntaxValidation = readEnum(
+    section,
+    "syntaxValidation",
+    ["warn", "block", "off"] as const,
+    "readseek.syntaxValidation",
+    source,
+    warnings,
+  );
+  if (syntaxValidation !== undefined) settings.syntaxValidation = syntaxValidation;
+
+  const timeoutMs = readPositive(section, "timeoutMs", "readseek.timeoutMs", source, warnings);
+  if (timeoutMs !== undefined) settings.timeoutMs = timeoutMs;
+
+  if ("grep" in section) {
+    if (isRecord(section.grep)) {
+      const grep: ReadSeekGrepSettings = {};
+      const maxLines = readPositive(section.grep, "maxLines", "readseek.grep.maxLines", source, warnings);
+      if (maxLines !== undefined) grep.maxLines = maxLines;
+      const maxBytes = readPositive(section.grep, "maxBytes", "readseek.grep.maxBytes", source, warnings);
+      if (maxBytes !== undefined) grep.maxBytes = maxBytes;
+      if (Object.keys(grep).length > 0) settings.grep = grep;
+    } else {
+      warnings.push(invalid(source, "readseek.grep"));
     }
-    if (Object.keys(edit).length > 0) settings.edit = edit;
-  }
-
-  if (isRecord(raw.read)) {
-    const read: NonNullable<ReadSeekJsonSettings["read"]> = {};
-    if ("ocrMode" in raw.read) {
-      const value = raw.read.ocrMode;
-      if (value === "on" || value === "off" || value === "auto") read.ocrMode = value;
-      else warnings.push(invalid(source, "read.ocrMode"));
-    }
-    if (Object.keys(read).length > 0) settings.read = read;
   }
 
   return { settings, warnings };
@@ -128,14 +192,10 @@ function readSettingsFile(path: string): ReadSeekSettingsResult {
 }
 
 function mergeSettings(base: ReadSeekJsonSettings, override: ReadSeekJsonSettings): ReadSeekJsonSettings {
-  const merged: ReadSeekJsonSettings = {};
+  const settings: ReadSeekJsonSettings = { ...base, ...override };
   const grep = { ...(base.grep ?? {}), ...(override.grep ?? {}) };
-  if (Object.keys(grep).length > 0) merged.grep = grep;
-  const edit = { ...(base.edit ?? {}), ...(override.edit ?? {}) };
-  if (Object.keys(edit).length > 0) merged.edit = edit;
-  const read = { ...(base.read ?? {}), ...(override.read ?? {}) };
-  if (Object.keys(read).length > 0) merged.read = read;
-  return merged;
+  if (Object.keys(grep).length > 0) settings.grep = grep;
+  return settings;
 }
 
 export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
@@ -147,24 +207,18 @@ export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
   };
 }
 
-export function resolveEditDiffDisplay(env: NodeJS.ProcessEnv = process.env): "collapsed" | "expanded" {
-  const raw = env.READSEEK_EDIT_DIFF_DISPLAY;
-  if (typeof raw === "string") {
-    const normalized = raw.trim().toLowerCase();
-    if (normalized === "expanded" || normalized === "collapsed") return normalized;
-  }
-  const json = resolveReadSeekJsonSettings().settings.edit?.diffDisplay;
-  if (json === "expanded" || json === "collapsed") return json;
-  return "collapsed";
+export function resolveReadSeekExcludeTools(): string[] {
+  return resolveReadSeekJsonSettings().settings.excludeTools ?? [];
 }
 
-export function resolveReadSeekOcrMode(env: NodeJS.ProcessEnv = process.env): "on" | "off" | "auto" {
-  const raw = env.READSEEK_READ_OCR_MODE;
-  if (typeof raw === "string") {
-    const normalized = raw.trim().toLowerCase();
-    if (normalized === "on" || normalized === "off" || normalized === "auto") return normalized;
-  }
-  const json = resolveReadSeekJsonSettings().settings.read?.ocrMode;
-  if (json === "on" || json === "off" || json === "auto") return json;
-  return "on";
+export function resolveReadSeekOcrMode(): ReadSeekOcrMode {
+  return resolveReadSeekJsonSettings().settings.ocrMode ?? "force";
+}
+
+export function resolveReadSeekSyntaxValidation(): ReadSeekSyntaxValidationMode | undefined {
+  return resolveReadSeekJsonSettings().settings.syntaxValidation;
+}
+
+export function resolveReadSeekTimeoutMs(): number | undefined {
+  return resolveReadSeekJsonSettings().settings.timeoutMs;
 }

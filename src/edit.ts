@@ -29,8 +29,6 @@ import { upsertDiffComponent, upsertTextComponent } from "./tui-diff-component.j
 import type { FreshAnchorsPredicate } from "./tool-types.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
-import { resolveEditDiffDisplay } from "./readseek-settings.js";
-
 const EDIT_PENDING_PREVIEW_STATE_KEY = "hashline-edit-pending-preview";
 
 function pendingPreviewLines(summary: string, preview: PendingDiffPreviewResult | undefined, expanded: boolean): { lines: string[]; diffData?: ReturnType<typeof buildDiffData>; headerLabel?: string } {
@@ -73,7 +71,7 @@ type HashlineParams = Static<typeof hashlineEditSchema>;
 
 const EDIT_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/edit.md", import.meta.url),
-	promptSnippet: "Edit files using hash-verified anchors from read/grep/search/write",
+	promptSnippet: "Edit files using hash-verified anchors from readSeek_read/readSeek_grep/readSeek_search/readSeek_write",
 });
 
 function buildEditError(
@@ -85,7 +83,7 @@ function buildEditError(
 ): {
 	content: [{ type: "text"; text: string }];
 	isError: true;
-	details: EditToolDetails & { readseekValue: any };
+	details: EditToolDetails & { readSeekValue: any };
 } {
 	return {
 		content: [{ type: "text", text: message }],
@@ -94,13 +92,13 @@ function buildEditError(
 			diff: "",
 			patch: "",
 			firstChangedLine: undefined,
-			readseekValue: {
+			readSeekValue: {
 				tool: "edit",
 				ok: false,
 				path,
 				error: buildReadSeekError(code, message, hint, errorDetails),
 			},
-		} as EditToolDetails & { readseekValue: any },
+		} as EditToolDetails & { readSeekValue: any },
 	};
 }
 
@@ -137,14 +135,14 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 	if (wasReadInSession && !wasReadInSession(absolutePath)) {
 		const message = [
 			`You must get fresh anchors for ${absolutePath} before editing it.`,
-			`Call read(${JSON.stringify(rawPath)}) first, or use grep, search, or write to produce fresh anchors for this file.`,
-			"edit requires fresh LINE:HASH anchors from read, grep, search, or write so the hashes match the current file contents.",
+			`Call readSeek_read(${JSON.stringify(rawPath)}) first, or use readSeek_grep, readSeek_search, or readSeek_write to produce fresh anchors for this file.`,
+			"readSeek_edit requires fresh LINE:HASH anchors from readSeek_read, readSeek_grep, readSeek_search, or readSeek_write so the hashes match the current file contents.",
 		].join(" ");
 		return buildEditError(
 			absolutePath,
 			"file-not-read",
 			message,
-			`Call read(${JSON.stringify(rawPath)}) first, or use grep, search, or write to produce fresh anchors for this file.`,
+			`Call readSeek_read(${JSON.stringify(rawPath)}) first, or use readSeek_grep, readSeek_search, or readSeek_write to produce fresh anchors for this file.`,
 		);
 	}
 	const hasTopLevelReplaceInput =
@@ -253,7 +251,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 	// Error-precedence order: replace_symbol resolution > anchor-overlap > anchored-edit.
 	//
 	// store successful probe results and reuse them in the apply loop so
-	// readseekMapContent is invoked at most once per replace_symbol edit.
+	// readSeekMapContent is invoked at most once per replace_symbol edit.
 	const replaceSymbolRanges: { start: number; end: number }[] = [];
 	const rsProbeResults: { type: "ok"; content: string; replacement: string; warnings: string[]; range: { start: number; end: number } }[] = [];
 	try {
@@ -365,7 +363,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 	// Apply pass: reuse all probe results. The probe pass resolved every
 	// replace_symbol against originalNormalized; apply those replacements in
 	// reverse source order so original line ranges stay valid and no second
-	// replaceSymbol/readseekMapContent call is needed.
+	// replaceSymbol/readSeekMapContent call is needed.
 	const replaceSymbolWarnings: string[] = [];
 	if (rsProbeResults.length > 0) {
 		const lines = originalNormalized.split("\n");
@@ -539,10 +537,10 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 			patch: builtOutput.patch,
 			diffData,
 			firstChangedLine: anchorResult.firstChangedLine ?? diffResult.firstChangedLine,
-			readseekValue: builtOutput.readseekValue,
+			readSeekValue: builtOutput.readSeekValue,
 		} as EditToolDetails & {
 			diffData: typeof diffData;
-			readseekValue: {
+			readSeekValue: {
 				tool: string;
 				ok: boolean;
 				path: string;
@@ -567,11 +565,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		policy: "mutating",
-		pythonName: "edit",
-		defaultExposure: "not-safe-by-default",
-	}, {
-		name: "edit",
+		name: "readSeek_edit",
 		label: "Edit",
 		description: EDIT_PROMPT_METADATA.description,
 		promptSnippet: EDIT_PROMPT_METADATA.promptSnippet,
@@ -617,7 +611,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				previewKey,
 				() => buildPendingEditPreviewData(args ?? {}, context.cwd ?? process.cwd()),
 			);
-			const expanded = !!context.expanded || resolveEditDiffDisplay() === "expanded";
+			const expanded = !!context.expanded;
 			const preview2 = pendingPreviewLines(text, preview, expanded);
 			if (preview2.diffData) {
 				return upsertDiffComponent(context.lastComponent, { prefixLines: preview2.lines, diffData: preview2.diffData, theme, expanded: true });
@@ -638,13 +632,13 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				.join("\n") ?? "";
 			const details = result.details ?? {};
 			const diff: string = details.diff ?? "";
-			const readseekValue = details.readseekValue as {
+			const readSeekValue = details.readSeekValue as {
 				warnings?: string[];
 				noopEdits?: unknown[];
 			} | undefined;
-			const warnings = readseekValue?.warnings ?? [];
-			const noopEdits = readseekValue?.noopEdits ?? [];
-			const semanticClassification = (readseekValue as any)?.semanticSummary?.classification as string | undefined;
+			const warnings = readSeekValue?.warnings ?? [];
+			const noopEdits = readSeekValue?.noopEdits ?? [];
+			const semanticClassification = (readSeekValue as any)?.semanticSummary?.classification as string | undefined;
 
 			const info = formatEditResultText({
 				isError: isError || !!result.isError,
@@ -655,7 +649,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				semanticClassification: semanticClassification as any,
 			});
 
-			const expanded = baseExpanded || resolveEditDiffDisplay() === "expanded";
+			const expanded = baseExpanded;
 			const diffData = (details as any).diffData;
 			const stats = diffData?.stats ?? { added: 0, removed: 0 };
 			let text = "";

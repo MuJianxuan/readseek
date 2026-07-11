@@ -1,4 +1,4 @@
-Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `edit`; supported images return attachments and may append OCR/caption/object text depending on `read.ocrMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `readSeek_edit`; supported images return attachments and may append OCR/caption/object text depending on `readseek.ocrMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
 
 ## Choose the right read
 
@@ -15,7 +15,7 @@ Read files through readseek. Text output uses `LINE:HASH|content` anchors that c
 - `symbol` — symbol query; supports `Class.method`, package-relative Java names, and `Name@<line>` disambiguation; cannot combine with `offset` / `limit`.
 - `bundle` — only `"local"`; requires `symbol` and cannot combine with `map`.
 
-When a full-file read is truncated, readseek appends a structural map automatically when available. Use map line ranges for follow-up `read({ offset, limit })` calls.
+When a full-file read is truncated, readseek appends a structural map automatically when available. Use map line ranges for follow-up `readSeek_read({ offset, limit })` calls.
 
 ## Symbol examples
 
@@ -38,4 +38,4 @@ Result behavior:
 - **Fuzzy**: returns the best camelCase/substring match with a warning; verify before editing from those anchors.
 - **Not found** or **unmappable**: falls back to normal read with a warning and, when available, symbol suggestions.
 
-Hash anchors from normal, symbol, and bundled reads are valid for `edit` until the file changes.
+Hash anchors from normal, symbol, and bundled reads are valid for `readSeek_edit` until the file changes.

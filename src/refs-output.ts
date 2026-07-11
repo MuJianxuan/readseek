@@ -17,7 +17,7 @@ interface BuildRefsOutputInput {
 
 interface RefsOutputResult {
   text: string;
-  readseekValue: {
+  readSeekValue: {
     tool: "refs";
     files: Array<{
       path: string;
@@ -30,13 +30,13 @@ export function buildRefsOutput(input: BuildRefsOutputInput): RefsOutputResult {
   if (input.files.length === 0) {
     return {
       text: `No references found for: ${input.name}`,
-      readseekValue: { tool: "refs", files: [] },
+      readSeekValue: { tool: "refs", files: [] },
     };
   }
 
   return {
     text: formatAnchoredFileBlocks(input.files, (line) => (line.enclosingSymbol ? ` (in ${line.enclosingSymbol})` : "")),
-    readseekValue: {
+    readSeekValue: {
       tool: "refs",
       files: input.files.map((file) => ({
         path: file.path,

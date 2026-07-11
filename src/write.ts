@@ -80,7 +80,7 @@ export interface WriteResult extends WriteDiffFields {
   text: string;
   warnings: string[];
   writeState?: "created" | "overwritten";
-  readseekValue: {
+  readSeekValue: {
     tool: "write";
     path: string;
     lines: ReadSeekLine[];
@@ -143,24 +143,24 @@ export async function executeWrite(opts: {
 
   const { path: filePath, content, map: requestMap, cwd } = opts;
   const warnings: string[] = [];
-  const readseekWarnings: ReadSeekWarning[] = [];
+  const readSeekWarnings: ReadSeekWarning[] = [];
 
   if (hasBareCarriageReturn(content)) {
-    const message = "File content contains bare CR (\\r) line endings; write refuses to emit anchors that read/edit would normalize differently.";
+    const message = "File content contains bare CR (\\r) line endings; readSeek_write refuses to emit anchors that readSeek_read/readSeek_edit would normalize differently.";
     warnings.push(message);
-    readseekWarnings.push(buildReadSeekWarning("bare-cr", message));
+    readSeekWarnings.push(buildReadSeekWarning("bare-cr", message));
     return buildToolErrorResult("write", "bare-cr", `Cannot write ${filePath}\n⚠️ ${message}`, {
       path: filePath,
-      extra: { lines: [], warnings: readseekWarnings },
+      extra: { lines: [], warnings: readSeekWarnings },
     });
   }
   if (looksLikeBinary(Buffer.from(content, "utf-8"))) {
     const message = "File content appears to be binary.";
     warnings.push(message);
-    readseekWarnings.push(buildReadSeekWarning("binary-content", message));
+    readSeekWarnings.push(buildReadSeekWarning("binary-content", message));
     return buildToolErrorResult("write", "binary-content", `Cannot write ${filePath}\n⚠️ ${message} — refusing to write.`, {
       path: filePath,
-      extra: { lines: [], warnings: readseekWarnings },
+      extra: { lines: [], warnings: readSeekWarnings },
     });
   }
 
@@ -173,13 +173,13 @@ export async function executeWrite(opts: {
 	await writeFile(filePath, content, "utf-8");
   // Compute hashlines
   const rawLines = content.split("\n");
-  const readseekLines: ReadSeekLine[] = [];
+  const readSeekLines: ReadSeekLine[] = [];
   const displayLines: string[] = [];
 
   for (let i = 0; i < rawLines.length; i++) {
     const lineNum = i + 1;
-    const readseekLine = buildReadSeekLine(lineNum, rawLines[i]);
-    readseekLines.push(readseekLine);
+    const readSeekLine = buildReadSeekLine(lineNum, rawLines[i]);
+    readSeekLines.push(readSeekLine);
     displayLines.push(formatHashlineDisplay(lineNum, rawLines[i]));
   }
 
@@ -188,9 +188,9 @@ export async function executeWrite(opts: {
   let text = truncated.content;
   if (truncated.truncated) {
     if (truncated.truncatedBy === "lines") {
-      text += `\n[… ${truncated.totalLines - truncated.outputLines} more lines not shown — full anchors in readseekValue]`;
+      text += `\n[… ${truncated.totalLines - truncated.outputLines} more lines not shown — full anchors in readSeekValue]`;
     } else {
-      text += "\n[… output truncated at 50 KB — full anchors in readseekValue]";
+      text += "\n[… output truncated at 50 KB — full anchors in readSeekValue]";
     }
   }
 
@@ -228,11 +228,11 @@ export async function executeWrite(opts: {
     writeState: existedBeforeWrite ? "overwritten" : "created",
     diff: diffResult.diff,
     diffData,
-    readseekValue: {
+    readSeekValue: {
       tool: "write",
       path: displayPath,
-      lines: readseekLines,
-      warnings: readseekWarnings,
+      lines: readSeekLines,
+      warnings: readSeekWarnings,
       diff: diffResult.diff,
       diffData,
       ...(requestMap ? { map: { appended: mapAppended } } : {}),
@@ -242,11 +242,7 @@ export async function executeWrite(opts: {
 
 export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = {}) {
   const tool = registerReadSeekTool(pi, {
-    policy: "mutating",
-    pythonName: "write",
-    defaultExposure: "not-safe-by-default",
-  }, {
-    name: "write",
+    name: "readSeek_write",
     label: "write",
     description: WRITE_PROMPT_METADATA.description,
     promptSnippet: WRITE_PROMPT_METADATA.promptSnippet,
@@ -275,7 +271,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
 
           if (isToolErrorResult(result)) return result;
 
-          if (result.readseekValue.lines.length > 0) {
+          if (result.readSeekValue.lines.length > 0) {
             options.onFileAnchored?.(absolutePath);
           }
 
@@ -285,7 +281,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
               ...(result.diff !== undefined ? { diff: result.diff } : {}),
               ...(result.diffData !== undefined ? { diffData: result.diffData } : {}),
               ...(result.writeState ? { writeState: result.writeState } : {}),
-              readseekValue: result.readseekValue,
+              readSeekValue: result.readSeekValue,
               warnings: result.warnings,
             },
           };
@@ -326,7 +322,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       if (isPartial) return renderPendingResult("pending write", width);
       const details = result.details ?? {};
       const output = result.content?.[0]?.type === "text" ? result.content[0].text : "";
-      if (result.isError || details.readseekValue?.ok === false) {
+      if (result.isError || details.readSeekValue?.ok === false) {
         return renderErrorResult(output, { expanded, width, fallback: "write failed" });
       }
       const diffData = details.diffData;
@@ -335,12 +331,12 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       // instead of a diff body — every line is an add, so the gutter, line
       // numbers, and red/green tinting are noise.
       if (state === "created") {
-        const readseekLines = (details.readseekValue?.lines ?? []) as Array<{ raw: string }>;
-        const hasContent = readseekLines.length > 0;
+        const readSeekLines = (details.readSeekValue?.lines ?? []) as Array<{ raw: string }>;
+        const hasContent = readSeekLines.length > 0;
         const header = summaryLine(state, { hidden: hasContent && !expanded });
         const lines = header.split("\n");
         if (expanded && hasContent) {
-          const content = readseekLines.map((l) => l.raw).join("\n");
+          const content = readSeekLines.map((l) => l.raw).join("\n");
           lines.push(...formatContentPreviewLines(content, theme));
         }
         return new Text(clampLinesToWidth(lines, width).join("\n"), 0, 0);

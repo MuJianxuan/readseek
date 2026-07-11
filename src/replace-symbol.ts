@@ -1,4 +1,4 @@
-import { readseekMapContent } from "./readseek-client.js";
+import { readSeekMapContent } from "./readseek-client.js";
 import { findSymbol } from "./readseek/symbol-lookup.js";
 import { formatAmbiguous, formatNotFound } from "./readseek/symbol-error-format.js";
 import { normalizeToLF } from "./edit-diff.js";
@@ -33,7 +33,7 @@ function reindent(text: string, indent: string): string {
 }
 
 export async function replaceSymbol(input: ReplaceSymbolInput): Promise<ReplaceSymbolResult> {
-	const map = await readseekMapContent(input.filePath, input.content);
+	const map = await readSeekMapContent(input.filePath, input.content);
 	if (!map) {
 		return {
 			type: "unsupported",

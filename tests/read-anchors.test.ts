@@ -4,11 +4,12 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createReadToolExecuteMock, readseekMapMock, readseekReadMock, readseekDetectMock } = vi.hoisted(() => ({
+const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, ocrMode } = vi.hoisted(() => ({
 	createReadToolExecuteMock: vi.fn(),
-	readseekMapMock: vi.fn(),
-	readseekReadMock: vi.fn(),
-	readseekDetectMock: vi.fn(),
+	readSeekMapMock: vi.fn(),
+	readSeekReadMock: vi.fn(),
+	readSeekDetectMock: vi.fn(),
+	ocrMode: { value: "force" as "force" | "off" | "auto" },
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async () => ({
@@ -16,10 +17,18 @@ vi.mock("@earendil-works/pi-coding-agent", async () => ({
 	createReadTool: () => ({ execute: createReadToolExecuteMock }),
 }));
 
+vi.mock("../src/readseek-settings.js", () => ({
+	resolveReadSeekOcrMode: () => ocrMode.value,
+	resolveReadSeekJsonSettings: () => ({ settings: {}, warnings: [] }),
+	resolveReadSeekSyntaxValidation: () => undefined,
+	resolveReadSeekTimeoutMs: () => undefined,
+	resolveReadSeekExcludeTools: () => [],
+}));
+
 vi.mock("../src/readseek-client.js", () => ({
-	readseekMap: readseekMapMock,
-	readseekRead: readseekReadMock,
-	readseekDetect: readseekDetectMock,
+	readSeekMap: readSeekMapMock,
+	readSeekRead: readSeekReadMock,
+	readSeekDetect: readSeekDetectMock,
 }));
 
 const { executeRead } = await import("../src/read.js");
@@ -27,7 +36,7 @@ const { executeRead } = await import("../src/read.js");
 describe("executeRead anchor tracking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		vi.unstubAllEnvs();
+		ocrMode.value = "force";
 	});
 
 	async function writeImage(cwd: string): Promise<string> {
@@ -51,7 +60,7 @@ describe("executeRead anchor tracking", () => {
 			height: 1,
 			animated: false,
 		};
-		readseekDetectMock.mockImplementation((_filePath: string, options?: { ocr?: boolean; caption?: boolean; objects?: boolean }) =>
+		readSeekDetectMock.mockImplementation((_filePath: string, options?: { ocr?: boolean; caption?: boolean; objects?: boolean }) =>
 			Promise.resolve(
 				options?.ocr || options?.caption || options?.objects
 					? {
@@ -70,7 +79,7 @@ describe("executeRead anchor tracking", () => {
 		try {
 			const filePath = path.join(cwd, "file.txt");
 			await writeFile(filePath, "hello\nworld\n", "utf8");
-			readseekReadMock.mockResolvedValueOnce({
+			readSeekReadMock.mockResolvedValueOnce({
 				file: filePath,
 				language: "Text",
 				line_count: 2,
@@ -113,7 +122,7 @@ describe("executeRead anchor tracking", () => {
 				height: 1,
 				animated: false,
 			};
-			readseekDetectMock
+			readSeekDetectMock
 				.mockImplementationOnce(() => Promise.resolve(imageDetection))
 				.mockRejectedValueOnce(new Error("readseek crashed with SIGFPE"));
 			createReadToolExecuteMock.mockResolvedValueOnce({
@@ -133,7 +142,7 @@ describe("executeRead anchor tracking", () => {
 			expect(text).toContain("(OCR) unavailable");
 			expect(text).not.toContain("binary");
 			const details = (result as any).details;
-			expect(details?.readseekValue).toBeUndefined();
+			expect(details?.readSeekValue).toBeUndefined();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -172,7 +181,7 @@ describe("executeRead anchor tracking", () => {
 	it("skips OCR when ocrMode is off", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
-			vi.stubEnv("READSEEK_READ_OCR_MODE", "off");
+			ocrMode.value = "off";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
 			createReadToolExecuteMock.mockResolvedValueOnce({
@@ -190,7 +199,7 @@ describe("executeRead anchor tracking", () => {
 
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
 			expect(text).toBe("image attachment");
-			expect(readseekDetectMock).toHaveBeenCalledTimes(1);
+			expect(readSeekDetectMock).toHaveBeenCalledTimes(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -199,7 +208,7 @@ describe("executeRead anchor tracking", () => {
 	it("skips OCR for image-capable models when ocrMode is auto", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
-			vi.stubEnv("READSEEK_READ_OCR_MODE", "auto");
+			ocrMode.value = "auto";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
 			createReadToolExecuteMock.mockResolvedValueOnce({
@@ -217,7 +226,7 @@ describe("executeRead anchor tracking", () => {
 
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
 			expect(text).toBe("image attachment");
-			expect(readseekDetectMock).toHaveBeenCalledTimes(1);
+			expect(readSeekDetectMock).toHaveBeenCalledTimes(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -228,7 +237,7 @@ describe("executeRead anchor tracking", () => {
 		try {
 			const filePath = path.join(cwd, "file.ts");
 			await writeFile(filePath, "const value = 1;\n", "utf8");
-			readseekReadMock.mockResolvedValueOnce({
+			readSeekReadMock.mockResolvedValueOnce({
 				file: filePath,
 				language: "TypeScript",
 				line_count: 1,
@@ -237,7 +246,7 @@ describe("executeRead anchor tracking", () => {
 				end_line: 1,
 				hashlines: [{ line: 1, hash: "aaa", text: "const value = 1;" }],
 			});
-			readseekMapMock.mockResolvedValueOnce({
+			readSeekMapMock.mockResolvedValueOnce({
 				path: filePath,
 				totalLines: 1,
 				totalBytes: 17,
@@ -255,7 +264,7 @@ describe("executeRead anchor tracking", () => {
 			});
 
 			expect((result as { isError?: boolean }).isError).not.toBe(true);
-			expect((result.details as any).readseekValue.map).toEqual({
+			expect((result.details as any).readSeekValue.map).toEqual({
 				requested: true,
 				appended: true,
 			});

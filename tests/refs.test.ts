@@ -4,14 +4,14 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { classifyReadSeekFailureMock, readseekRefsMock } = vi.hoisted(() => ({
+const { classifyReadSeekFailureMock, readSeekRefsMock } = vi.hoisted(() => ({
 	classifyReadSeekFailureMock: vi.fn(),
-	readseekRefsMock: vi.fn(),
+	readSeekRefsMock: vi.fn(),
 }));
 
 vi.mock("../src/readseek-client.js", () => ({
 	classifyReadSeekFailure: classifyReadSeekFailureMock,
-	readseekRefs: readseekRefsMock,
+	readSeekRefs: readSeekRefsMock,
 }));
 
 vi.mock("../src/register-tool.js", () => ({
@@ -41,7 +41,7 @@ describe("executeRefs", () => {
 			code: "readseek-execution-error",
 			message: String((err as { message?: unknown } | null)?.message || err),
 		}));
-		readseekRefsMock.mockReset();
+		readSeekRefsMock.mockReset();
 	});
 
 	afterEach(async () => {
@@ -50,7 +50,7 @@ describe("executeRefs", () => {
 
 	it("maps scoped cursor validation failures to invalid parameters", async () => {
 		await writeFile(path.join(cwd, "target.rs"), "fn main() {}\n", "utf8");
-		readseekRefsMock.mockRejectedValueOnce(new Error("column 20 exceeds maximum column 13 for line 1"));
+		readSeekRefsMock.mockRejectedValueOnce(new Error("column 20 exceeds maximum column 13 for line 1"));
 
 		const result = await executeRefs({
 			params: { path: "target.rs", name: "main", scope: true, line: 1, column: 20 },
@@ -59,7 +59,7 @@ describe("executeRefs", () => {
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.details.readseekValue.error).toEqual({
+		expect(result.details.readSeekValue.error).toEqual({
 			code: "invalid-parameter",
 			message: "column 20 exceeds maximum column 13 for line 1",
 		});
@@ -67,7 +67,7 @@ describe("executeRefs", () => {
 
 	it("keeps non-validation readseek failures as execution errors", async () => {
 		await writeFile(path.join(cwd, "target.rs"), "fn main() {}\n", "utf8");
-		readseekRefsMock.mockRejectedValueOnce(new Error("parser crashed"));
+		readSeekRefsMock.mockRejectedValueOnce(new Error("parser crashed"));
 
 		const result = await executeRefs({
 			params: { path: "target.rs", name: "main", scope: true, line: 1, column: 1 },
@@ -76,7 +76,7 @@ describe("executeRefs", () => {
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.details.readseekValue.error).toEqual({
+		expect(result.details.readSeekValue.error).toEqual({
 			code: "readseek-execution-error",
 			message: "parser crashed",
 		});

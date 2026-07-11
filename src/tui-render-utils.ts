@@ -238,10 +238,10 @@ export function renderAnchoredFilesResult(
   const textContent = content?.type === "text" ? content.text : "";
   if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
 
-  const readseekValue = (result.details as any)?.readseekValue as
+  const readSeekValue = (result.details as any)?.readSeekValue as
     | { files: Array<{ path: string; lines: any[] }> }
     | undefined;
-  const files = readseekValue?.files ?? [];
+  const files = readSeekValue?.files ?? [];
   if (files.length === 0) return new Text(summaryLine(labels.emptyLabel), 0, 0);
 
   const fileCount = files.length;

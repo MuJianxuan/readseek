@@ -2,8 +2,8 @@
 
 `pi-readseek` is a pi extension for readseek-backed file reading, hash-anchored
 editing, anchored grep, structural maps, symbol lookup, and structural search.
-It resolves conflicts between overlapping pi file-operation tools by exposing
-one consistent readseek-centered surface.
+It exposes readseek tools under the `readSeek_` prefix. Built-in pi tools stay
+active unless excluded in settings.
 
 ## Installation
 
@@ -23,66 +23,56 @@ npm install --save-dev @jarkkojs/readseek
 
 ## Tools
 
-- **read** — reads text files with `LINE:HASH` anchors for later `edit` calls;
-  images are returned as attachments and may include local OCR, caption, and
-  object text. Supports `symbol`, `map`, and `bundle` options powered by
-  `@jarkkojs/readseek`.
-- **edit** — changes existing text files using fresh anchors from `read`,
-  `grep`, `search`, or `write`. Variants: `set_line`, `replace_lines`,
-  `insert_after`, `replace_symbol`, `replace`. Set `new_text` to `""` to
-  delete a line.
-- **grep** — searches text and returns edit-ready `LINE:HASH` anchors without a
-  follow-up `read`.
-- **search** — searches code by structural pattern (AST) and returns anchored
-  matches. Use when syntax matters more than raw text.
-- **refs** — finds binding-accurate references to an identifier and returns
-  anchored usages with their enclosing symbols. Use before renaming or deleting
-  a symbol.
-- **write** — creates or overwrites whole files and returns anchors for
-  immediate follow-up edits.
+- **readSeek_read:** reads text files with `LINE:HASH` anchors; images can
+  include local OCR, captions, and object text.
+- **readSeek_edit:** edits existing text files using fresh `LINE:HASH` anchors.
+- **readSeek_grep:** searches text and returns edit-ready anchors.
+- **readSeek_search:** searches code by structural AST pattern.
+- **readSeek_refs:** finds identifier references with enclosing symbols.
+- **readSeek_rename:** plans or applies binding-aware renames.
+- **readSeek_hover:** identifies the cursor token and enclosing symbol.
+- **readSeek_def:** finds structural symbol definitions.
+- **readSeek_write:** creates or overwrites whole files and returns anchors.
 
 ## Settings
 
 `pi-readseek` reads optional JSON settings from:
 
-| Location | Scope |
-| --- | --- |
-| `~/.pi/agent/readseek/settings.json` | Global |
-| `.pi/readseek/settings.json` | Project |
+- `~/.pi/agent/readseek/settings.json` — Global
+- `.pi/readseek/settings.json` — Project
 
-Project settings override global settings. Image OCR behavior is controlled by
-`read.ocrMode`:
+Project settings override global settings. All settings live in a single
+`readseek` section and are optional (defaults shown):
 
 ```json
 {
-  "read": {
-    "ocrMode": "on"
+  "readseek": {
+    "excludeTools": [],
+    "ocrMode": "force",
+    "syntaxValidation": "warn",
+    "timeoutMs": 120000,
+    "grep": {
+      "maxLines": 2000,
+      "maxBytes": 51200
+    }
   }
 }
 ```
 
-Modes:
-
-- `"on"` — always run local image OCR/caption/object analysis. This is the
-  default.
-- `"off"` — return only the image attachment. Use this as a workaround if the
-  local readseek image-analysis path crashes.
-- `"auto"` — run local image analysis only when the active model does not
-  support native image input.
-
-`READSEEK_READ_OCR_MODE=on|off|auto` overrides the JSON setting for one
-process.
-
-## Related
-
-- [readseek.vim](https://github.com/jarkkojs/readseek.vim) — Vim 9 plugin
-  frontend for the readseek CLI. Provides go-to-definition, references,
-  rename, hover, and structural search from within Vim.
+- **excludeTools:** active tool names to hide after activating `readSeek_*`
+  tools. For a readseek-only file surface, use `["read", "edit", "write",
+  "grep"]`.
+- **ocrMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
+  always runs it, `"off"` returns only the image attachment, and `"auto"`
+  runs it only when the active model does not support native image input.
+- **syntaxValidation:** post-edit syntax-regression check in `readSeek_edit`:
+  `"warn"` writes with a warning, `"block"` aborts without writing, `"off"`
+  skips the check.
+- **timeoutMs:** readseek invocation timeout in milliseconds.
+- **grep.maxLines** / **grep.maxBytes:** visible `readSeek_grep` output
+  budget; values above the defaults are clamped.
 
 ## Licensing
 
 `pi-readseek` is licensed under `MIT`. See [LICENSE](LICENSE) for more
 information.
-
-The upstream `@jarkkojs/readseek` packages are licensed separately as
-`Apache-2.0 AND LGPL-2.1-or-later`.

@@ -1,4 +1,4 @@
-import { readseekCheck, type ReadSeekCheckOutput, type ReadSeekDiagnostic } from "./readseek-client.js";
+import { readSeekCheck, type ReadSeekCheckOutput, type ReadSeekDiagnostic } from "./readseek-client.js";
 
 export interface ValidateInput {
   filePath: string;
@@ -46,8 +46,8 @@ export async function validateSyntaxRegression(
   let before: ReadSeekCheckOutput;
   let after: ReadSeekCheckOutput;
   try {
-    before = input.before === undefined ? EMPTY : await readseekCheck(input.filePath, input.before, { signal: options.signal });
-    after = await readseekCheck(input.filePath, input.after, { signal: options.signal });
+    before = input.before === undefined ? EMPTY : await readSeekCheck(input.filePath, input.before, { signal: options.signal });
+    after = await readSeekCheck(input.filePath, input.after, { signal: options.signal });
   } catch {
     return null;
   }

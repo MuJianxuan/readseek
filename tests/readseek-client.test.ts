@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
 import path from "node:path";
@@ -23,7 +23,7 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { readseekRead, readseekSearch, readseekDetect } = await import("../src/readseek-client.js");
+const { readSeekRead, readSeekSearch, readSeekDetect } = await import("../src/readseek-client.js");
 
 function spawnResult(stdout: string) {
 	const child = new EventEmitter() as EventEmitter & {
@@ -59,21 +59,18 @@ function spawnSignalCrash(signal: NodeJS.Signals) {
 	return child;
 }
 
+const readSeekBinaryPattern = /[\\/]bin[\\/]readseek(\.exe)?$/;
+
 describe("readseek client parsing", () => {
-	let previousReadSeekBin: string | undefined;
 	let tempHome: string;
 
 	beforeEach(async () => {
-		previousReadSeekBin = process.env.READSEEK_BIN;
-		process.env.READSEEK_BIN = "/bin/readseek";
 		tempHome = await mkdtemp(path.join(tmpdir(), "pi-readseek-home-"));
 		homeDir.value = tempHome;
 		spawnMock.mockReset();
 	});
 
 	afterEach(async () => {
-		if (previousReadSeekBin === undefined) delete process.env.READSEEK_BIN;
-		else process.env.READSEEK_BIN = previousReadSeekBin;
 		await rm(tempHome, { recursive: true, force: true });
 	});
 
@@ -91,10 +88,10 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(validReadOutput));
 
-		await readseekRead("/tmp/file.txt", 2, 4);
+		await readSeekRead("/tmp/file.txt", 2, 4);
 
 		expect(spawnMock).toHaveBeenLastCalledWith(
-			"/bin/readseek",
+			expect.stringMatching(readSeekBinaryPattern),
 			["read", "/tmp/file.txt", "--start", "2", "--end", "4"],
 			expect.any(Object),
 		);
@@ -105,31 +102,28 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnSignalCrash("SIGFPE"));
 
-		await expect(readseekRead("/tmp/file.txt")).rejects.toThrow("readseek killed by signal SIGFPE");
+		await expect(readSeekRead("/tmp/file.txt")).rejects.toThrow("readseek killed by signal SIGFPE");
 	});
 
 	it("times out stuck readseek invocations", async () => {
-		const previousTimeout = process.env.READSEEK_TIMEOUT_MS;
-		process.env.READSEEK_TIMEOUT_MS = "50";
-		try {
-			const stuck = new EventEmitter() as EventEmitter & {
-				stdout: PassThrough;
-				stderr: PassThrough;
-				kill: ReturnType<typeof vi.fn>;
-			};
-			stuck.stdout = new PassThrough();
-			stuck.stderr = new PassThrough();
-			stuck.kill = vi.fn();
-			spawnMock
-				.mockImplementationOnce(() => spawnResult(""))
-				.mockImplementationOnce(() => stuck);
+		const settingsDir = path.join(tempHome, ".pi", "agent", "readseek");
+		await mkdir(settingsDir, { recursive: true });
+		await writeFile(path.join(settingsDir, "settings.json"), JSON.stringify({ readseek: { timeoutMs: 50 } }));
 
-			await expect(readseekRead("/tmp/file.txt")).rejects.toThrow("readseek timed out after 50 ms");
-			expect(stuck.kill).toHaveBeenCalledWith("SIGKILL");
-		} finally {
-			if (previousTimeout === undefined) delete process.env.READSEEK_TIMEOUT_MS;
-			else process.env.READSEEK_TIMEOUT_MS = previousTimeout;
-		}
+		const stuck = new EventEmitter() as EventEmitter & {
+			stdout: PassThrough;
+			stderr: PassThrough;
+			kill: ReturnType<typeof vi.fn>;
+		};
+		stuck.stdout = new PassThrough();
+		stuck.stderr = new PassThrough();
+		stuck.kill = vi.fn();
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => stuck);
+
+		await expect(readSeekRead("/tmp/file.txt")).rejects.toThrow("readseek timed out after 50 ms");
+		expect(stuck.kill).toHaveBeenCalledWith("SIGKILL");
 	});
 
 	it("accepts readseek 0.4 search matches without pattern_index", async () => {
@@ -156,7 +150,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(searchOutput));
 
-		const results = await readseekSearch("/tmp/file.rs", "fn $NAME() {}");
+		const results = await readSeekSearch("/tmp/file.rs", "fn $NAME() {}");
 
 		expect(results[0]?.matches[0]?.pattern_index).toBe(0);
 	});
@@ -175,7 +169,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(invalidReadOutput));
 
-		await expect(readseekRead("/tmp/file.txt")).rejects.toThrow(
+		await expect(readSeekRead("/tmp/file.txt")).rejects.toThrow(
 			"invalid readseek hashline.line: expected safe integer",
 		);
 	});
@@ -194,7 +188,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(invalidReadOutput));
 
-		await expect(readseekRead("/tmp/file.txt")).rejects.toThrow(
+		await expect(readSeekRead("/tmp/file.txt")).rejects.toThrow(
 			"invalid readseek line_count: expected safe integer",
 		);
 	});
@@ -213,7 +207,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(imageOutput));
 
-		const detection = await readseekDetect("/tmp/image.png");
+		const detection = await readSeekDetect("/tmp/image.png");
 
 		expect(detection.kind).toBe("image");
 		expect(detection.type).toBe("image/png");
@@ -237,10 +231,10 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(imageOutput));
 
-		const detection = await readseekDetect("/tmp/image.png", { ocr: true, caption: true, objects: true });
+		const detection = await readSeekDetect("/tmp/image.png", { ocr: true, caption: true, objects: true });
 
 		expect(spawnMock).toHaveBeenLastCalledWith(
-			"/bin/readseek",
+			expect.stringMatching(readSeekBinaryPattern),
 			["detect", "--ocr", "--caption", "--objects", "/tmp/image.png"],
 			expect.any(Object),
 		);
@@ -266,7 +260,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(imageOutput));
 
-		await expect(readseekDetect("/tmp/image.png", { objects: true })).rejects.toThrow(
+		await expect(readSeekDetect("/tmp/image.png", { objects: true })).rejects.toThrow(
 			"invalid readseek detect object.bbox",
 		);
 	});
@@ -283,7 +277,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(sourceOutput));
 
-		const detection = await readseekDetect("/tmp/sample.rs");
+		const detection = await readSeekDetect("/tmp/sample.rs");
 
 		expect(detection.kind).toBe("source");
 		if (detection.kind === "source") expect(detection.language).toBe("rust");
@@ -298,7 +292,7 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(""))
 			.mockImplementationOnce(() => spawnResult(textOutput));
 
-		const detection = await readseekDetect("/tmp/note.txt");
+		const detection = await readSeekDetect("/tmp/note.txt");
 
 		expect(detection.kind).toBe("text");
 		expect(detection.type).toBe("text/plain");

@@ -6,7 +6,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
-import { classifyReadSeekFailure, readseekRename, type RenameOutput } from "./readseek-client.js";
+import { classifyReadSeekFailure, readSeekRename, type RenameOutput } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
 import { clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
@@ -54,7 +54,7 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 	const filePath = resolveToCwd(p.path, cwd);
 
 	try {
-		const output = await readseekRename(filePath, {
+		const output = await readSeekRename(filePath, {
 			to: p.to,
 			line: p.line,
 			column: p.column,
@@ -92,7 +92,7 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 		return {
 			content: [{ type: "text", text }],
 			details: {
-				readseekValue: {
+				readSeekValue: {
 					tool: "rename",
 					ok: true,
 					path: filePath,
@@ -108,11 +108,7 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 
 export function registerRenameTool(pi: ExtensionAPI) {
 	registerReadSeekTool(pi, {
-		policy: "mutating",
-		pythonName: "rename",
-		defaultExposure: "not-safe-by-default",
-	}, {
-		name: "rename",
+		name: "readSeek_rename",
 		label: "Rename",
 		description: RENAME_PROMPT_METADATA.description,
 		promptSnippet: RENAME_PROMPT_METADATA.promptSnippet,
@@ -138,8 +134,8 @@ export function registerRenameTool(pi: ExtensionAPI) {
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";
-			const readseekValue = (result.details as any)?.readseekValue;
-			const output = readseekValue?.output as RenameOutput | undefined;
+			const readSeekValue = (result.details as any)?.readSeekValue;
+			const output = readSeekValue?.output as RenameOutput | undefined;
 
 			if (isError || result.isError) {
 			return new Text(textContent || "rename failed", 0, 0);

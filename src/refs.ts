@@ -5,10 +5,10 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
 import { buildReadSeekLineWithHash, buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
-import { classifyReadSeekFailure, readseekRefs, type ReadSeekReference } from "./readseek-client.js";
+import { classifyReadSeekFailure, readSeekRefs, type ReadSeekReference } from "./readseek-client.js";
 import { buildRefsOutput, type RefsOutputFile, type RefsOutputLine } from "./refs-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { langParam, readseekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
+import { langParam, readSeekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
@@ -94,7 +94,7 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
   if (!statResult.ok) return statResult.error;
 
   try {
-    const references = await readseekRefs(searchPath, p.name, {
+    const references = await readSeekRefs(searchPath, p.name, {
       scope: p.scope,
       line: p.line,
       column: p.column,
@@ -111,7 +111,7 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
     }
     return {
       content: [{ type: "text", text: builtOutput.text }],
-      details: { readseekValue: builtOutput.readseekValue },
+      details: { readSeekValue: builtOutput.readSeekValue },
     };
   } catch (err: any) {
     const failure = classifyReadSeekFailure(err);
@@ -124,11 +124,7 @@ export async function executeRefs(opts: ExecuteRefsOptions): Promise<any> {
 
 export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}) {
   const tool = registerReadSeekTool(pi, {
-    policy: "read-only",
-    pythonName: "refs",
-    defaultExposure: "opt-in",
-  }, {
-    name: "refs",
+    name: "readSeek_refs",
     label: "References",
     description: REFS_PROMPT_METADATA.description,
     promptSnippet: REFS_PROMPT_METADATA.promptSnippet,
@@ -140,7 +136,7 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
       scope: Type.Optional(Type.Boolean({ description: "Restrict to the binding under line/column (single file)" })),
       line: Type.Optional(Type.Number({ description: "One-based cursor line, used with scope" })),
       column: Type.Optional(Type.Number({ description: "One-based cursor byte column, used with scope" })),
-      ...readseekGitSearchParams(),
+      ...readSeekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeRefs({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });

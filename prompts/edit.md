@@ -1,6 +1,6 @@
-Surgically edit existing text files. Prefer hash-verified anchors from fresh `read`, `grep`, `search`, or `write` output; copy `LINE:HASH` anchors exactly.
+Surgically edit existing text files. Prefer hash-verified anchors from fresh `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` output; copy `LINE:HASH` anchors exactly.
 
-`edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `read`, `grep`, `search`, or `write` first.
+`readSeek_edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` first.
 
 ## Variants
 
@@ -43,28 +43,28 @@ Wrap string replacements as `{ "replace": { "old_text": "...", "new_text": "..."
 
 ## `replace_symbol`
 
-Use `replace_symbol` when you want to replace one whole mapped symbol without line anchors. Query symbols like `read({ symbol })`: `Name`, `Class.method`, or `Name@<line>`.
+Use `replace_symbol` when you want to replace one whole mapped symbol without line anchors. Query symbols like `readSeek_read({ symbol })`: `Name`, `Class.method`, or `Name@<line>`.
 
 Rules:
 
-- Use an exact name, dotted path, or `@<line>`. If `read({ symbol })` returned a fuzzy match, confirm the exact symbol first.
+- Use an exact name, dotted path, or `@<line>`. If `readSeek_read({ symbol })` returned a fuzzy match, confirm the exact symbol first.
 - Supported for TypeScript, JavaScript, Rust, and Java. For other languages, use anchored edits.
 - `new_body` must not be empty or whitespace-only.
-- Write `new_body` without extra leading indentation; `edit` re-indents it to match the original symbol.
+- Write `new_body` without extra leading indentation; `readSeek_edit` re-indents it to match the original symbol.
 - If `new_body` appears to declare a different symbol name, the edit still applies but returns a `name-mismatch` warning.
 - Do not combine `replace_symbol` with anchored edits that touch the same lines. Duplicate or overlapping `replace_symbol` ranges are rejected.
 
 ## Stale anchors
 
-If anchors no longer match, `edit` fails with `hash-mismatch` and shows nearby current lines. Lines marked `>>>` include updated anchors:
+If anchors no longer match, `readSeek_edit` fails with `hash-mismatch` and shows nearby current lines. Lines marked `>>>` include updated anchors:
 
 ```text
 >>> 41:b34|  const renamed = 3;
 ```
 
-Copy the updated `LINE:HASH` and retry. If the target moved farther away, re-run `read`, `grep`, `search`, or `write` for fresh anchors.
+Copy the updated `LINE:HASH` and retry. If the target moved farther away, re-run `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` for fresh anchors.
 
-If `edit` auto-relocates an anchor, read the warning and verify that the edit landed in the intended place.
+If `readSeek_edit` auto-relocates an anchor, read the warning and verify that the edit landed in the intended place.
 
 ## Validation and warnings
 
@@ -80,21 +80,21 @@ Syntax validation runs before writing when supported:
 - Default `warn`: write succeeds, but warnings include `syntax-regression: lines X-Y`.
 - `block`: aborts without writing.
 - `off`: skips validation.
-- `READSEEK_SYNTAX_VALIDATE` can set the default mode.
+- The `readseek.syntaxValidation` setting can change the default mode.
 
 Existing syntax errors are tolerated; warnings are for newly introduced parser errors.
 
 ## Optional post-edit verification
 
-`postEditVerify: true` opts into read-back verification for this call. It is off by default. When enabled, `edit` writes normally, then reads the file back and compares persisted content to the intended content, including BOM and original line endings. This is not syntax validation.
+`postEditVerify: true` opts into read-back verification for this call. It is off by default. When enabled, `readSeek_edit` writes normally, then reads the file back and compares persisted content to the intended content, including BOM and original line endings. This is not syntax validation.
 
 ## Diff data contract
 
-Successful `edit` results include:
+Successful `readSeek_edit` results include:
 
-- `details.diff` and `details.readseekValue.diff`: compact human-readable hashline diff strings.
+- `details.diff` and `details.readSeekValue.diff`: compact human-readable hashline diff strings.
 - `details.patch`: standard unified diff with file and hunk headers.
-- `details.diffData` and `details.readseekValue.diffData`: stable structured diff data.
+- `details.diffData` and `details.readSeekValue.diffData`: stable structured diff data.
 
 `diffData` shape:
 

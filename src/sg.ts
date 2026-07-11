@@ -7,10 +7,10 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildReadSeekLineWithHash, buildToolErrorResult, type ReadSeekLine } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { classifyReadSeekFailure, readseekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
+import { classifyReadSeekFailure, readSeekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
 import { buildSgOutput } from "./sg-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
-import { langParam, readseekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
+import { langParam, readSeekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
@@ -66,7 +66,7 @@ export interface ExecuteSgOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
-function readseekLineFromSearch(line: ReadSeekHashline): ReadSeekLine {
+function readSeekLineFromSearch(line: ReadSeekHashline): ReadSeekLine {
   return buildReadSeekLineWithHash(line.line, line.hash, line.text);
 }
 
@@ -74,7 +74,7 @@ function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SgRange
   const lineMap = new Map<number, ReadSeekLine>();
   for (const match of result.matches) {
     for (const line of match.hashlines) {
-      lineMap.set(line.line, readseekLineFromSearch(line));
+      lineMap.set(line.line, readSeekLineFromSearch(line));
     }
   }
 
@@ -83,16 +83,16 @@ function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SgRange
   for (const range of ranges) {
     for (let line = range.startLine; line <= range.endLine; line++) {
       if (seen.has(line)) continue;
-      const readseekLine = lineMap.get(line);
-      if (!readseekLine) continue;
+      const readSeekLine = lineMap.get(line);
+      if (!readSeekLine) continue;
       seen.add(line);
-      lines.push(readseekLine);
+      lines.push(readSeekLine);
     }
   }
   return lines;
 }
 
-function readseekLanguageForPath(language: string | undefined, searchPath: string, isFile: boolean): string | undefined {
+function readSeekLanguageForPath(language: string | undefined, searchPath: string, isFile: boolean): string | undefined {
   if (language === "typescript" && isFile && path.extname(searchPath).toLowerCase() === ".tsx") return "tsx";
   return language;
 }
@@ -112,8 +112,8 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
   const searchPathIsFile = statResult.stats.isFile();
 
   try {
-    const effectiveLang = readseekLanguageForPath(p.lang, searchPath, searchPathIsFile);
-    const results = await readseekSearch(searchPath, p.pattern, {
+    const effectiveLang = readSeekLanguageForPath(p.lang, searchPath, searchPathIsFile);
+    const results = await readSeekSearch(searchPath, p.pattern, {
       language: effectiveLang,
       cached: p.cached,
       others: p.others,
@@ -125,12 +125,12 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       return {
         content: [{ type: "text", text: emptyOutput.text }],
         details: {
-          readseekValue: emptyOutput.readseekValue,
+          readSeekValue: emptyOutput.readSeekValue,
         },
       };
     }
 
-    const readseekFiles: Array<{
+    const readSeekFiles: Array<{
       displayPath: string;
       path: string;
       ranges: SgRange[];
@@ -145,7 +145,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       const mergedRanges = mergeRanges(ranges);
       const lines = linesFromSearchResult(result, mergedRanges);
       if (lines.length === 0) continue;
-      readseekFiles.push({
+      readSeekFiles.push({
         displayPath: display,
         path: abs,
         ranges: mergedRanges.map((range) => ({ ...range })),
@@ -153,27 +153,27 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       });
     }
 
-    if (readseekFiles.length === 0) {
+    if (readSeekFiles.length === 0) {
       const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [] });
       return {
         content: [{ type: "text", text: emptyOutput.text }],
         details: {
-          readseekValue: emptyOutput.readseekValue,
+          readSeekValue: emptyOutput.readSeekValue,
         },
       };
     }
 
     const builtOutput = buildSgOutput({
       pattern: p.pattern,
-      files: readseekFiles,
+      files: readSeekFiles,
     });
-    for (const readseekFile of readseekFiles) {
-      onFileAnchored?.(readseekFile.path);
+    for (const readSeekFile of readSeekFiles) {
+      onFileAnchored?.(readSeekFile.path);
     }
     return {
       content: [{ type: "text", text: builtOutput.text }],
       details: {
-        readseekValue: builtOutput.readseekValue,
+        readSeekValue: builtOutput.readSeekValue,
       },
     };
   } catch (err: any) {
@@ -184,11 +184,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
 
 export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
   const tool = registerReadSeekTool(pi, {
-    policy: "read-only",
-    pythonName: "search",
-    defaultExposure: "opt-in",
-  }, {
-    name: "search",
+    name: "readSeek_search",
     label: "Structural Search",
     description: SG_PROMPT_METADATA.description,
     promptSnippet: SG_PROMPT_METADATA.promptSnippet,
@@ -197,7 +193,7 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       pattern: Type.String({ description: "AST pattern" }),
       lang: langParam(),
       path: searchPathParam(),
-      ...readseekGitSearchParams(),
+      ...readSeekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeSg({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });

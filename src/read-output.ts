@@ -63,7 +63,7 @@ interface ReadOutputInput {
 interface ReadOutputResult {
   text: string;
   lines: ReadSeekLine[];
-  readseekValue: {
+  readSeekValue: {
     tool: "read";
     path: string;
     range: {
@@ -141,7 +141,7 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
     text = `${warnings.map((warning) => warning.message).join("\n\n")}\n\n${text}`;
   }
 
-  const readseekValue: ReadOutputResult["readseekValue"] = {
+  const readSeekValue: ReadOutputResult["readSeekValue"] = {
     tool: "read",
     path: input.path,
     range: {
@@ -160,7 +160,7 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
   };
 
   if (input.bundle) {
-    readseekValue.bundle = {
+    readSeekValue.bundle = {
       mode: input.bundle.mode,
       applied: input.bundle.applied,
       localSupport: input.bundle.localSupport.map((item) => {
@@ -181,6 +181,6 @@ export function buildReadOutput(input: ReadOutputInput): ReadOutputResult {
   return {
     text,
     lines,
-    readseekValue,
+    readSeekValue,
   };
 }

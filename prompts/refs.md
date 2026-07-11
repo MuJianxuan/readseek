@@ -20,4 +20,4 @@ Without `scope`, references match by identifier name across the target. With `sc
 
 When searching a directory inside a Git repository, readseek defaults to tracked/indexed files plus untracked non-ignored files. Use `cached`, `others`, and `ignored` to narrow or expand that selection. `ignored` requires `others`.
 
-Use `grep` for plain text, `search` for code shape, and `refs` for identifier usage.
+Use `readSeek_grep` for plain text, `readSeek_search` for code shape, and `readSeek_refs` for identifier usage.

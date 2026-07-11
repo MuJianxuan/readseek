@@ -16,7 +16,7 @@ export function langParam() {
  * TypeBox fragment for the Git-scope parameters shared by every readseek
  * search tool. Returns fresh schema instances so each tool spreads its own.
  */
-export function readseekGitSearchParams() {
+export function readSeekGitSearchParams() {
   return {
     cached: Type.Optional(Type.Boolean({ description: "In a Git repository, search tracked/indexed files" })),
     others: Type.Optional(Type.Boolean({ description: "In a Git repository, search untracked files" })),
