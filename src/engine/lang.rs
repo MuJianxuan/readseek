@@ -527,18 +527,6 @@ pub(crate) fn detect_language(path: &Path, text: &str) -> (Language, Option<Stri
         return (language, None);
     }
 
-    // Shebang detection
-    if let Some(line) = text.lines().next()
-        && line.starts_with("#!")
-    {
-        if line.contains("python") {
-            return (Language::Python, None);
-        }
-        if line.contains("node") {
-            return (Language::JavaScript, None);
-        }
-    }
-
     let syntax_set = {
         static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
         SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
