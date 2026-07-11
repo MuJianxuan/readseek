@@ -65,11 +65,11 @@ safe to pipe into other programs.
 Most commands take a file or directory \fItarget\fR on the command line.
 The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBcheck\fR, \fBsymbol\fR, and \fBidentify\fR
 commands can read from standard input by prefixing the target with \fBstdin:\fR.
-The remainder after the prefix is an optional detection path followed by an
-optional line or hash address, e.g. \fBstdin:scratch.rs:42\fR reads stdin,
-detects the language from the \fI.rs\fR extension, and targets line 42.
-If the path is omitted (\fBstdin::42\fR) language detection falls back to
-content and shebang analysis.
+The remainder after the prefix is an optional detection path. For \fBread\fR,
+\fBsymbol\fR, and \fBidentify\fR it may carry a line or hash address, e.g.
+\fBstdin:scratch.rs:42\fR reads stdin, detects the language from the \fI.rs\fR
+extension, and targets line 42. If the path is omitted (\fBstdin::42\fR) language
+detection falls back to content and shebang analysis.
 A target path may carry a suffix that selects a specific line:
 .nf
 .RS

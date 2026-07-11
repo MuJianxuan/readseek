@@ -52,7 +52,7 @@ pub(crate) enum Command {
 #[argh(subcommand, name = "detect")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct DetectCommand {
-    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
+    /// takes <file> or stdin:<path>
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
@@ -100,7 +100,7 @@ pub(crate) struct ReadCommand {
 #[argh(subcommand, name = "map")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct MapCommand {
-    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
+    /// takes <file> or stdin:<path>
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
@@ -114,7 +114,7 @@ pub(crate) struct MapCommand {
 #[argh(subcommand, name = "check")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct CheckCommand {
-    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
+    /// takes <file> or stdin:<path>
     #[argh(positional)]
     pub(crate) target: Option<String>,
 

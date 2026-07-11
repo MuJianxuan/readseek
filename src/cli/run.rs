@@ -52,12 +52,7 @@ pub(crate) fn run() -> Result<()> {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let (_target, source) = load_source(
-            self.target.as_deref(),
-            false,
-            self.language,
-            BinaryMode::Detect,
-        )?;
+        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Detect)?;
         let path = source.path.clone();
         let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
@@ -158,24 +153,14 @@ impl cli::ReadCommand {
 
 impl cli::MapCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(
-            self.target.as_deref(),
-            false,
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         Ok(serde_json::to_string(&output::map_output(&source)?)?)
     }
 }
 
 impl cli::CheckCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(
-            self.target.as_deref(),
-            false,
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         Ok(serde_json::to_string(&output::check_output(&source)?)?)
     }
 }
@@ -337,6 +322,18 @@ fn load_source(
     let target = crate::cli::parse_target(target_str.context("target required")?, name_mode)?;
     let source = output::load_source_for_input(&target, language, binary_mode)?;
     Ok((target, source))
+}
+
+fn load_path_source(
+    target_str: Option<&str>,
+    language: Option<Language>,
+    binary_mode: BinaryMode,
+) -> Result<SourceFile> {
+    let target = crate::cli::parse_target(target_str.context("target required")?, false)?;
+    if target.address.is_some() {
+        bail!("this command takes a file path, not a line or hash suffix");
+    }
+    output::load_source_for_input(&target, language, binary_mode)
 }
 
 fn write_output(json: &str, path: Option<&Path>) -> Result<()> {
