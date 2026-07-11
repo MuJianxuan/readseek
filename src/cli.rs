@@ -207,7 +207,7 @@ pub(crate) struct DefCommand {
 
     /// qualified symbol name or unqualified name
     #[argh(positional)]
-    pub(crate) name: Option<String>,
+    pub(crate) name: String,
 
     /// output format
     #[argh(

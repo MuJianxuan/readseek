@@ -223,10 +223,9 @@ impl cli::IdentifyCommand {
 impl cli::DefCommand {
     fn run(self) -> Result<String> {
         let flags = self.git_flags();
-        let name = self.name.context("definition requires a name")?;
         let request = def::Request {
             target: self.target,
-            name,
+            name: self.name,
             language: self.language,
             flags,
         };
