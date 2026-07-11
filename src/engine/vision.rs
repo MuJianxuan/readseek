@@ -29,6 +29,7 @@ use candle_transformers::{
 use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 use std::io::IsTerminal as _;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokenizers::Tokenizer;
 
@@ -76,24 +77,25 @@ pub(crate) struct Analysis {
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
     let image = image::load_from_memory(image_bytes).context("decode image")?;
     let mut analysis = Analysis::default();
+    let progress = InferenceProgress::new();
     let task_count =
         usize::from(request.caption) + usize::from(request.objects) + usize::from(request.ocr);
 
     if task_count <= 1 {
         if request.caption {
-            match caption(&image) {
+            match caption(&image, &progress) {
                 Ok(text) => analysis.caption = Some(text),
                 Err(error) => log::warn!("vision caption skipped: {error:#}"),
             }
         }
         if request.objects {
-            match detect_objects(&image) {
+            match detect_objects(&image, &progress) {
                 Ok(objects) => analysis.objects = Some(objects),
                 Err(error) => log::warn!("vision objects skipped: {error:#}"),
             }
         }
         if request.ocr {
-            match ocr_text(&image) {
+            match ocr_text(&image, &progress) {
                 Ok(text) => analysis.ocr = Some(text),
                 Err(error) => log::warn!("vision OCR skipped: {error:#}"),
             }
@@ -104,15 +106,18 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     std::thread::scope(|scope| {
         let caption_handle = request.caption.then(|| {
             let image = &image;
-            scope.spawn(move || caption(image))
+            let progress = progress.clone();
+            scope.spawn(move || caption(image, &progress))
         });
         let objects_handle = request.objects.then(|| {
             let image = &image;
-            scope.spawn(move || detect_objects(image))
+            let progress = progress.clone();
+            scope.spawn(move || detect_objects(image, &progress))
         });
         let ocr_handle = request.ocr.then(|| {
             let image = &image;
-            scope.spawn(move || ocr_text(image))
+            let progress = progress.clone();
+            scope.spawn(move || ocr_text(image, &progress))
         });
 
         if let Some(handle) = caption_handle {
@@ -140,7 +145,7 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
 
 /// Generate a concise caption for `image` with the quantized BLIP model,
 /// mirroring the `candle-examples/examples/blip` decoder loop.
-fn caption(image: &image::DynamicImage) -> Result<String> {
+fn caption(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
     let device = Device::Cpu;
     let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
     let tokenizer_path = model::file("blip-tokenizer.json")?;
@@ -154,7 +159,6 @@ fn caption(image: &image::DynamicImage) -> Result<String> {
         .apply(model.vision_model())?;
 
     let mut tokens = vec![BLIP_DEC_TOKEN];
-    let mut progress = InferenceProgress::new();
     let mut generated = Vec::new();
     for index in 0..CAPTION_MAX_TOKENS {
         progress.maybe_reveal();
@@ -221,14 +225,16 @@ fn argmax_token(logits: &Tensor) -> Result<u32> {
 
 /// Detect salient objects with YOLOv8-nano, returning labeled bounding boxes in
 /// the original image's pixel space.
-fn detect_objects(image: &image::DynamicImage) -> Result<Vec<DetectedObject>> {
+fn detect_objects(
+    image: &image::DynamicImage,
+    progress: &InferenceProgress,
+) -> Result<Vec<DetectedObject>> {
     let device = Device::Cpu;
     let model_path = model::file("yolov8n.safetensors")?;
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
     let yolo = YoloV8::load(vb, Multiples::n(), 80)?;
 
     let (input, model_w, model_h, orig_w, orig_h) = yolo_image(image, &device)?;
-    let mut progress = InferenceProgress::new();
     progress.maybe_reveal();
     let predictions = yolo.forward(&input)?.squeeze(0)?;
     progress.maybe_reveal();
@@ -251,7 +257,7 @@ struct TrOcrConfig {
 /// per-line crops with a horizontal ink projection; each crop is recognized
 /// with one shared model and the results are joined with newlines. When no text
 /// rows are found the whole image is recognized as a fallback.
-fn ocr_text(image: &image::DynamicImage) -> Result<String> {
+fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
     let device = Device::Cpu;
     let model_path = model::file("trocr-base-printed.safetensors")?;
     let tokenizer_path = model::file("trocr-tokenizer.json")?;
@@ -261,8 +267,6 @@ fn ocr_text(image: &image::DynamicImage) -> Result<String> {
         serde_json::from_slice(&std::fs::read(&config_path).context("read trocr config")?)?;
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
     let mut model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
-
-    let mut progress = InferenceProgress::new();
     let lines = text_lines(image);
     let crops: Vec<image::DynamicImage> = if lines.is_empty() {
         vec![image.clone()]
@@ -276,14 +280,7 @@ fn ocr_text(image: &image::DynamicImage) -> Result<String> {
     let mut text = Vec::with_capacity(crops.len());
     for crop in crops {
         progress.maybe_reveal();
-        let line = recognize_line(
-            &crop,
-            &mut model,
-            &config,
-            &tokenizer,
-            &device,
-            &mut progress,
-        )?;
+        let line = recognize_line(&crop, &mut model, &config, &tokenizer, &device, progress)?;
         if !line.is_empty() {
             text.push(line);
         }
@@ -363,7 +360,7 @@ fn recognize_line(
     config: &TrOcrConfig,
     tokenizer: &Tokenizer,
     device: &Device,
-    progress: &mut InferenceProgress,
+    progress: &InferenceProgress,
 ) -> Result<String> {
     let input = trocr_image(image, device)?.unsqueeze(0)?;
     let encoder_xs = model.encoder().forward(&input)?;
@@ -490,23 +487,39 @@ fn objects_from_predictions(
 /// terminal, which keeps the spinner visible even when stdout is redirected.
 /// Modeled on the tpm2sh CLI progress pattern; dropping clears it so early
 /// `?`-return error paths stay clean.
+#[derive(Clone)]
 struct InferenceProgress {
-    is_tty: bool,
-    started: Instant,
-    bar: Option<ProgressBar>,
+    inner: Arc<Mutex<InferenceProgressState>>,
 }
 
 impl InferenceProgress {
     fn new() -> Self {
         Self {
-            is_tty: std::io::stderr().is_terminal(),
-            started: Instant::now(),
-            bar: None,
+            inner: Arc::new(Mutex::new(InferenceProgressState {
+                is_tty: std::io::stderr().is_terminal(),
+                started: Instant::now(),
+                bar: None,
+            })),
         }
     }
 
     /// Reveal the spinner once the deadline elapses, but only on a TTY and only
     /// once; fast runs that finish first never draw anything.
+    fn maybe_reveal(&self) {
+        self.inner
+            .lock()
+            .expect("progress mutex poisoned")
+            .maybe_reveal();
+    }
+}
+
+struct InferenceProgressState {
+    is_tty: bool,
+    started: Instant,
+    bar: Option<ProgressBar>,
+}
+
+impl InferenceProgressState {
     fn maybe_reveal(&mut self) {
         if self.bar.is_some() || !self.is_tty {
             return;
@@ -520,7 +533,7 @@ impl InferenceProgress {
     }
 }
 
-impl Drop for InferenceProgress {
+impl Drop for InferenceProgressState {
     fn drop(&mut self) {
         if let Some(bar) = self.bar.take() {
             bar.finish_and_clear();
