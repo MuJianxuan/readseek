@@ -22,7 +22,7 @@ cargo build --release
 
 ```sh
 readseek detect src/main.rs
-readseek read src/main.rs --start 10 --end 20
+readseek read src/main.rs:10 --end 20
 readseek map src/main.rs
 readseek check src/main.rs
 readseek symbol src/main.rs:run --name

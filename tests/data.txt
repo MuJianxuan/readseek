@@ -32,14 +32,14 @@ name=file binary detected | path=blob.bin | content=\x00\x01\x02\x03 | args=dete
 
 # read
 
-name=read requested range | path=sample.py | content=one\ntwo\nthree\n | args=read %s --start 2 --end 3 | language=python | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.0.hash.len=3
-name=read start and limit | path=start.txt | content=one\ntwo\nthree\nfour\n | args=read %s --start 2 --limit 2 | line_count=4 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.1.line=3 | hashlines.1.text=three
-name=read limit clamps to end | path=clamp.txt | content=one\ntwo\nthree\n | args=read %s --start 2 --limit 99 | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2
+name=read requested range | path=sample.py | content=one\ntwo\nthree\n | args=read %s:2 --end 3 | language=python | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.0.hash.len=3
+name=read start and limit | path=start.txt | content=one\ntwo\nthree\nfour\n | args=read %s:2 --limit 2 | line_count=4 | start_line=2 | end_line=3 | hashlines.len=2 | hashlines.0.line=2 | hashlines.0.text=two | hashlines.1.line=3 | hashlines.1.text=three
+name=read limit clamps to end | path=clamp.txt | content=one\ntwo\nthree\n | args=read %s:2 --limit 99 | line_count=3 | start_line=2 | end_line=3 | hashlines.len=2
 name=read plain text normalizes | path=normalized.txt | content=﻿one\r\ntwo\rthree\n | args=read %s | language=unknown | line_count=3 | hashlines.0.text=one | hashlines.1.text=two | hashlines.2.text=three
 name=read preserves blank lines | path=blank-lines.txt | content=one\n\nthree\n | args=read %s | line_count=3 | hashlines.len=3 | hashlines.1.line=2 | hashlines.1.text=
 name=read empty file | path=empty.txt | content= | args=read %s | line_count=0 | start_line=1 | end_line=0 | hashlines.len=0
 name=read target line | path=target-line.txt | content=one\ntwo\nthree\n | args=read %s:2 --limit 1 | start_line=2 | end_line=2 | hashlines.0.text=two
-name=read stdin path | stdin=one\ntwo\nthree\n | args=read stdin:buffer.ts --start 2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
+name=read stdin path | stdin=one\ntwo\nthree\n | args=read stdin:buffer.ts:2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
 name=read binary lossy text | path=blob-read.bin | content=\x00A\xff\n | args=read %s | language=unknown | line_count=1 | hashlines.0.text=\x00A�
 
 # map

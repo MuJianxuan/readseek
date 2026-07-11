@@ -82,10 +82,6 @@ pub(crate) struct ReadCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// first line to include
-    #[argh(option)]
-    pub(crate) start: Option<usize>,
-
     /// last line to include
     #[argh(option)]
     pub(crate) end: Option<usize>,

@@ -132,14 +132,7 @@ impl cli::ReadCommand {
             self.language,
             BinaryMode::Lossy,
         )?;
-        let target_line = output::resolve_target(&source, &target)?;
-        let start = match (self.start, target_line) {
-            (Some(start), Some(line)) if start != line => {
-                bail!("target line conflicts with --start")
-            }
-            (Some(start), _) | (_, Some(start)) => Some(start),
-            (None, None) => None,
-        };
+        let start = output::resolve_target(&source, &target)?;
 
         if self.end.is_some() && self.limit.is_some() {
             bail!("cannot combine --end with --limit");

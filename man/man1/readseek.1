@@ -12,7 +12,6 @@ readseek \- structural source-code reader with stable line hashing
     \fItarget\fR
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--start\fR \fIline\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR]
     \fItarget\fR
 
@@ -153,7 +152,7 @@ string.
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
 options the entire file is returned. Use a line or hash suffix on the target
-path, or pass \fB--start\fR, to set the first line.
+path to set the first line.
 Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
 .TP
@@ -290,10 +289,6 @@ For \fBrename\fR, write the planned edits. Refuses on any naming conflict and
 verifies each edited line's hash before writing. With \fB--workspace\fR every file
 is verified first and written all-or-nothing.
 .TP
-\fB--start\fR \fIline\fR
-First line to include when reading. If the target path also carries a line
-suffix, the two must agree.
-.TP
 \fB--end\fR \fIline\fR
 Last line to include when reading. Cannot be combined with \fB--limit\fR.
 .TP
@@ -361,7 +356,7 @@ readseek detect src/main.rs
 
 Read lines 10 through 20:
 .EX
-readseek read src/main.rs --start 10 --end 20
+readseek read src/main.rs:10 --end 20
 .EE
 
 Read 12 lines starting from line 42:
