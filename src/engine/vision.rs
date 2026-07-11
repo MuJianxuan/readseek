@@ -76,24 +76,65 @@ pub(crate) struct Analysis {
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
     let image = image::load_from_memory(image_bytes).context("decode image")?;
     let mut analysis = Analysis::default();
-    if request.caption {
-        match caption(&image) {
-            Ok(text) => analysis.caption = Some(text),
-            Err(error) => log::warn!("vision caption skipped: {error:#}"),
+    let task_count =
+        usize::from(request.caption) + usize::from(request.objects) + usize::from(request.ocr);
+
+    if task_count <= 1 {
+        if request.caption {
+            match caption(&image) {
+                Ok(text) => analysis.caption = Some(text),
+                Err(error) => log::warn!("vision caption skipped: {error:#}"),
+            }
         }
-    }
-    if request.objects {
-        match detect_objects(&image) {
-            Ok(objects) => analysis.objects = Some(objects),
-            Err(error) => log::warn!("vision objects skipped: {error:#}"),
+        if request.objects {
+            match detect_objects(&image) {
+                Ok(objects) => analysis.objects = Some(objects),
+                Err(error) => log::warn!("vision objects skipped: {error:#}"),
+            }
         }
-    }
-    if request.ocr {
-        match ocr_text(&image) {
-            Ok(text) => analysis.ocr = Some(text),
-            Err(error) => log::warn!("vision OCR skipped: {error:#}"),
+        if request.ocr {
+            match ocr_text(&image) {
+                Ok(text) => analysis.ocr = Some(text),
+                Err(error) => log::warn!("vision OCR skipped: {error:#}"),
+            }
         }
+        return Ok(analysis);
     }
+
+    std::thread::scope(|scope| {
+        let caption_handle = request.caption.then(|| {
+            let image = &image;
+            scope.spawn(move || caption(image))
+        });
+        let objects_handle = request.objects.then(|| {
+            let image = &image;
+            scope.spawn(move || detect_objects(image))
+        });
+        let ocr_handle = request.ocr.then(|| {
+            let image = &image;
+            scope.spawn(move || ocr_text(image))
+        });
+
+        if let Some(handle) = caption_handle {
+            match handle.join().expect("caption task panicked") {
+                Ok(text) => analysis.caption = Some(text),
+                Err(error) => log::warn!("vision caption skipped: {error:#}"),
+            }
+        }
+        if let Some(handle) = objects_handle {
+            match handle.join().expect("objects task panicked") {
+                Ok(objects) => analysis.objects = Some(objects),
+                Err(error) => log::warn!("vision objects skipped: {error:#}"),
+            }
+        }
+        if let Some(handle) = ocr_handle {
+            match handle.join().expect("OCR task panicked") {
+                Ok(text) => analysis.ocr = Some(text),
+                Err(error) => log::warn!("vision OCR skipped: {error:#}"),
+            }
+        }
+    });
+
     Ok(analysis)
 }
 
