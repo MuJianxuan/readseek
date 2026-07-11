@@ -52,8 +52,12 @@ pub(crate) fn run() -> Result<()> {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let (_target, source) =
-            load_source(self.target.as_deref(), self.language, BinaryMode::Detect)?;
+        let (_target, source) = load_source(
+            self.target.as_deref(),
+            false,
+            self.language,
+            BinaryMode::Detect,
+        )?;
         let path = source.path.clone();
         let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
@@ -122,8 +126,12 @@ impl cli::DetectCommand {
 
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) =
-            load_source(self.target.as_deref(), self.language, BinaryMode::Lossy)?;
+        let (target, source) = load_source(
+            self.target.as_deref(),
+            false,
+            self.language,
+            BinaryMode::Lossy,
+        )?;
         let target_line = output::resolve_target(&source, &target)?;
         let start = match (self.start, target_line) {
             (Some(start), Some(line)) if start != line => {
@@ -157,27 +165,52 @@ impl cli::ReadCommand {
 
 impl cli::MapCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
+        let (_, source) = load_source(
+            self.target.as_deref(),
+            false,
+            self.language,
+            BinaryMode::Reject,
+        )?;
         Ok(serde_json::to_string(&output::map_output(&source)?)?)
     }
 }
 
 impl cli::CheckCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
+        let (_, source) = load_source(
+            self.target.as_deref(),
+            false,
+            self.language,
+            BinaryMode::Reject,
+        )?;
         Ok(serde_json::to_string(&output::check_output(&source)?)?)
     }
 }
 
 impl cli::SymbolCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) =
-            load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
-        let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
-        let address = match (self.name.as_deref(), target_line) {
-            (Some(name), _) => output::SymbolAddress::Name(name),
-            (None, Some(line)) => output::SymbolAddress::Line(line),
-            (None, None) => bail!("symbol requires qualified name or target line/hash"),
+        if self.name && self.line.is_some() {
+            bail!("--name conflicts with --line");
+        }
+        let (target, source) = load_source(
+            self.target.as_deref(),
+            self.name,
+            self.language,
+            BinaryMode::Reject,
+        )?;
+        let address = if let Some(crate::engine::target::TargetAddress::Name(name)) =
+            target.address.as_ref()
+        {
+            output::SymbolAddress::Name(name)
+        } else {
+            if self.name {
+                bail!("--name requires a target name suffix; use <target>:<name> --name");
+            }
+            let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
+            match target_line {
+                Some(line) => output::SymbolAddress::Line(line),
+                None => bail!("symbol requires a name or target line/hash"),
+            }
         };
         let output = output::symbol_output(&source, address)?;
         Ok(serde_json::to_string(&output)?)
@@ -186,8 +219,12 @@ impl cli::SymbolCommand {
 
 impl cli::IdentifyCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) =
-            load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
+        let (target, source) = load_source(
+            self.target.as_deref(),
+            false,
+            self.language,
+            BinaryMode::Reject,
+        )?;
         let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
         let output = output::identify_output(&source, target_line, self.column)?;
         Ok(serde_json::to_string(&output)?)
@@ -303,10 +340,11 @@ impl cli::InitCommand {
 
 fn load_source(
     target_str: Option<&str>,
+    name_mode: bool,
     language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<(Target, SourceFile)> {
-    let target = crate::cli::parse_target(target_str.context("target required")?)?;
+    let target = crate::cli::parse_target(target_str.context("target required")?, name_mode)?;
     let source = output::load_source_for_input(&target, language, binary_mode)?;
     Ok((target, source))
 }

@@ -81,7 +81,7 @@ name=identify column out of range | stdin=fn main() {}\n | args=identify stdin:c
 
 # symbol
 
-name=symbol target suffix | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s --name Greeter.greet | language=typescript | symbol.kind=method | symbol.name=greet | symbol.qualified_name=Greeter.greet | hashlines.len=3 | hashlines.0.line=2
+name=symbol target suffix | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s:Greeter.greet --name | language=typescript | symbol.kind=method | symbol.name=greet | symbol.qualified_name=Greeter.greet | hashlines.len=3 | hashlines.0.line=2
 name=symbol target line | path=symbol.ts | content=class Greeter {\n  greet() {\n    return 'hello';\n  }\n}\n | args=symbol %s:3 | symbol.kind=method | symbol.name=greet | hashlines.0.line=2
 name=symbol stdin target line | stdin=class BufferGreeter {\n  greet() { return 'hello'; }\n}\n | args=symbol stdin:buffer.ts:2 | file=buffer.ts | symbol.qualified_name=BufferGreeter.greet | hashlines.0.line=2
 

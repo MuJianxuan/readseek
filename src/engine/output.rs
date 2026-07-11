@@ -421,6 +421,9 @@ pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Opt
                 .with_context(|| format!("hash {hash} not found in {}", source.path.display()))
                 .map(Some)
         }
+        Some(TargetAddress::Name(_)) => {
+            bail!("name targets are not supported for this command")
+        }
         None => Ok(None),
     }
 }

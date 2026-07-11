@@ -25,7 +25,7 @@ readseek detect src/main.rs
 readseek read src/main.rs --start 10 --end 20
 readseek map src/main.rs
 readseek check src/main.rs
-readseek symbol src/main.rs --name run
+readseek symbol src/main.rs:run --name
 readseek identify src/main.rs:42 --column 8
 readseek def src run --language rust --format plain
 readseek refs src main --language rust --format plain

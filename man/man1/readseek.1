@@ -23,7 +23,7 @@ readseek \- structural source-code reader with stable line hashing
     \fItarget\fR
 
 \fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
-    \fItarget\fR [\fB--name\fR \fIqualified-name\fR]
+    \fItarget\fR [\fB--name\fR]
 
 \fBreadseek identify\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
@@ -81,8 +81,9 @@ A target path may carry a suffix that selects a specific line:
 Line numbers are one-based. A hash suffix is a 3-character string that was
 previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
 
-For \fBsymbol\fR, you can also pass \fB--name\fR with a qualified or unqualified
-symbol name. If the name matches more than one symbol the command reports an error.
+For \fBsymbol\fR, the \fB--name\fR flag treats the target suffix as a
+qualified or unqualified symbol name. If the name matches more than one symbol
+the command reports an error.
 d05|
 .SH LANGUAGES
 
@@ -168,9 +169,9 @@ nodes and a list of each diagnostic's kind and start and end line. For languages
 without a tree-sitter parser the output contains zero counts and an empty list.
 .TP
 .B symbol
-Print the source range for one symbol. Pick it by \fB--name\fR (qualified or
-unqualified) or by \fB--line\fR. When only \fB--line\fR is given, the symbol
-that contains that line is resolved.
+Print the source range for one symbol. With \fB--name\fR, the target suffix is
+treated as a qualified or unqualified symbol name. Without \fB--name\fR, a line
+or hash suffix selects the symbol containing that location.
 .TP
 .B identify
 Print the requested cursor line, its hash, the identifier at the cursor position,
@@ -381,7 +382,7 @@ readseek map src/main.rs
 
 Look up a symbol by name or by the line it's on:
 .EX
-readseek symbol src/main.rs --name run
+readseek symbol src/main.rs:run --name
 readseek symbol src/main.rs:270
 .EE
 

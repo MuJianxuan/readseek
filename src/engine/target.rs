@@ -14,4 +14,5 @@ pub(crate) struct Target {
 pub(crate) enum TargetAddress {
     Line(usize),
     Hash(String),
+    Name(String),
 }
