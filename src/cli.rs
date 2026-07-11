@@ -367,7 +367,9 @@ pub(crate) fn parse_target(value: &str, name_mode: bool) -> Result<Target> {
     let (path, address) = if rest.is_empty() {
         (PathBuf::new(), None)
     } else if let Some((path, suffix)) = rest.rsplit_once(':') {
-        let address = if name_mode {
+        let address = if suffix.is_empty() {
+            None
+        } else if name_mode {
             Some(TargetAddress::Name(suffix.to_owned()))
         } else if suffix.chars().all(|ch| ch.is_ascii_digit()) {
             let line = suffix
