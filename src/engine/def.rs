@@ -6,74 +6,31 @@ use crate::engine::lang::Language;
 use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
 use crate::engine::paths::def_candidate_paths;
 use crate::engine::source::{read_source_containing, source_map_with_dir};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use rayon::prelude::*;
-use serde::Deserialize;
 use std::collections::BTreeSet;
-use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-#[derive(Debug, Deserialize)]
-struct IdentifyInput {
-    identifier: Option<IdentifierInput>,
-    symbol: Option<SymbolInput>,
-}
-
-#[derive(Debug, Deserialize)]
-struct IdentifierInput {
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SymbolInput {
-    qualified_name: String,
-}
-
-/// How [`output`] obtains the symbol name to resolve.
-pub(crate) enum NameSource {
-    /// A name supplied directly on the command line.
-    Literal(String),
-    /// The name read from `identify` output on stdin.
-    FromIdentify,
-}
 
 /// Inputs for [`output`]: the symbol to resolve and where to search for it.
 pub(crate) struct Request {
     pub(crate) target: PathBuf,
-    pub(crate) name: NameSource,
+    pub(crate) name: String,
     pub(crate) language: Option<Language>,
     pub(crate) flags: GitFlags,
 }
 
 pub(crate) fn output(request: &Request) -> Result<DefOutput> {
-    let name = match &request.name {
-        NameSource::Literal(name) => name.clone(),
-        NameSource::FromIdentify => {
-            let mut text = String::new();
-            io::stdin()
-                .read_to_string(&mut text)
-                .context("read identify context from stdin")?;
-            let input: IdentifyInput =
-                serde_json::from_str(&text).context("parse identify context")?;
-            if let Some(identifier) = input.identifier {
-                identifier.text
-            } else if let Some(symbol) = input.symbol {
-                symbol.qualified_name
-            } else {
-                bail!("identify context has no symbol or identifier")
-            }
-        }
-    };
+    let name = &request.name;
     let search_name = name
         .rsplit('.')
         .next()
         .filter(|part| !part.is_empty())
-        .unwrap_or(&name);
+        .unwrap_or(name);
     let readseek_dir = crate::engine::repo::find_readseek_dir(&request.target);
     let readseek_dir = readseek_dir.as_deref();
     let paths = match readseek_dir {
-        Some(dir) => match crate::engine::repo::load_index(dir, &name)? {
+        Some(dir) => match crate::engine::repo::load_index(dir, name)? {
             Some(entries) if !entries.is_empty() => {
                 let scoped = paths_in_scope(entries, &request.target);
                 if scoped.is_empty() {
@@ -89,7 +46,7 @@ pub(crate) fn output(request: &Request) -> Result<DefOutput> {
 
     let results = paths
         .par_iter()
-        .map(|path| locations_in_path(path, &name, search_name, request.language, readseek_dir))
+        .map(|path| locations_in_path(path, name, search_name, request.language, readseek_dir))
         .collect::<Result<Vec<_>>>()?;
 
     let mut seen = BTreeSet::new();

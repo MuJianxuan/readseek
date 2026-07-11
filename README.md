@@ -41,12 +41,6 @@ language detection:
 printf '%s\n' 'fn main() {}' | readseek identify --stdin scratch.rs --line 1 --column 4
 ```
 
-Use `def --from-identify` to pipe `identify` JSON into definition lookup:
-
-```sh
-readseek identify src/main.rs:42 --column 8 | readseek def --from-identify src --format plain
-```
-
 ## Images
 
 `detect` reports format, dimensions, and animation status for images. Add a vision

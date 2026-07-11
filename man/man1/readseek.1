@@ -29,7 +29,7 @@ readseek \- structural source-code reader with stable line hashing
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
     (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
 
-\fBreadseek def\fR [\fB--from-identify\fR] [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
+\fBreadseek def\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fIname\fR]
 
@@ -81,11 +81,7 @@ previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
 
 For \fBsymbol\fR, you can also pass \fB--name\fR with a qualified or unqualified
 symbol name. If the name matches more than one symbol the command reports an error.
-
-For \fBdef\fR, the \fB--from-identify\fR flag reads a JSON object previously produced
-by \fBidentify\fR. The lookup tries \fIsymbol.qualified_name\fR first and falls
-back to \fIidentifier.text\fR.
-
+d05|
 .SH LANGUAGES
 
 .B readseek
@@ -185,9 +181,8 @@ one-based inclusive start column and a one-based exclusive end column, plus
 .TP
 .B def
 Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
-matches a fully qualified or unqualified symbol name. With \fB--from-identify\fR and no
-\fIname\fR, the name is read from an \fBidentify\fR JSON object on standard input.
-Directory search follows the same file-selection rules as \fBsearch\fR.
+matches a fully qualified or unqualified symbol name. Directory search follows
+the same file-selection rules as \fBsearch\fR.
 Use \fB--format plain\fR to emit quickfix-friendly location entries instead of full
 definition objects.
 .TP
@@ -262,10 +257,6 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 \fB--stdin\fR \fIpath\fR
 Read document contents from standard input instead of a file, using \fIpath\fR
 for language detection and reported in JSON output.
-.TP
-\fB--from-identify\fR
-For \fBdef\fR, read an \fBidentify\fR JSON object from standard input and use it
-to choose the symbol name instead of passing \fIname\fR.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for

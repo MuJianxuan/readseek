@@ -209,10 +209,6 @@ pub(crate) struct DefCommand {
     #[argh(positional)]
     pub(crate) name: Option<String>,
 
-    /// read identify output from stdin to choose the symbol name
-    #[argh(switch)]
-    pub(crate) from_identify: bool,
-
     /// output format
     #[argh(
         option,

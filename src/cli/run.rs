@@ -223,11 +223,7 @@ impl cli::IdentifyCommand {
 impl cli::DefCommand {
     fn run(self) -> Result<String> {
         let flags = self.git_flags();
-        let name = match (self.name, self.from_identify) {
-            (Some(name), _) => def::NameSource::Literal(name),
-            (None, true) => def::NameSource::FromIdentify,
-            (None, false) => bail!("definition requires a name or --from-identify context"),
-        };
+        let name = self.name.context("definition requires a name")?;
         let request = def::Request {
             target: self.target,
             name,
