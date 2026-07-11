@@ -61,6 +61,7 @@ pub(crate) struct SourceFile {
     pub(crate) lines: Vec<SourceLine>,
     pub(crate) line_starts: Vec<usize>,
     pub(crate) file_hash: String,
+    pub(crate) image_bytes: Option<Vec<u8>>,
 }
 
 impl SourceFile {
@@ -106,6 +107,7 @@ struct LoadedDocument {
     binary: bool,
     mime: Option<String>,
     image: Option<ImageInfo>,
+    image_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -140,7 +142,17 @@ pub(crate) fn load_source(
     language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
-    let document = load_document(path, binary_mode)?;
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    load_source_from_bytes(path, bytes, language, binary_mode)
+}
+
+pub(crate) fn load_source_from_bytes(
+    path: &Path,
+    bytes: Vec<u8>,
+    language: Option<Language>,
+    binary_mode: BinaryMode,
+) -> Result<SourceFile> {
+    let document = load_document(path, bytes, binary_mode)?;
     let mut source = source_from_text(
         path,
         document.text,
@@ -149,6 +161,7 @@ pub(crate) fn load_source(
         document.mime,
     );
     source.detection.image = document.image;
+    source.image_bytes = document.image_bytes;
     Ok(source)
 }
 
@@ -237,11 +250,11 @@ pub(crate) fn source_from_text(
         lines,
         line_starts,
         file_hash,
+        image_bytes: None,
     }
 }
 
-fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument> {
-    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+fn load_document(path: &Path, bytes: Vec<u8>, binary_mode: BinaryMode) -> Result<LoadedDocument> {
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
     let binary = is_binary_document(&bytes, mime.as_deref());
     let image = if binary {
@@ -258,11 +271,13 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         );
     }
 
-    let text = if binary && binary_mode == BinaryMode::Detect {
-        String::new()
+    let (text, image_bytes) = if binary && binary_mode == BinaryMode::Detect {
+        let image_bytes = image.is_some().then_some(bytes);
+        (String::new(), image_bytes)
     } else {
-        extract_plain_text(path, bytes, binary_mode)
-            .with_context(|| format!("extract from {}", path.display()))?
+        let text = extract_plain_text(path, bytes, binary_mode)
+            .with_context(|| format!("extract from {}", path.display()))?;
+        (text, None)
     };
 
     Ok(LoadedDocument {
@@ -270,6 +285,7 @@ fn load_document(path: &Path, binary_mode: BinaryMode) -> Result<LoadedDocument>
         binary,
         mime,
         image,
+        image_bytes,
     })
 }
 

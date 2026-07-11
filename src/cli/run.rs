@@ -52,18 +52,20 @@ pub(crate) fn run() -> Result<()> {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
+        let (_target, source) = load_source(
             self.target.as_deref(),
             self.stdin.as_deref(),
             self.language,
             BinaryMode::Detect,
         )?;
+        let path = source.path.clone();
+        let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
-        self.apply_vision(&target, &mut output);
+        self.apply_vision(&path, image_bytes.as_deref(), &mut output);
         Ok(serde_json::to_string(&output)?)
     }
 
-    fn apply_vision(&self, target: &Target, output: &mut output::DetectOutput) {
+    fn apply_vision(&self, path: &Path, bytes: Option<&[u8]>, output: &mut output::DetectOutput) {
         let request = crate::engine::vision::Request {
             caption: self.caption,
             objects: self.objects,
@@ -72,19 +74,16 @@ impl cli::DetectCommand {
         if (!request.caption && !request.objects && !request.ocr) || !output.is_image() {
             return;
         }
-        let bytes = match std::fs::read(&target.path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                log::warn!("vision skipped: read {}: {error}", target.path.display());
-                return;
-            }
+        let Some(bytes) = bytes else {
+            log::warn!("vision skipped: missing image bytes for {}", path.display());
+            return;
         };
 
         // Resolve the cache root from CWD (or an ancestor); None disables caching.
         let readseek_dir = std::env::current_dir()
             .ok()
             .and_then(|cwd| repo::find_readseek_dir(&cwd));
-        let hash = crate::engine::hash::hash_bytes(&bytes);
+        let hash = crate::engine::hash::hash_bytes(bytes);
 
         let mut entry = readseek_dir
             .as_deref()
@@ -98,7 +97,7 @@ impl cli::DetectCommand {
             ocr: request.ocr && entry.ocr.is_none(),
         };
         if missing.caption || missing.objects || missing.ocr {
-            match crate::engine::vision::analyze(&bytes, missing) {
+            match crate::engine::vision::analyze(bytes, missing) {
                 Ok(analysis) => {
                     if missing.caption {
                         entry.caption = analysis.caption;

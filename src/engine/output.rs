@@ -11,8 +11,8 @@ use crate::engine::hash::LineHash;
 use crate::engine::image::ImageInfo;
 use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
 use crate::engine::source::{
-    Detection, HashLine, SourceFile, Symbol, find_symbol, load_source, range_hashlines,
-    source_from_text, source_map,
+    Detection, HashLine, SourceFile, Symbol, find_symbol, load_source, load_source_from_bytes,
+    range_hashlines, source_from_text, source_map,
 };
 use crate::engine::target::{Target, TargetAddress};
 use crate::engine::vision::{Analysis, DetectedObject};
@@ -447,17 +447,23 @@ pub(crate) fn load_source_for_input(
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
     if let Some(stdin_path) = stdin {
-        let mut text = String::new();
-        io::stdin()
-            .read_to_string(&mut text)
-            .context("read stdin")?;
-        return Ok(source_from_text(
-            stdin_path,
-            text,
-            override_language,
-            false,
-            None,
-        ));
+        let mut bytes = Vec::new();
+        io::stdin().read_to_end(&mut bytes).context("read stdin")?;
+        return match String::from_utf8(bytes) {
+            Ok(text) => Ok(source_from_text(
+                stdin_path,
+                text,
+                override_language,
+                false,
+                None,
+            )),
+            Err(error) => load_source_from_bytes(
+                stdin_path,
+                error.into_bytes(),
+                override_language,
+                binary_mode,
+            ),
+        };
     }
     load_source(path, override_language, binary_mode)
 }
