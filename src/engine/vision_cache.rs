@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 1;
+const CACHE_SCHEMA_VERSION: u32 = 2;
 /// Bump (or change) whenever the deployed vision model changes, so entries
 /// produced by the previous model are treated as a miss and recomputed.
 const MODEL_IDENTITY: &str = "blip-large-q4k+yolov8n+trocr-base-printed";

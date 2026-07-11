@@ -331,7 +331,7 @@ fn recognize_line(
 
     let mut tokens = vec![config.decoder.decoder_start_token_id];
     let eos = config.decoder.eos_token_id;
-    let mut output = String::new();
+    let mut generated = Vec::new();
     for index in 0..OCR_MAX_TOKENS {
         progress.maybe_reveal();
         let context_size = if index >= 1 { 1 } else { tokens.len() };
@@ -345,10 +345,9 @@ fn recognize_line(
             break;
         }
         tokens.push(next);
-        if let Ok(piece) = tokenizer.decode(&[next], true) {
-            output.push_str(&piece);
-        }
+        generated.push(next);
     }
+    let output = tokenizer.decode(&generated, true).map_err(|e| anyhow!(e))?;
     Ok(output.trim().to_string())
 }
 
