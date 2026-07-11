@@ -136,10 +136,6 @@ pub(crate) struct SymbolCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// one-based target line
-    #[argh(option)]
-    pub(crate) line: Option<usize>,
-
     /// treat the target suffix as a symbol name
     #[argh(switch)]
     pub(crate) name: bool,
@@ -157,10 +153,6 @@ pub(crate) struct IdentifyCommand {
     /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// one-based cursor line
-    #[argh(option)]
-    pub(crate) line: Option<usize>,
 
     /// one-based cursor byte column
     #[argh(option)]

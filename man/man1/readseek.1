@@ -22,11 +22,11 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek check\fR [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR
 
-\fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
+\fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR [\fB--name\fR]
 
 \fBreadseek identify\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
+    [\fB--column\fR \fIcolumn\fR]
     \fItarget\fR
 
 \fBreadseek def\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
@@ -263,8 +263,7 @@ the command-specific JSON shape, or \fIplain\fR for flat \fIlocations\fR arrays
 with editor-friendly fields.
 .TP
 \fB--line\fR \fIline\fR
-One-based target line for \fBsymbol\fR or \fBidentify\fR, or the cursor line for
-\fBrefs --scope\fR and \fBrename\fR.
+Cursor line for \fBrefs --scope\fR and \fBrename\fR.
 .TP
 \fB--column\fR \fIcolumn\fR
 One-based byte column for \fBidentify\fR or the cursor column for \fBrefs --scope\fR

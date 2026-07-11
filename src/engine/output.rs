@@ -428,21 +428,6 @@ pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Opt
     }
 }
 
-pub(crate) fn resolve_explicit_target(
-    source: &SourceFile,
-    target: &Target,
-    line: Option<usize>,
-) -> Result<Option<usize>> {
-    let target_line = resolve_target(source, target)?;
-    match (target_line, line) {
-        (Some(target_line), Some(line)) if target_line != line => {
-            bail!("target line conflicts with --line")
-        }
-        (Some(line), _) | (_, Some(line)) => Ok(Some(line)),
-        (None, None) => Ok(None),
-    }
-}
-
 pub(crate) fn load_source_for_input(
     target: &Target,
     override_language: Option<Language>,
@@ -581,7 +566,7 @@ pub(crate) fn identify_output(
     target_line: Option<usize>,
     column: Option<usize>,
 ) -> Result<IdentifyOutput> {
-    let line = target_line.context("identify requires --line or target line/hash")?;
+    let line = target_line.context("identify requires a target line or hash")?;
     let column = column.unwrap_or(1);
     let cursor_byte = source.cursor_byte(line, column)?;
     let source_line = source

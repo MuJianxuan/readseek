@@ -189,9 +189,6 @@ impl cli::CheckCommand {
 
 impl cli::SymbolCommand {
     fn run(&self) -> Result<String> {
-        if self.name && self.line.is_some() {
-            bail!("--name conflicts with --line");
-        }
         let (target, source) = load_source(
             self.target.as_deref(),
             self.name,
@@ -206,7 +203,7 @@ impl cli::SymbolCommand {
             if self.name {
                 bail!("--name requires a target name suffix; use <target>:<name> --name");
             }
-            let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
+            let target_line = output::resolve_target(&source, &target)?;
             match target_line {
                 Some(line) => output::SymbolAddress::Line(line),
                 None => bail!("symbol requires a name or target line/hash"),
@@ -225,7 +222,7 @@ impl cli::IdentifyCommand {
             self.language,
             BinaryMode::Reject,
         )?;
-        let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
+        let target_line = output::resolve_target(&source, &target)?;
         let output = output::identify_output(&source, target_line, self.column)?;
         Ok(serde_json::to_string(&output)?)
     }
