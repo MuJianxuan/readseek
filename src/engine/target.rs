@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub(crate) struct Target {
     pub(crate) path: PathBuf,
     pub(crate) address: Option<TargetAddress>,
+    pub(crate) read_stdin: bool,
 }
 
 #[derive(Clone, Debug)]

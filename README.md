@@ -33,12 +33,12 @@ readseek search src 'fn $NAME() { $$$BODY }' --language rust
 readseek rename src/main.rs --line 42 --column 8 --to renamed
 ```
 
-Use `--stdin <path>` with `detect`, `read`, `map`, `check`, `symbol`, and
-`identify` to analyze unsaved editor buffers while still providing a path for
-language detection:
+Use a `stdin:` target prefix with `detect`, `read`, `map`, `check`, `symbol`,
+and `identify` to analyze unsaved editor buffers while still providing a path
+for language detection and a cursor address:
 
 ```sh
-printf '%s\n' 'fn main() {}' | readseek identify --stdin scratch.rs --line 1 --column 4
+printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 ```
 
 ## Images

@@ -441,31 +441,26 @@ pub(crate) fn resolve_explicit_target(
 }
 
 pub(crate) fn load_source_for_input(
-    path: &Path,
-    stdin: Option<&Path>,
+    target: &Target,
     override_language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
-    if let Some(stdin_path) = stdin {
+    if target.read_stdin {
         let mut bytes = Vec::new();
         io::stdin().read_to_end(&mut bytes).context("read stdin")?;
+        let path = if target.path.as_os_str().is_empty() {
+            Path::new("<stdin>")
+        } else {
+            &target.path
+        };
         return match String::from_utf8(bytes) {
-            Ok(text) => Ok(source_from_text(
-                stdin_path,
-                text,
-                override_language,
-                false,
-                None,
-            )),
-            Err(error) => load_source_from_bytes(
-                stdin_path,
-                error.into_bytes(),
-                override_language,
-                binary_mode,
-            ),
+            Ok(text) => Ok(source_from_text(path, text, override_language, false, None)),
+            Err(error) => {
+                load_source_from_bytes(path, error.into_bytes(), override_language, binary_mode)
+            }
         };
     }
-    load_source(path, override_language, binary_mode)
+    load_source(&target.path, override_language, binary_mode)
 }
 
 pub(crate) fn read_output(

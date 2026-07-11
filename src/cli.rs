@@ -52,13 +52,9 @@ pub(crate) enum Command {
 #[argh(subcommand, name = "detect")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct DetectCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -82,13 +78,9 @@ pub(crate) struct DetectCommand {
 #[argh(subcommand, name = "read")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct ReadCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// first line to include
     #[argh(option)]
@@ -112,13 +104,9 @@ pub(crate) struct ReadCommand {
 #[argh(subcommand, name = "map")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct MapCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -130,13 +118,9 @@ pub(crate) struct MapCommand {
 #[argh(subcommand, name = "check")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct CheckCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// language override
     #[argh(option, from_str_fn(parse_language))]
@@ -148,13 +132,9 @@ pub(crate) struct CheckCommand {
 #[argh(subcommand, name = "symbol")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct SymbolCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// one-based target line
     #[argh(option)]
@@ -174,13 +154,9 @@ pub(crate) struct SymbolCommand {
 #[argh(subcommand, name = "identify")]
 #[argh(help_triggers("-h", "--help"))]
 pub(crate) struct IdentifyCommand {
-    /// takes <file>, <file>:<line> or <file>:<hash>
+    /// takes <file>, <file>:<line>, <file>:<hash>, stdin:<path>[:<line>|<hash>], or stdin:
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// read document contents from stdin as the given path
-    #[argh(option)]
-    pub(crate) stdin: Option<PathBuf>,
 
     /// one-based cursor line
     #[argh(option)]
@@ -395,10 +371,14 @@ pub(crate) fn parse_target(value: &str) -> Result<Target> {
         bail!("target must not be empty");
     }
 
-    if let Some((path, suffix)) = value.rsplit_once(':') {
-        if path.is_empty() {
-            bail!("target path must not be empty");
-        }
+    let (read_stdin, rest) = match value.strip_prefix("stdin:") {
+        Some(rest) => (true, rest),
+        None => (false, value),
+    };
+
+    let (path, address) = if rest.is_empty() {
+        (PathBuf::new(), None)
+    } else if let Some((path, suffix)) = rest.rsplit_once(':') {
         if suffix.chars().all(|ch| ch.is_ascii_digit()) {
             let line = suffix
                 .parse::<usize>()
@@ -406,22 +386,27 @@ pub(crate) fn parse_target(value: &str) -> Result<Target> {
             if line == 0 {
                 bail!("target line must be greater than zero");
             }
-            return Ok(Target {
-                path: PathBuf::from(path),
-                address: Some(TargetAddress::Line(line)),
-            });
+            (PathBuf::from(path), Some(TargetAddress::Line(line)))
+        } else if is_line_hash(suffix) {
+            (
+                PathBuf::from(path),
+                Some(TargetAddress::Hash(suffix.to_ascii_lowercase())),
+            )
+        } else {
+            (PathBuf::from(rest), None)
         }
-        if is_line_hash(suffix) {
-            return Ok(Target {
-                path: PathBuf::from(path),
-                address: Some(TargetAddress::Hash(suffix.to_ascii_lowercase())),
-            });
-        }
+    } else {
+        (PathBuf::from(rest), None)
+    };
+
+    if !read_stdin && path.as_os_str().is_empty() {
+        bail!("target path must not be empty");
     }
 
     Ok(Target {
-        path: PathBuf::from(value),
-        address: None,
+        path,
+        address,
+        read_stdin,
     })
 }
 

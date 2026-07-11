@@ -9,25 +9,25 @@ readseek \- structural source-code reader with stable line hashing
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--caption\fR] [\fB--objects\fR] [\fB--ocr\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+    \fItarget\fR
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--start\fR \fIline\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+    \fItarget\fR
 
 \fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+    \fItarget\fR
 
 \fBreadseek check\fR [\fB--language\fR \fIlanguage\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+    \fItarget\fR
 
 \fBreadseek symbol\fR [\fB--language\fR \fIlanguage\fR] [\fB--line\fR \fIline\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR) [\fB--name\fR \fIqualified-name\fR]
+    \fItarget\fR [\fB--name\fR \fIqualified-name\fR]
 
 \fBreadseek identify\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--line\fR \fIline\fR] [\fB--column\fR \fIcolumn\fR]
-    (\fB--stdin\fR \fIpath\fR | \fItarget\fR)
+    \fItarget\fR
 
 \fBreadseek def\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
@@ -65,10 +65,12 @@ safe to pipe into other programs.
 
 Most commands take a file or directory \fItarget\fR on the command line.
 The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBcheck\fR, \fBsymbol\fR, and \fBidentify\fR
-commands can alternatively read from standard input with \fB--stdin\fR \fIpath\fR, where
-\fIpath\fR supplies a filename used for language detection and output metadata.
-You cannot combine \fB--stdin\fR with a positional target.
-
+commands can read from standard input by prefixing the target with \fBstdin:\fR.
+The remainder after the prefix is an optional detection path followed by an
+optional line or hash address, e.g. \fBstdin:scratch.rs:42\fR reads stdin,
+detects the language from the \fI.rs\fR extension, and targets line 42.
+If the path is omitted (\fBstdin::42\fR) language detection falls back to
+content and shebang analysis.
 A target path may carry a suffix that selects a specific line:
 .nf
 .RS
@@ -254,10 +256,6 @@ created; other commands read and refresh their source-map cache there.
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
-\fB--stdin\fR \fIpath\fR
-Read document contents from standard input instead of a file, using \fIpath\fR
-for language detection and reported in JSON output.
-.TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
 the command-specific JSON shape, or \fIplain\fR for flat \fIlocations\fR arrays
@@ -373,7 +371,7 @@ readseek read src/main.rs:42 --limit 12
 
 Read unsaved buffer text from standard input:
 .EX
-printf '%s\\n' 'fn main() {}' | readseek read --stdin scratch.rs
+printf '%s\n' 'fn main() {}' | readseek read stdin:scratch.rs
 .EE
 
 Build a structural map of a file:

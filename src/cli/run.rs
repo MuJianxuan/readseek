@@ -52,12 +52,8 @@ pub(crate) fn run() -> Result<()> {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let (_target, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Detect,
-        )?;
+        let (_target, source) =
+            load_source(self.target.as_deref(), self.language, BinaryMode::Detect)?;
         let path = source.path.clone();
         let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
@@ -126,12 +122,8 @@ impl cli::DetectCommand {
 
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Lossy,
-        )?;
+        let (target, source) =
+            load_source(self.target.as_deref(), self.language, BinaryMode::Lossy)?;
         let target_line = output::resolve_target(&source, &target)?;
         let start = match (self.start, target_line) {
             (Some(start), Some(line)) if start != line => {
@@ -165,36 +157,22 @@ impl cli::ReadCommand {
 
 impl cli::MapCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (_, source) = load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         Ok(serde_json::to_string(&output::map_output(&source)?)?)
     }
 }
 
 impl cli::CheckCommand {
     fn run(&self) -> Result<String> {
-        let (_, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (_, source) = load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         Ok(serde_json::to_string(&output::check_output(&source)?)?)
     }
 }
 
 impl cli::SymbolCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (target, source) =
+            load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
         let address = match (self.name.as_deref(), target_line) {
             (Some(name), _) => output::SymbolAddress::Name(name),
@@ -208,12 +186,8 @@ impl cli::SymbolCommand {
 
 impl cli::IdentifyCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            self.stdin.as_deref(),
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (target, source) =
+            load_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
         let target_line = output::resolve_explicit_target(&source, &target, self.line)?;
         let output = output::identify_output(&source, target_line, self.column)?;
         Ok(serde_json::to_string(&output)?)
@@ -329,22 +303,11 @@ impl cli::InitCommand {
 
 fn load_source(
     target_str: Option<&str>,
-    stdin: Option<&Path>,
     language: Option<Language>,
     binary_mode: BinaryMode,
 ) -> Result<(Target, SourceFile)> {
-    let target = if let Some(path) = stdin {
-        if target_str.is_some() {
-            bail!("target cannot be combined with --stdin");
-        }
-        Target {
-            path: path.to_path_buf(),
-            address: None,
-        }
-    } else {
-        crate::cli::parse_target(target_str.context("target required")?)?
-    };
-    let source = output::load_source_for_input(&target.path, stdin, language, binary_mode)?;
+    let target = crate::cli::parse_target(target_str.context("target required")?)?;
+    let source = output::load_source_for_input(&target, language, binary_mode)?;
     Ok((target, source))
 }
 
