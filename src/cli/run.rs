@@ -87,6 +87,19 @@ fn parse_cli() -> Result<cli::Cli> {
             ) {
                 usage_error(cmd, "limit must be greater than zero");
             }
+            if matches!(
+                &cli.command,
+                Some(cli::Command::Read(command))
+                    if command.image.is_some()
+                        && (command.end.is_some()
+                            || command.limit.is_some()
+                            || command.language.is_some())
+            ) {
+                usage_error(
+                    cmd,
+                    "--image cannot be combined with --end, --limit, or --language",
+                );
+            }
             Ok(cli)
         }
         Err(early_exit) if early_exit.status.is_ok() => {
