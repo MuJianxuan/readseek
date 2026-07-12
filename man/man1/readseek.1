@@ -261,7 +261,7 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 \fB--image\fR \fImode\fR
 For \fBread\fR on an image, select the analysis mode: \fIcaption\fR (default,
 BLIP), \fIobjects\fR (YOLOv8-nano labels and bounding boxes), or \fIocr\fR
-(TrOCR printed text). Ignored for non-image input with an error.
+(TrOCR printed text). Silently ignored for non-image input.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
@@ -349,7 +349,7 @@ Sharded binary definition index keyed by symbol name, used by \fBdef\fR director
 .I $XDG_CACHE_HOME/readseek/models/
 Vision model files (BLIP GGUF + tokenizer, YOLOv8-nano weights, and TrOCR
 weights + config + tokenizer), downloaded lazily on first use of
-\fB--caption\fR, \fB--objects\fR, or \fB--ocr\fR.
+\fBread --image caption|objects|ocr\fR.
 
 .SH EXAMPLES
 
