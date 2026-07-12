@@ -14,21 +14,20 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
 
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
-    "Use readSeek_read for file contents, images/screenshots, ranges, symbols, and edit anchors.",
+    "Prefer readSeek_read over read when both are available; it provides LINE:HASH anchors for readSeek_edit.",
     "Use map or symbol mode before pulling large code files into context.",
-    "Use readSeek_read for images; it returns the image attachment plus OCR text, a caption, and detected objects, so you don't need separate OCR tools.",
+    "Use readSeek_read for images; it returns the image attachment plus OCR text, a caption, and detected objects.",
   ],
   "edit.md": [
-    "Use readSeek_edit with fresh LINE:HASH anchors for existing files.",
+    "Prefer readSeek_edit over edit when both are available; it verifies fresh LINE:HASH anchors.",
     "Prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
   ],
   "grep.md": [
-    "Use readSeek_grep for text search and edit-ready matching anchors.",
+    "Prefer readSeek_grep over grep when both are available; it returns edit-ready anchors.",
     "Use readSeek_grep summary mode for broad count/file discovery before narrowing.",
   ],
-
   "write.md": [
-    "Use readSeek_write to create files or intentionally overwrite whole files.",
+    "Prefer readSeek_write over write when both are available; it returns LINE:HASH anchors.",
     "Use readSeek_edit rather than readSeek_write for small changes or appends to existing files.",
   ],
   "sg.md": [
