@@ -189,9 +189,6 @@ impl cli::ReadCommand {
             return Ok(serde_json::to_string(&output)?);
         }
 
-        if self.image.is_some() {
-            bail!("--image requires an image file");
-        }
         source.require_text()?;
         let start = output::resolve_target(&source, &target)?;
 
