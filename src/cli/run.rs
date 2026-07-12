@@ -74,6 +74,13 @@ fn parse_cli() -> Result<cli::Cli> {
                     "--output is only valid with commands that produce JSON",
                 );
             }
+            if matches!(
+                &cli.command,
+                Some(cli::Command::Read(command))
+                    if command.end.is_some() && command.limit.is_some()
+            ) {
+                usage_error(cmd, "cannot combine --end with --limit");
+            }
             Ok(cli)
         }
         Err(early_exit) if early_exit.status.is_ok() => {
@@ -171,10 +178,6 @@ impl cli::ReadCommand {
             BinaryMode::Lossy,
         )?;
         let start = output::resolve_target(&source, &target)?;
-
-        if self.end.is_some() && self.limit.is_some() {
-            bail!("cannot combine --end with --limit");
-        }
 
         let end = if let Some(limit) = self.limit {
             if limit == 0 {
