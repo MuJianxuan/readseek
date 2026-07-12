@@ -126,17 +126,21 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
 fn best_device() -> Device {
     #[cfg(target_os = "macos")]
     {
-        match Device::new_metal(0) {
+        let device = match Device::new_metal(0) {
             Ok(device) => device,
             Err(err) => {
                 log::warn!("Metal unavailable, falling back to CPU: {err}");
                 Device::Cpu
             }
-        }
+        };
+        log::info!("inference device: {device:?}");
+        device
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Device::Cpu
+        let device = Device::Cpu;
+        log::info!("inference device: {device:?}");
+        device
     }
 }
 
