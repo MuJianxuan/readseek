@@ -32,12 +32,12 @@ export interface ReadSeekSettingsResult {
 const READSEEK_KEYS = ["excludeTools", "imageMode", "syntaxValidation", "timeoutMs", "grep"];
 const READSEEK_GREP_KEYS = ["maxLines", "maxBytes"];
 
-function defaultGlobalSettingsPath(): string {
-  return join(homedir(), ".pi/agent/readseek/settings.json");
+function globalSettingsPath(): string {
+  return join(homedir(), ".pi/agent/settings.json");
 }
 
-function defaultProjectSettingsPath(): string {
-  return join(process.cwd(), ".pi/readseek/settings.json");
+function projectSettingsPath(): string {
+  return join(process.cwd(), ".pi/settings.json");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -232,8 +232,8 @@ function mergeSettings(base: ReadSeekJsonSettings, override: ReadSeekJsonSetting
 }
 
 export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
-  const globalResult = readSettingsFile(defaultGlobalSettingsPath());
-  const projectResult = readSettingsFile(defaultProjectSettingsPath());
+  const globalResult = readSettingsFile(globalSettingsPath());
+  const projectResult = readSettingsFile(projectSettingsPath());
   return {
     settings: mergeSettings(globalResult.settings, projectResult.settings),
     warnings: [...globalResult.warnings, ...projectResult.warnings],

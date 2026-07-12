@@ -38,11 +38,12 @@ npm install --save-dev @jarkkojs/readseek
 
 `pi-readseek` reads optional JSON settings from:
 
-- `~/.pi/agent/readseek/settings.json` — Global
-- `.pi/readseek/settings.json` — Project
+- `~/.pi/agent/settings.json` — Global
+- `.pi/settings.json` — Project
 
-Project settings override global settings. All settings live in a single
-`readseek` section and are optional (defaults shown):
+Project settings override global settings. The `readseek` section lives inside pi's
+shared `settings.json`, alongside other extensions' sections. All settings are
+optional (defaults shown):
 
 ```json
 {

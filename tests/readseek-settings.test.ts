@@ -42,15 +42,13 @@ describe("readseek settings", () => {
 	});
 
 	async function writeGlobal(settings: unknown) {
-		const dir = path.join(tempHome, ".pi", "agent", "readseek");
-		await mkdir(dir, { recursive: true });
-		await writeFile(path.join(dir, "settings.json"), JSON.stringify(settings));
+		await mkdir(path.join(tempHome, ".pi", "agent"), { recursive: true });
+		await writeFile(path.join(tempHome, ".pi", "agent", "settings.json"), JSON.stringify(settings));
 	}
 
 	async function writeProject(settings: unknown) {
-		const dir = path.join(tempCwd, ".pi", "readseek");
-		await mkdir(dir, { recursive: true });
-		await writeFile(path.join(dir, "settings.json"), JSON.stringify(settings));
+		await mkdir(path.join(tempCwd, ".pi"), { recursive: true });
+		await writeFile(path.join(tempCwd, ".pi", "settings.json"), JSON.stringify(settings));
 	}
 
 	it("defaults imageMode to force", () => {
@@ -124,7 +122,7 @@ describe("readseek settings", () => {
 		await writeGlobal({ readseek: { imageMode: "off" } });
 		expect(resolveReadSeekImageMode()).toBe("off");
 
-		await rm(path.join(tempHome, ".pi", "agent", "readseek", "settings.json"));
+		await rm(path.join(tempHome, ".pi", "agent", "settings.json"));
 		expect(resolveReadSeekImageMode()).toBe("force");
 	});
 });

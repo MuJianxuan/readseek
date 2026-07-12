@@ -194,7 +194,7 @@ describe("readseek client parsing", () => {
 	});
 
 	it("times out stuck readseek invocations", async () => {
-		const settingsDir = path.join(tempHome, ".pi", "agent", "readseek");
+		const settingsDir = path.join(tempHome, ".pi", "agent");
 		await mkdir(settingsDir, { recursive: true });
 		await writeFile(path.join(settingsDir, "settings.json"), JSON.stringify({ readseek: { timeoutMs: 50 } }));
 
