@@ -3,6 +3,7 @@
 # detect / language
 
 name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | type=text/plain | language=rust | supported=true
+name=write JSON output to file | path=result.json | stdin=fn main() {}\n | args=--output %s detect stdin:sample.rs | output_file=true | type=text/plain | language=rust | supported=true
 name=file stdin path | stdin=class BufferGreeter {}\n | args=detect stdin:buffer.ts | type=text/plain | file=buffer.ts | language=typescript
 name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect stdin:buffer | type=text/plain | file=buffer | language=bash | supported=true
 name=detect stdin extensionless with override | stdin=fn main() {}\n | args=detect stdin:buffer --language rust | type=text/plain | file=buffer | language=rust | supported=true

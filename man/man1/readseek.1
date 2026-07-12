@@ -5,7 +5,7 @@ readseek \- structural source-code reader with stable line hashing
 .nf
 \fBreadseek\fR [\fB\-h\fR|\fB--help\fR]
 \fBreadseek\fR [\fB\-V\fR|\fB--version\fR]
-\fBreadseek\fR [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
+\fBreadseek\fR [\fB--output\fR \fIpath\fR] [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
 \fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--caption\fR] [\fB--objects\fR] [\fB--ocr\fR]
@@ -246,6 +246,9 @@ Print usage information and exit.
 .TP
 \fB\-V\fR, \fB--version\fR
 Print the program version and exit.
+.TP
+\fB--output\fR \fIpath\fR
+Write JSON output to \fIpath\fR instead of standard output for commands that produce JSON.
 .TP
 \fB--readseek-dir\fR \fIdir\fR
 Use \fIdir\fR as the \fI.readseek/\fR directory instead of discovering one by

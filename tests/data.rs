@@ -90,6 +90,7 @@ struct Case<'a> {
     status: Option<i32>,
     stderr: Option<&'a str>,
     platform: Option<&'a str>,
+    output_file: bool,
     symbols: Vec<Symbol<'a>>,
     checks: Vec<(&'a str, &'a str)>,
 }
@@ -105,6 +106,7 @@ impl<'a> Case<'a> {
             status: None,
             stderr: None,
             platform: None,
+            output_file: false,
             symbols: Vec::new(),
             checks: Vec::new(),
         };
@@ -123,6 +125,9 @@ impl<'a> Case<'a> {
                 }
                 "stderr" => case.stderr = Some(value),
                 "platform" => case.platform = Some(value),
+                "output_file" => {
+                    case.output_file = value.parse().expect("output_file must be a boolean");
+                }
                 "symbol" => case.symbols.push(parse_symbol(value)),
                 _ => case.checks.push((key, value)),
             }
@@ -203,8 +208,20 @@ impl<'a> Case<'a> {
         if code != 0 {
             return Err(format!("exit {code}; stderr={}", stderr.trim()));
         }
-        let json: Value =
-            serde_json::from_slice(&output.stdout).map_err(|e| format!("invalid json: {e}"))?;
+
+        let json: Value = if self.output_file {
+            if !output.stdout.is_empty() {
+                return Err("stdout was not empty with --output".to_owned());
+            }
+            let output_path = file_path.ok_or("--output test requires a path")?;
+            let bytes =
+                std::fs::read(output_path).map_err(|error| format!("read output file: {error}"))?;
+            serde_json::from_slice(&bytes)
+                .map_err(|error| format!("invalid output json: {error}"))?
+        } else {
+            serde_json::from_slice(&output.stdout)
+                .map_err(|error| format!("invalid json: {error}"))?
+        };
         self.check(&json)
     }
 

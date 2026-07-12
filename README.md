@@ -33,6 +33,13 @@ readseek search src 'fn $NAME() { $$$BODY }' --language rust
 readseek rename src/main.rs --line 42 --column 8 --to renamed
 ```
 
+To write JSON output to a file instead of stdout, place the global option before
+the command:
+
+```sh
+readseek --output result.json detect src/main.rs
+```
+
 Use a `stdin:` target prefix with `detect`, `read`, `map`, `check`, `symbol`,
 and `identify` to analyze unsaved editor buffers while still providing a path
 for language detection and a cursor address:
