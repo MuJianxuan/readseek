@@ -13,7 +13,7 @@ use tree_sitter::Node;
 pub(super) fn declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node<'tree>> {
     let mut out = Vec::new();
     match node.kind() {
-        "let_declaration" | "for_expression" => {
+        "let_declaration" | "for_expression" | "let_condition" => {
             if let Some(pattern) = node.child_by_field_name("pattern") {
                 collect_pattern_idents(pattern, &mut out);
             }
