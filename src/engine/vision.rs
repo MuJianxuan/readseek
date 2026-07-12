@@ -278,7 +278,6 @@ fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result
     let batched = Tensor::stack(&inputs, 0)?;
     progress.maybe_reveal();
     let encoder_xs = model.encoder().forward(&batched)?;
-    model.reset_kv_cache();
 
     let mut text = Vec::with_capacity(crops.len());
     for index in 0..crops.len() {
@@ -373,6 +372,7 @@ fn decode_line(
     device: &Device,
     progress: &InferenceProgress,
 ) -> Result<String> {
+    model.reset_kv_cache();
     let mut tokens = vec![config.decoder.decoder_start_token_id];
     let eos = config.decoder.eos_token_id;
     let mut generated = Vec::new();
