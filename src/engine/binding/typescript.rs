@@ -29,6 +29,12 @@ pub(super) fn declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node
                 pattern_idents(pattern, &mut out);
             }
         }
+        "formal_parameters" => {
+            let mut cursor = node.walk();
+            for parameter in node.named_children(&mut cursor) {
+                pattern_idents(parameter, &mut out);
+            }
+        }
         "arrow_function" | "catch_clause" => {
             if let Some(param) = node.child_by_field_name("parameter") {
                 pattern_idents(param, &mut out);
