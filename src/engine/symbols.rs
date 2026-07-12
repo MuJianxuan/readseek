@@ -579,6 +579,8 @@ fn csharp_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "struct_declaration" => named_symbol(node, source, "name", "struct"),
         "enum_declaration" => named_symbol(node, source, "name", "enum"),
         "namespace_declaration" => named_symbol(node, source, "name", "namespace"),
+        "delegate_declaration" => named_symbol(node, source, "name", "delegate"),
+        "record_declaration" => named_symbol(node, source, "name", "record"),
         _ => None,
     }
 }
@@ -599,6 +601,9 @@ fn java_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "class_declaration" => named_symbol(node, source, "name", "class"),
         "interface_declaration" => named_symbol(node, source, "name", "interface"),
         "enum_declaration" => named_symbol(node, source, "name", "enum"),
+        "record_declaration" => named_symbol(node, source, "name", "record"),
+        "annotation_type_declaration" => named_symbol(node, source, "name", "annotation"),
+        "module_declaration" => named_symbol(node, source, "name", "module"),
         _ => None,
     }
 }
@@ -610,6 +615,8 @@ fn php_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "class_declaration" => named_symbol(node, source, "name", "class"),
         "interface_declaration" => named_symbol(node, source, "name", "interface"),
         "trait_declaration" => named_symbol(node, source, "name", "trait"),
+        "enum_declaration" => named_symbol(node, source, "name", "enum"),
+        "namespace_definition" => named_symbol(node, source, "name", "namespace"),
         _ => None,
     }
 }
