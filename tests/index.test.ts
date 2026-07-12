@@ -39,11 +39,13 @@ function createPi(activeToolNames: string[]) {
 	let activeTools = [...activeToolNames];
 	let sessionStart: ((event: unknown, ctx: unknown) => void) | undefined;
 	const registeredTools: string[] = [];
+	const toolDefinitions = new Map<string, { promptGuidelines?: string[] }>();
 	const notify = vi.fn();
 
 	const pi = {
-		registerTool: vi.fn((tool: { name: string }) => {
+		registerTool: vi.fn((tool: { name: string; promptGuidelines?: string[] }) => {
 			registeredTools.push(tool.name);
+			toolDefinitions.set(tool.name, tool);
 		}),
 		on: vi.fn((event: string, handler: (event: unknown, ctx: unknown) => void) => {
 			if (event === "session_start") sessionStart = handler;
@@ -58,6 +60,7 @@ function createPi(activeToolNames: string[]) {
 	return {
 		pi: pi as any,
 		registeredTools,
+		toolDefinitions,
 		notify,
 		runSessionStart: () => sessionStart?.({ reason: "startup" }, { hasUI: true, ui: { notify } }),
 		activeTools: () => activeTools,
@@ -112,6 +115,10 @@ describe("pi-readseek extension", () => {
 			"readSeek_hover",
 			"readSeek_def",
 		]);
+		expect(ctx.toolDefinitions.get("read")?.promptGuidelines?.[0]).toBe("Use read; it provides LINE:HASH anchors for safe edits.");
+		expect(ctx.toolDefinitions.get("edit")?.promptGuidelines?.[0]).toBe("Use edit; it verifies fresh LINE:HASH anchors.");
+		expect(ctx.toolDefinitions.get("grep")?.promptGuidelines?.[0]).toBe("Use grep; it returns edit-ready anchors.");
+		expect(ctx.toolDefinitions.get("write")?.promptGuidelines?.[0]).toBe("Use write; it returns LINE:HASH anchors.");
 	});
 
 	it("leaves the active tools alone when readseek ships no binary for the platform", () => {

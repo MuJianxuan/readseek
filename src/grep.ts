@@ -24,10 +24,6 @@ import type { FileAnchoredCallback } from "./tool-types.js";
 import { optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 import { searchPathParam } from "./readseek-params.js";
 
-const GREP_PROMPT_METADATA = defineToolPromptMetadata({
-	promptUrl: new URL("../prompts/grep.md", import.meta.url),
-	promptSnippet: "Search file contents and return edit-ready hashline anchors",
-});
 
 const grepSchema = Type.Object({
 	pattern: Type.String({ description: "Pattern to search" }),
@@ -514,13 +510,19 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 }
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
+	const name = options.name ?? "readSeek_grep";
+	const promptMetadata = defineToolPromptMetadata({
+		promptUrl: new URL("../prompts/grep.md", import.meta.url),
+		promptSnippet: "Search file contents and return edit-ready hashline anchors",
+		registeredName: name,
+	});
 	const tool = registerReadSeekTool(pi, {
-		name: options.name ?? "readSeek_grep",
+		name,
 		label: "grep",
-		description: GREP_PROMPT_METADATA.description,
+		description: promptMetadata.description,
 		parameters: grepSchema,
-		promptSnippet: GREP_PROMPT_METADATA.promptSnippet,
-		promptGuidelines: GREP_PROMPT_METADATA.promptGuidelines,
+		promptSnippet: promptMetadata.promptSnippet,
+		promptGuidelines: promptMetadata.promptGuidelines,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return executeGrep({
 				toolCallId,

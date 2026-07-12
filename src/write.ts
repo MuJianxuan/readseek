@@ -66,10 +66,6 @@ function pendingWritePreviewParts(summary: string, preview: PendingDiffPreviewRe
   return { lines: [summary, headerLine], diffData: expanded ? diffData : undefined };
 }
 
-const WRITE_PROMPT_METADATA = defineToolPromptMetadata({
-  promptUrl: new URL("../prompts/write.md", import.meta.url),
-  promptSnippet: "Create or overwrite a complete file and return edit anchors",
-});
 
 type WriteDiffFields = {
   diff?: string;
@@ -242,12 +238,18 @@ export async function executeWrite(opts: {
 }
 
 export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = {}) {
+  const name = options.name ?? "readSeek_write";
+  const promptMetadata = defineToolPromptMetadata({
+    promptUrl: new URL("../prompts/write.md", import.meta.url),
+    promptSnippet: "Create or overwrite a complete file and return edit anchors",
+    registeredName: name,
+  });
   const tool = registerReadSeekTool(pi, {
-    name: options.name ?? "readSeek_write",
+    name,
     label: "write",
-    description: WRITE_PROMPT_METADATA.description,
-    promptSnippet: WRITE_PROMPT_METADATA.promptSnippet,
-    promptGuidelines: WRITE_PROMPT_METADATA.promptGuidelines,
+    description: promptMetadata.description,
+    promptSnippet: promptMetadata.promptSnippet,
+    promptGuidelines: promptMetadata.promptGuidelines,
     parameters: Type.Object({
       path: filePathParam(),
       content: Type.String({ description: "File content" }),

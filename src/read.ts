@@ -33,10 +33,6 @@ import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult,
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { filePathParam, mapParam, optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 
-const READ_PROMPT_METADATA = defineToolPromptMetadata({
-	promptUrl: new URL("../prompts/read.md", import.meta.url),
-	promptSnippet: "Read text files or images; text reads include hashline anchors and optional maps/symbol lookup, image reads include the attachment plus OCR text, an image caption, and detected objects",
-});
 
 interface ReadParams {
 	path: string;
@@ -460,12 +456,18 @@ function splitReadSeekLines(text: string): string[] {
 }
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
+	const name = options.name ?? "readSeek_read";
+	const promptMetadata = defineToolPromptMetadata({
+		promptUrl: new URL("../prompts/read.md", import.meta.url),
+		promptSnippet: "Read text files or images; text reads include hashline anchors and optional maps/symbol lookup, image reads include the attachment plus OCR text, an image caption, and detected objects",
+		registeredName: name,
+	});
 	const tool = registerReadSeekTool(pi, {
-		name: options.name ?? "readSeek_read",
+		name,
 		label: "Read",
-		description: READ_PROMPT_METADATA.description,
-		promptSnippet: READ_PROMPT_METADATA.promptSnippet,
-		promptGuidelines: READ_PROMPT_METADATA.promptGuidelines,
+		description: promptMetadata.description,
+		promptSnippet: promptMetadata.promptSnippet,
+		promptGuidelines: promptMetadata.promptGuidelines,
 		parameters: Type.Object({
 			path: filePathParam(),
 			offset: optionalIntOrString("Start line (1-indexed)"),

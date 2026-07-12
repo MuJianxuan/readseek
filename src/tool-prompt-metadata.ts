@@ -12,23 +12,42 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
   "refs.md": "Find references to an identifier and return anchored usages with enclosing symbols.",
 };
 
+const REPLACEABLE_TOOL_GUIDELINES: Record<string, { readSeekName: string; builtInName: string; benefit: string }> = {
+  "read.md": {
+    readSeekName: "readSeek_read",
+    builtInName: "read",
+    benefit: "it provides LINE:HASH anchors for safe edits.",
+  },
+  "edit.md": {
+    readSeekName: "readSeek_edit",
+    builtInName: "edit",
+    benefit: "it verifies fresh LINE:HASH anchors.",
+  },
+  "grep.md": {
+    readSeekName: "readSeek_grep",
+    builtInName: "grep",
+    benefit: "it returns edit-ready anchors.",
+  },
+  "write.md": {
+    readSeekName: "readSeek_write",
+    builtInName: "write",
+    benefit: "it returns LINE:HASH anchors.",
+  },
+};
+
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
-    "Prefer readSeek_read over read when both are available; it provides LINE:HASH anchors for readSeek_edit.",
-    "Use map or symbol mode before pulling large code files into context.",
+    "Use readSeek_read map or symbol mode before pulling large code files into context.",
     "Use readSeek_read for images; it returns the image attachment plus OCR text, a caption, and detected objects.",
   ],
   "edit.md": [
-    "Prefer readSeek_edit over edit when both are available; it verifies fresh LINE:HASH anchors.",
-    "Prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
+    "With readSeek_edit, prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
   ],
   "grep.md": [
-    "Prefer readSeek_grep over grep when both are available; it returns edit-ready anchors.",
     "Use readSeek_grep summary mode for broad count/file discovery before narrowing.",
   ],
   "write.md": [
-    "Prefer readSeek_write over write when both are available; it returns LINE:HASH anchors.",
-    "Use readSeek_edit rather than readSeek_write for small changes or appends to existing files.",
+    "Use anchored edits rather than readSeek_write for small changes or appends to existing files.",
   ],
   "sg.md": [
     "Use readSeek_search for AST-shaped code patterns.",
@@ -64,13 +83,26 @@ function promptFileName(promptUrl: URL): string {
 export function defineToolPromptMetadata(options: {
   promptUrl: URL;
   promptSnippet: string;
+  registeredName?: string;
 }): ToolPromptMetadata {
   const prompt = loadPrompt(options.promptUrl);
   const fileName = promptFileName(options.promptUrl);
   const compactDescription = COMPACT_DESCRIPTIONS[fileName];
+  const replaceable = REPLACEABLE_TOOL_GUIDELINES[fileName];
+  const registeredName = options.registeredName ?? replaceable?.readSeekName;
+  const preferenceGuideline = replaceable && registeredName
+    ? registeredName === replaceable.readSeekName
+      ? `Prefer ${registeredName} over ${replaceable.builtInName} when both are available; ${replaceable.benefit}`
+      : `Use ${registeredName}; ${replaceable.benefit}`
+    : undefined;
   return {
     description: compactDescription ?? firstPromptParagraph(prompt),
     promptSnippet: options.promptSnippet,
-    promptGuidelines: COMPACT_GUIDELINES[fileName] ?? [],
+    promptGuidelines: [
+      ...(preferenceGuideline ? [preferenceGuideline] : []),
+      ...(COMPACT_GUIDELINES[fileName] ?? []).map((guideline) =>
+        registeredName && replaceable ? guideline.replaceAll(replaceable.readSeekName, registeredName) : guideline,
+      ),
+    ],
   };
 }

@@ -69,10 +69,6 @@ const hashlineEditSchema = Type.Object(
 
 type HashlineParams = Static<typeof hashlineEditSchema>;
 
-const EDIT_PROMPT_METADATA = defineToolPromptMetadata({
-	promptUrl: new URL("../prompts/edit.md", import.meta.url),
-	promptSnippet: "Edit files using hash-verified anchors from readSeek_read/readSeek_grep/readSeek_search/readSeek_write",
-});
 
 function buildEditError(
 	path: string,
@@ -565,12 +561,18 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
+	const name = options.name ?? "readSeek_edit";
+	const promptMetadata = defineToolPromptMetadata({
+		promptUrl: new URL("../prompts/edit.md", import.meta.url),
+		promptSnippet: "Edit files using hash-verified anchors from readSeek_read/readSeek_grep/readSeek_search/readSeek_write",
+		registeredName: name,
+	});
 	const tool = registerReadSeekTool(pi, {
-		name: options.name ?? "readSeek_edit",
+		name,
 		label: "Edit",
-		description: EDIT_PROMPT_METADATA.description,
-		promptSnippet: EDIT_PROMPT_METADATA.promptSnippet,
-		promptGuidelines: EDIT_PROMPT_METADATA.promptGuidelines,
+		description: promptMetadata.description,
+		promptSnippet: promptMetadata.promptSnippet,
+		promptGuidelines: promptMetadata.promptGuidelines,
 		parameters: hashlineEditSchema,
 		renderShell: "default" as const,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
