@@ -6,7 +6,7 @@ use crate::engine::lang::Language;
 use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
 use crate::engine::paths::def_candidate_paths;
 use crate::engine::source::{read_source_containing, source_map_with_dir};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -22,11 +22,13 @@ pub(crate) struct Request {
 
 pub(crate) fn output(request: &Request) -> Result<DefOutput> {
     let name = &request.name;
-    let search_name = name
-        .rsplit('.')
-        .next()
-        .filter(|part| !part.is_empty())
-        .unwrap_or(name);
+    if name.is_empty() {
+        bail!("definition name must not be empty");
+    }
+    if !is_qualified_name(name) {
+        bail!("definition name must be a qualified identifier");
+    }
+    let search_name = name.rsplit('.').next().unwrap();
     let readseek_dir = crate::engine::repo::find_readseek_dir(&request.target);
     let readseek_dir = readseek_dir.as_deref();
     let paths = match readseek_dir {
@@ -85,6 +87,19 @@ fn paths_in_scope(paths: Vec<PathBuf>, target: &Path) -> Vec<PathBuf> {
             canonical.starts_with(&target).then_some(path)
         })
         .collect()
+}
+
+/// Whether `name` is a qualified identifier: dot-separated plain identifiers
+/// with no empty segments. Matches the shape of `Symbol::qualified_name`.
+fn is_qualified_name(name: &str) -> bool {
+    name.split('.').all(|segment| {
+        let mut chars = segment.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        (first.is_ascii_alphabetic() || first == '_')
+            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    })
 }
 
 fn locations_in_path(

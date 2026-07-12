@@ -99,6 +99,7 @@ name=search no match | path=search-none.rs | content=fn greet() {}\n | args=sear
 
 name=def plain function | path=def.rs | content=fn greet() {}\nfn main() {\n    greet();\n}\n | args=def %s greet --language rust --format plain | locations.len=1 | locations.0.line=1 | locations.0.kind=function | locations.0.name=greet | locations.0.qualified_name=greet | locations.0.text=fn greet() {}
 name=def multi-line macro | path=macro.c | content=#define FOO(a, b) \\\n    ((a) + \\\n     (b))\nint main(void) { return FOO(1, 2); }\n | args=def %s FOO --language c | definitions.len=1 | definitions.0.symbol.kind=macro | definitions.0.symbol.name=FOO | definitions.0.symbol.start_line=1 | definitions.0.symbol.end_line=3
+name=def non-identifier name rejected | path=def-invalid.rs | content=fn main() {}\n | args=def %s not-valid --language rust | status=1 | stderr=definition name must be a qualified identifier
 
 # refs
 
