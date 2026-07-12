@@ -214,13 +214,7 @@ fn trocr_image(image: &image::DynamicImage, device: &Device) -> Result<Tensor> {
 
 /// Greedy argmax over the last-axis logits, returning the best token id.
 fn argmax_token(logits: &Tensor) -> Result<u32> {
-    let values = logits.to_vec1::<f32>()?;
-    let (id, _) = values
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.total_cmp(b))
-        .expect("non-empty logits");
-    Ok(id as u32)
+    Ok(logits.argmax(candle::D::Minus1)?.to_scalar::<u32>()?)
 }
 
 /// Detect salient objects with YOLOv8-nano, returning labeled bounding boxes in
