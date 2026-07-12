@@ -271,10 +271,27 @@ fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result
             .collect()
     };
 
+    let inputs: Vec<Tensor> = crops
+        .iter()
+        .map(|crop| trocr_image(crop, &device))
+        .collect::<Result<Vec<_>>>()?;
+    let batched = Tensor::stack(&inputs, 0)?;
+    progress.maybe_reveal();
+    let encoder_xs = model.encoder().forward(&batched)?;
+    model.reset_kv_cache();
+
     let mut text = Vec::with_capacity(crops.len());
-    for crop in crops {
+    for index in 0..crops.len() {
         progress.maybe_reveal();
-        let line = recognize_line(&crop, &mut model, &config, &tokenizer, &device, progress)?;
+        let line_encoder_xs = encoder_xs.i(index)?.unsqueeze(0)?;
+        let line = decode_line(
+            &line_encoder_xs,
+            &mut model,
+            &config,
+            &tokenizer,
+            &device,
+            progress,
+        )?;
         if !line.is_empty() {
             text.push(line);
         }
@@ -346,21 +363,16 @@ fn text_lines(image: &image::DynamicImage) -> Vec<(u32, u32)> {
     merged
 }
 
-/// Recognize text in a single-line `image` crop with `TrOCR`, mirroring the
-/// `candle-examples/examples/trocr` encoder/decoder loop.
-fn recognize_line(
-    image: &image::DynamicImage,
+/// Decode one line from its encoder output, mirroring the
+/// `candle-examples/examples/trocr` decoder loop.
+fn decode_line(
+    encoder_xs: &Tensor,
     model: &mut trocr::TrOCRModel,
     config: &TrOcrConfig,
     tokenizer: &Tokenizer,
     device: &Device,
     progress: &InferenceProgress,
 ) -> Result<String> {
-    let input = trocr_image(image, device)?.unsqueeze(0)?;
-    let encoder_xs = model.encoder().forward(&input)?;
-    model.reset_kv_cache();
-    progress.maybe_reveal();
-
     let mut tokens = vec![config.decoder.decoder_start_token_id];
     let eos = config.decoder.eos_token_id;
     let mut generated = Vec::new();
@@ -369,7 +381,7 @@ fn recognize_line(
         let context_size = if index >= 1 { 1 } else { tokens.len() };
         let start_pos = tokens.len().saturating_sub(context_size);
         let input_ids = Tensor::new(&tokens[start_pos..], device)?.unsqueeze(0)?;
-        let logits = model.decode(&input_ids, &encoder_xs, start_pos)?;
+        let logits = model.decode(&input_ids, encoder_xs, start_pos)?;
         let logits = logits.squeeze(0)?;
         let logits = logits.get(logits.dim(0)? - 1)?;
         let next = argmax_token(&logits)?;
