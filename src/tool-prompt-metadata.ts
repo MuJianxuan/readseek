@@ -47,19 +47,11 @@ interface ToolPromptMetadata {
   promptGuidelines: string[];
 }
 
-function stripFrontmatter(prompt: string): string {
-  if (!prompt.startsWith("---\n")) return prompt;
-  const end = prompt.indexOf("\n---\n", 4);
-  return end === -1 ? prompt : prompt.slice(end + 5).trimStart();
-}
-
 function loadPrompt(promptUrl: URL): string {
-  return stripFrontmatter(
-    readFileSync(promptUrl, "utf-8")
-      .replaceAll("{{DEFAULT_MAX_LINES}}", String(DEFAULT_MAX_LINES))
-      .replaceAll("{{DEFAULT_MAX_BYTES}}", formatSize(DEFAULT_MAX_BYTES))
-      .trim(),
-  );
+  return readFileSync(promptUrl, "utf-8")
+    .replaceAll("{{DEFAULT_MAX_LINES}}", String(DEFAULT_MAX_LINES))
+    .replaceAll("{{DEFAULT_MAX_BYTES}}", formatSize(DEFAULT_MAX_BYTES))
+    .trim();
 }
 
 function firstPromptParagraph(prompt: string): string {

@@ -619,7 +619,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			return upsertTextComponent(context.lastComponent, clampLinesToWidth(preview2.lines, context.width).join("\n"));
 		},
 			renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
-			const { isPartial, isError, expanded: baseExpanded, width, context } = resolveRenderResultContext(options, rest);
+			const { isPartial, isError, expanded, width, context } = resolveRenderResultContext(options, rest);
 
 			if (isPartial) {
 				return renderPendingResult("pending edit", width);
@@ -649,7 +649,6 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				semanticClassification: semanticClassification as any,
 			});
 
-			const expanded = baseExpanded;
 			const diffData = (details as any).diffData;
 			const stats = diffData?.stats ?? { added: 0, removed: 0 };
 			let text = "";

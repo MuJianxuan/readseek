@@ -1,7 +1,3 @@
----
-tools: rename
----
-
 Use `readSeek_rename` to rename an identifier (variable, function, type, etc.) with
 binding accuracy. The tool calls `readseek rename` which resolves the
 lexical binding under the cursor and renames every occurrence that binds

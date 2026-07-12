@@ -43,7 +43,7 @@ export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 	const p = params as DefParams;
 
 	if (!p.name || !p.name.trim()) {
-		return buildToolErrorResult("def", "invalid-parameter", "def requires 'name'");
+		return buildToolErrorResult("def", "invalid-parameter", "readSeek_def requires 'name'");
 	}
 
 	const searchPath = resolveToCwd(p.path ?? ".", cwd);

@@ -63,9 +63,10 @@ Project settings override global settings. All settings live in a single
   tools. For a readseek-only file surface, use `["read", "edit", "write",
   "grep"]`.
 - **ocrMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
-  always runs it, `"off"` returns only the image attachment, and `"auto"`
-  runs it only when the active model does not support native image input.
-- **syntaxValidation:** post-edit syntax-regression check in `readSeek_edit`:
+  (or its alias `"on"`) always runs it, `"off"` returns only the image
+  attachment, and `"auto"` runs it only when the active model does not support
+  native image input.
+- **syntaxValidation:** pre-write syntax-regression check in `readSeek_edit`:
   `"warn"` writes with a warning, `"block"` aborts without writing, `"off"`
   skips the check.
 - **timeoutMs:** readseek invocation timeout in milliseconds.
@@ -76,3 +77,6 @@ Project settings override global settings. All settings live in a single
 
 `pi-readseek` is licensed under `MIT`. See [LICENSE](LICENSE) for more
 information.
+
+The upstream `@jarkkojs/readseek` packages are licensed separately as
+`Apache-2.0 AND LGPL-2.1-or-later`.

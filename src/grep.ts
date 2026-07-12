@@ -168,7 +168,6 @@ function escapeForRegex(s: string): string {
 }
 
 interface GrepToolOptions {
-	searchGuideline?: string;
 	onFileAnchored?: FileAnchoredCallback;
 }
 
@@ -520,9 +519,7 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 		description: GREP_PROMPT_METADATA.description,
 		parameters: grepSchema,
 		promptSnippet: GREP_PROMPT_METADATA.promptSnippet,
-		promptGuidelines: options.searchGuideline
-			? [GREP_PROMPT_METADATA.promptGuidelines[0], options.searchGuideline]
-			: GREP_PROMPT_METADATA.promptGuidelines,
+		promptGuidelines: GREP_PROMPT_METADATA.promptGuidelines,
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return executeGrep({
 				toolCallId,

@@ -1,7 +1,3 @@
----
-tools: def
----
-
 Find structural symbol definitions. Calls `readseek def` which searches
 for the definition of a named symbol across a file or directory.
 

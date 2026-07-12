@@ -37,7 +37,7 @@ describe("executeDef", () => {
 		expect(result.isError).toBe(true);
 		expect(result.details.readSeekValue.error).toEqual({
 			code: "invalid-parameter",
-			message: "def requires 'name'",
+			message: "readSeek_def requires 'name'",
 		});
 		expect(readSeekDefMock).not.toHaveBeenCalled();
 	});

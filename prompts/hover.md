@@ -1,7 +1,3 @@
----
-tools: hover
----
-
 Use `readSeek_hover` to identify the identifier and enclosing symbol at a cursor
 position. Calls `readseek identify` with the file content sent via stdin
 so unsaved editor content is included.

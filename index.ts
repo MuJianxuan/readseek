@@ -35,9 +35,7 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 
 	registerReadTool(pi, { onSuccessfulRead: markAnchored });
 	registerEditTool(pi, { wasReadInSession: hasFreshAnchors });
-	const searchGuideline = "Use readSeek_grep summary for counts; use readSeek_search for structural code patterns.";
-
-	registerGrepTool(pi, { searchGuideline, onFileAnchored: markAnchored });
+	registerGrepTool(pi, { onFileAnchored: markAnchored });
 	registerSgTool(pi, { onFileAnchored: markAnchored });
 	registerRefsTool(pi, { onFileAnchored: markAnchored });
 	registerRenameTool(pi);
