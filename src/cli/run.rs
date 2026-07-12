@@ -61,7 +61,7 @@ fn parse_cli() -> Result<cli::Cli> {
         .map_err(|arg| anyhow!("invalid utf-8 argument: {}", arg.to_string_lossy()))?;
     let cmd = args
         .first()
-        .and_then(|s| Path::new(s).file_name().and_then(|n| n.to_str()))
+        .and_then(|s| Path::new(s).file_stem().and_then(|n| n.to_str()))
         .unwrap_or("readseek");
     let cli_args: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
     match cli::Cli::from_args(&[cmd], &cli_args) {
