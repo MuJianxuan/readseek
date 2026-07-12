@@ -376,16 +376,27 @@ fn resolve_node(
         let hidden_class =
             left_innermost_scope && table.class_scope_kinds.contains(&current.kind());
         if !hidden_class {
-            let scoped = declarations.iter().filter(|declaration| {
-                declaration.name == name && declaration.scope == current.id()
-            });
+            let scoped: Vec<_> = declarations
+                .iter()
+                .filter(|declaration| declaration.name == name && declaration.scope == current.id())
+                .collect();
             let resolved = match table.resolution {
+                Resolution::Lexical
+                    if scoped
+                        .iter()
+                        .any(|declaration| (table.unifies_declarations)(declaration.ident)) =>
+                {
+                    scoped
+                        .into_iter()
+                        .min_by_key(|declaration| declaration.ident.start_byte())
+                }
                 Resolution::Lexical => scoped
+                    .into_iter()
                     .filter(|declaration| declaration.ident.start_byte() <= use_start)
                     .max_by_key(|declaration| declaration.ident.start_byte()),
-                Resolution::Hoisted => {
-                    scoped.min_by_key(|declaration| declaration.ident.start_byte())
-                }
+                Resolution::Hoisted => scoped
+                    .into_iter()
+                    .min_by_key(|declaration| declaration.ident.start_byte()),
             };
             if let Some(declaration) = resolved {
                 return Some(declaration.ident.start_byte());
@@ -490,6 +501,9 @@ struct BindingTable {
     /// Whether a declaration binds past a scope of the given kind rather than in
     /// it (a Python walrus target binds past the comprehension it appears in).
     binds_past: fn(Node<'_>, &str) -> bool,
+    /// Whether declarations of this kind share a binding with same-named
+    /// declarations in the same scope.
+    unifies_declarations: fn(Node<'_>) -> bool,
 }
 
 /// Default reference filter: every identifier-kind leaf is a reference.
@@ -504,6 +518,11 @@ fn never_escapes(_node: Node<'_>) -> bool {
 
 /// Default bind-past predicate: declarations bind in their nearest scope.
 fn never_binds_past(_node: Node<'_>, _scope_kind: &str) -> bool {
+    false
+}
+
+/// Whether a declaration shares its binding with same-named declarations.
+fn never_unifies_declarations(_node: Node<'_>) -> bool {
     false
 }
 
@@ -539,6 +558,7 @@ static RUST_TABLE: BindingTable = BindingTable {
     is_reference: any_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
 };
 
 static CPP_TABLE: BindingTable = BindingTable {
@@ -560,6 +580,7 @@ static CPP_TABLE: BindingTable = BindingTable {
     is_reference: any_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
 };
 
 static PYTHON_TABLE: BindingTable = BindingTable {
@@ -579,6 +600,7 @@ static PYTHON_TABLE: BindingTable = BindingTable {
     is_reference: python::is_reference,
     escapes_scope: python::escapes_scope,
     binds_past: python::binds_past,
+    unifies_declarations: never_unifies_declarations,
 };
 
 static TYPESCRIPT_TABLE: BindingTable = BindingTable {
@@ -604,7 +626,8 @@ static TYPESCRIPT_TABLE: BindingTable = BindingTable {
     resolution: Resolution::Lexical,
     is_reference: typescript::is_reference,
     escapes_scope: typescript::is_hoisted_name,
-    binds_past: never_binds_past,
+    binds_past: typescript::binds_past,
+    unifies_declarations: typescript::is_var_binding,
 };
 
 static VIMSCRIPT_TABLE: BindingTable = BindingTable {
@@ -623,6 +646,7 @@ static VIMSCRIPT_TABLE: BindingTable = BindingTable {
     is_reference: vimscript::is_reference,
     escapes_scope: vimscript::escapes_scope,
     binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
 };
 
 static GO_TABLE: BindingTable = BindingTable {
@@ -648,6 +672,7 @@ static GO_TABLE: BindingTable = BindingTable {
     is_reference: go::is_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
 };
 
 static CSHARP_TABLE: BindingTable = BindingTable {
@@ -675,4 +700,5 @@ static CSHARP_TABLE: BindingTable = BindingTable {
     is_reference: csharp::is_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
 };

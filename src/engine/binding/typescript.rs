@@ -118,3 +118,37 @@ pub(super) fn is_hoisted_name(node: Node<'_>) -> bool {
         ) && parent.child_by_field_name("name") == Some(node)
     })
 }
+
+/// Whether a binding is declared with `var`, which is scoped to its nearest
+/// function or the program rather than an enclosing block or loop.
+pub(super) fn binds_past(node: Node<'_>, scope_kind: &str) -> bool {
+    is_var_binding(node) && !is_function_scope(scope_kind)
+}
+
+/// Whether `node` is a binding introduced by a `var` declaration.
+pub(super) fn is_var_binding(node: Node<'_>) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        match parent.kind() {
+            "variable_declaration" => return true,
+            "for_in_statement" => {
+                return parent
+                    .child_by_field_name("kind")
+                    .is_some_and(|kind| kind.kind() == "var");
+            }
+            _ => current = parent.parent(),
+        }
+    }
+    false
+}
+
+fn is_function_scope(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_declaration"
+            | "function_expression"
+            | "generator_function_declaration"
+            | "arrow_function"
+            | "method_definition"
+    )
+}
