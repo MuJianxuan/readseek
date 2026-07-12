@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
+use argh::FromArgs;
 use rayon::prelude::*;
-use std::path::Path;
+use std::{env, path::Path, process};
 use tree_sitter::Parser;
 
 use crate::cli;
@@ -18,7 +19,7 @@ use crate::engine::{def, output, refs, rename, repo, vision_cache};
 
 /// Parses arguments and runs the requested command, writing its output.
 pub(crate) fn run() -> Result<()> {
-    let cli: crate::cli::Cli = argh::from_env();
+    let cli = parse_cli()?;
     if cli.version {
         println!("readseek {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -48,6 +49,35 @@ pub(crate) fn run() -> Result<()> {
     };
 
     write_output(&json, output_path.as_deref())
+}
+
+/// Parse process arguments into a [`cli::Cli`], mirroring `argh::from_env`
+/// except that parse failures exit with status 2 (usage error) instead of 1,
+/// matching the contract documented in the manual page.
+fn parse_cli() -> Result<cli::Cli> {
+    let args: Vec<String> = env::args_os()
+        .map(std::ffi::OsString::into_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|arg| anyhow!("invalid utf-8 argument: {}", arg.to_string_lossy()))?;
+    let cmd = args
+        .first()
+        .and_then(|s| Path::new(s).file_name().and_then(|n| n.to_str()))
+        .unwrap_or("readseek");
+    let cli_args: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
+    match cli::Cli::from_args(&[cmd], &cli_args) {
+        Ok(cli) => Ok(cli),
+        Err(early_exit) if early_exit.status.is_ok() => {
+            println!("{}", early_exit.output);
+            process::exit(0);
+        }
+        Err(early_exit) => {
+            eprintln!(
+                "{}\nRun {cmd} --help for more information.",
+                early_exit.output
+            );
+            process::exit(2);
+        }
+    }
 }
 
 impl cli::DetectCommand {
