@@ -587,9 +587,7 @@ fn go_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
     match node.kind() {
         "function_declaration" => named_symbol(node, source, "name", "function"),
         "method_declaration" => named_symbol(node, source, "name", "method"),
-        "type_declaration" => {
-            descendant_identifier(node, source).map(|name| ("type".to_owned(), name))
-        }
+        "type_spec" | "type_alias" => named_symbol(node, source, "name", "type"),
         _ => None,
     }
 }
