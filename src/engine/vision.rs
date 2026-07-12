@@ -274,7 +274,7 @@ fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result
     Ok(text.join("\n").trim().to_string())
 }
 
-/// Minimum dark-pixel fraction of an image row for it to count as text.
+/// Minimum foreground-pixel fraction of an image row for it to count as text.
 const LINE_INK_FRACTION: f32 = 0.02;
 /// Merge text-line bands whose vertical gap is at most this many pixels.
 const LINE_MERGE_GAP: u32 = 8;
@@ -282,9 +282,9 @@ const LINE_MERGE_GAP: u32 = 8;
 const LINE_MIN_HEIGHT: u32 = 6;
 
 /// Split `image` into text-line bands `[y0, y1)` using a horizontal ink
-/// projection (count of dark pixels per row). Returns bands in reading order, or
-/// an empty vec when no text rows are detected. This is the segmentation that
-/// lets the single-line `TrOCR`-printed model read a multi-line page.
+/// projection. Returns bands in reading order, or an empty vec when no text
+/// rows are detected. This is the segmentation that lets the single-line
+/// `TrOCR`-printed model read a multi-line page.
 fn text_lines(image: &image::DynamicImage) -> Vec<(u32, u32)> {
     let gray = image.to_luma8();
     let (width, height) = gray.dimensions();
@@ -293,12 +293,20 @@ fn text_lines(image: &image::DynamicImage) -> Vec<(u32, u32)> {
     }
     let threshold = ((width as f32) * LINE_INK_FRACTION).ceil().max(1.) as usize;
 
-    let mut ink: Vec<u32> = vec![0; height as usize];
+    let mut dark_ink = vec![0u32; height as usize];
+    let mut light_ink = vec![0u32; height as usize];
     for (_, y, pixel) in gray.enumerate_pixels() {
         if pixel[0] < 128 {
-            ink[y as usize] += 1;
+            dark_ink[y as usize] += 1;
+        } else {
+            light_ink[y as usize] += 1;
         }
     }
+    let ink = if border_is_dark(&gray) {
+        light_ink
+    } else {
+        dark_ink
+    };
 
     // Raw bands of consecutive rows that meet the ink threshold.
     let mut bands: Vec<(u32, u32)> = Vec::new();
@@ -336,6 +344,59 @@ fn text_lines(image: &image::DynamicImage) -> Vec<(u32, u32)> {
     }
     merged.retain(|&(start, end)| end - start >= LINE_MIN_HEIGHT);
     merged
+}
+
+fn border_is_dark(gray: &image::GrayImage) -> bool {
+    let (width, height) = gray.dimensions();
+    let mut sum = 0u64;
+    let mut count = 0u64;
+    for x in 0..width {
+        sum += u64::from(gray.get_pixel(x, 0)[0]);
+        count += 1;
+        if height > 1 {
+            sum += u64::from(gray.get_pixel(x, height - 1)[0]);
+            count += 1;
+        }
+    }
+    for y in 1..height.saturating_sub(1) {
+        sum += u64::from(gray.get_pixel(0, y)[0]);
+        count += 1;
+        if width > 1 {
+            sum += u64::from(gray.get_pixel(width - 1, y)[0]);
+            count += 1;
+        }
+    }
+    sum / count < 128
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn two_line_image(background: u8, foreground: u8) -> image::DynamicImage {
+        let mut image = image::GrayImage::from_pixel(100, 50, image::Luma([background]));
+        for y in 10..19 {
+            for x in 10..90 {
+                image.put_pixel(x, y, image::Luma([foreground]));
+            }
+        }
+        for y in 30..39 {
+            for x in 10..90 {
+                image.put_pixel(x, y, image::Luma([foreground]));
+            }
+        }
+        image::DynamicImage::ImageLuma8(image)
+    }
+
+    #[test]
+    fn text_lines_detects_dark_text() {
+        assert_eq!(text_lines(&two_line_image(255, 0)), [(10, 19), (30, 39)]);
+    }
+
+    #[test]
+    fn text_lines_detects_light_text() {
+        assert_eq!(text_lines(&two_line_image(0, 255)), [(10, 19), (30, 39)]);
+    }
 }
 
 /// Decode one line from its encoder output, mirroring the

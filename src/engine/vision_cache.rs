@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 3;
+const CACHE_SCHEMA_VERSION: u32 = 4;
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
 
