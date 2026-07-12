@@ -4,11 +4,12 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, ocrMode } = vi.hoisted(() => ({
+const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, ocrMode } = vi.hoisted(() => ({
 	createReadToolExecuteMock: vi.fn(),
 	readSeekMapMock: vi.fn(),
 	readSeekReadMock: vi.fn(),
 	readSeekDetectMock: vi.fn(),
+	readSeekImageMock: vi.fn(),
 	ocrMode: { value: "force" as "force" | "off" | "auto" },
 }));
 
@@ -29,6 +30,7 @@ vi.mock("../src/readseek-client.js", () => ({
 	readSeekMap: readSeekMapMock,
 	readSeekRead: readSeekReadMock,
 	readSeekDetect: readSeekDetectMock,
+	readSeekImage: readSeekImageMock,
 }));
 
 const { executeRead } = await import("../src/read.js");
@@ -49,8 +51,8 @@ describe("executeRead anchor tracking", () => {
 		return filePath;
 	}
 
-	function mockImageDetection(filePath: string) {
-		const imageDetection = {
+	function imageDetectionFor(filePath: string) {
+		return {
 			kind: "image",
 			type: "image/png",
 			file: filePath,
@@ -60,17 +62,18 @@ describe("executeRead anchor tracking", () => {
 			height: 1,
 			animated: false,
 		};
-		readSeekDetectMock.mockImplementation((_filePath: string, options?: { ocr?: boolean; caption?: boolean; objects?: boolean }) =>
-			Promise.resolve(
-				options?.ocr || options?.caption || options?.objects
-					? {
-							...imageDetection,
-							...(options.ocr ? { ocr: "OCR TEXT" } : {}),
-							...(options.caption ? { caption: "A tiny test image." } : {}),
-							...(options.objects ? { objects: [{ label: "dot", bbox: [1, 2, 3, 4] }] } : {}),
-						}
-					: imageDetection,
-			),
+	}
+
+	function mockImageDetection(filePath: string) {
+		const imageDetection = imageDetectionFor(filePath);
+		readSeekDetectMock.mockResolvedValue(imageDetection);
+		readSeekImageMock.mockImplementation((_filePath: string, modes: string[]) =>
+			Promise.resolve({
+				...imageDetection,
+				...(modes.includes("ocr") ? { ocr: "OCR TEXT" } : {}),
+				...(modes.includes("caption") ? { caption: "A tiny test image." } : {}),
+				...(modes.includes("objects") ? { objects: [{ label: "dot", bbox: [1, 2, 3, 4] }] } : {}),
+			}),
 		);
 	}
 
@@ -108,23 +111,12 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
-	it("falls back to image attachment when OCR detect crashes", async () => {
+	it("falls back to image attachment when image analysis crashes", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			const filePath = await writeImage(cwd);
-			const imageDetection = {
-				kind: "image",
-				type: "image/png",
-				file: filePath,
-				mime: "image/png",
-				format: "png",
-				width: 1,
-				height: 1,
-				animated: false,
-			};
-			readSeekDetectMock
-				.mockImplementationOnce(() => Promise.resolve(imageDetection))
-				.mockRejectedValueOnce(new Error("readseek crashed with SIGFPE"));
+			readSeekDetectMock.mockResolvedValue(imageDetectionFor(filePath));
+			readSeekImageMock.mockRejectedValueOnce(new Error("readseek crashed with SIGFPE"));
 			createReadToolExecuteMock.mockResolvedValueOnce({
 				content: [{ type: "text", text: "image attachment" }],
 			});
@@ -199,7 +191,7 @@ describe("executeRead anchor tracking", () => {
 
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
 			expect(text).toBe("image attachment");
-			expect(readSeekDetectMock).toHaveBeenCalledTimes(1);
+			expect(readSeekImageMock).not.toHaveBeenCalled();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
@@ -226,7 +218,7 @@ describe("executeRead anchor tracking", () => {
 
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
 			expect(text).toBe("image attachment");
-			expect(readSeekDetectMock).toHaveBeenCalledTimes(1);
+			expect(readSeekImageMock).not.toHaveBeenCalled();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

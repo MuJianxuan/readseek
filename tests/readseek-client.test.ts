@@ -23,7 +23,7 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { readSeekRead, readSeekSearch, readSeekDetect } = await import("../src/readseek-client.js");
+const { readSeekRead, readSeekSearch, readSeekDetect, readSeekImage } = await import("../src/readseek-client.js");
 
 function spawnResult(stdout: string) {
 	const child = new EventEmitter() as EventEmitter & {
@@ -59,6 +59,57 @@ function spawnSignalCrash(signal: NodeJS.Signals) {
 	return child;
 }
 
+function spawnFailure(stderr: string) {
+	const child = new EventEmitter() as EventEmitter & {
+		stdout: PassThrough;
+		stderr: PassThrough;
+		kill: ReturnType<typeof vi.fn>;
+	};
+	child.stdout = new PassThrough();
+	child.stderr = new PassThrough();
+	child.kill = vi.fn();
+	queueMicrotask(() => {
+		child.stdout.end();
+		child.stderr.end(stderr);
+		child.emit("close", 1);
+	});
+	return child;
+}
+
+const IMAGE_MODE_PAYLOADS: Record<string, Record<string, unknown>> = {
+	ocr: { ocr: "OCR TEXT" },
+	caption: { caption: "A tiny test image." },
+	objects: { objects: [{ label: "dot", bbox: [1, 2, 3, 4] }] },
+};
+
+function mockImageModes(options: { failing?: string[] } = {}) {
+	spawnMock.mockImplementation((_bin: string, args: string[]) => {
+		const imageIndex = args.indexOf("--image");
+		if (imageIndex === -1) return spawnResult("");
+		const mode = args[imageIndex + 1] as string;
+		if (options.failing?.includes(mode)) return spawnFailure(`error: ${mode} model unavailable`);
+		return spawnResult(
+			JSON.stringify({
+				file: "/tmp/image.png",
+				type: "image/png",
+				mime: "image/png",
+				format: "png",
+				width: 10,
+				height: 20,
+				animated: false,
+				mode,
+				...IMAGE_MODE_PAYLOADS[mode],
+			}),
+		);
+	});
+}
+
+function imageCallArgs(): string[][] {
+	return spawnMock.mock.calls
+		.map((call) => call[1] as string[])
+		.filter((args) => args.includes("--image"));
+}
+
 const readSeekBinaryPattern = /[\\/]bin[\\/]readseek(\.exe)?$/;
 
 describe("readseek client parsing", () => {
@@ -74,7 +125,7 @@ describe("readseek client parsing", () => {
 		await rm(tempHome, { recursive: true, force: true });
 	});
 
-	it("uses readseek 0.4 start flag for ranged reads", async () => {
+	it("targets the start line for ranged reads", async () => {
 		const validReadOutput = JSON.stringify({
 			file: "/tmp/file.txt",
 			language: "Text",
@@ -92,8 +143,20 @@ describe("readseek client parsing", () => {
 
 		expect(spawnMock).toHaveBeenLastCalledWith(
 			expect.stringMatching(readSeekBinaryPattern),
-			["read", "/tmp/file.txt", "--start", "2", "--end", "4"],
+			["read", "/tmp/file.txt:2", "--end", "4"],
 			expect.any(Object),
+		);
+	});
+
+	it("normalizes readseek usage errors to a single line", async () => {
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() =>
+				spawnFailure("Required positional arguments not provided:\n    name\n\nRun readseek --help for more information.\n"),
+			);
+
+		await expect(readSeekRead("/tmp/file.txt")).rejects.toThrow(
+			"Required positional arguments not provided: name",
 		);
 	});
 
@@ -214,29 +277,17 @@ describe("readseek client parsing", () => {
 		if (detection.kind === "image") expect(detection.ocr).toBeUndefined();
 	});
 
-	it("parses image OCR, captions, and objects from requested detections", async () => {
-		const imageOutput = JSON.stringify({
-			type: "image/png",
-			file: "/tmp/image.png",
-			mime: "image/png",
-			format: "png",
-			width: 10,
-			height: 20,
-			animated: false,
-			ocr: "OCR TEXT",
-			caption: "A tiny test image.",
-			objects: [{ label: "dot", bbox: [1, 2, 3, 4] }],
-		});
-		spawnMock
-			.mockImplementationOnce(() => spawnResult(""))
-			.mockImplementationOnce(() => spawnResult(imageOutput));
+	it("merges every requested image analysis mode into one detection", async () => {
+		mockImageModes();
 
-		const detection = await readSeekDetect("/tmp/image.png", { ocr: true, caption: true, objects: true });
+		const detection = await readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"]);
 
-		expect(spawnMock).toHaveBeenLastCalledWith(
-			expect.stringMatching(readSeekBinaryPattern),
-			["detect", "--ocr", "--caption", "--objects", "/tmp/image.png"],
-			expect.any(Object),
+		expect(imageCallArgs()).toEqual(
+			expect.arrayContaining([
+				["read", "--image", "ocr", "/tmp/image.png"],
+				["read", "--image", "caption", "/tmp/image.png"],
+				["read", "--image", "objects", "/tmp/image.png"],
+			]),
 		);
 		expect(detection.kind).toBe("image");
 		if (detection.kind === "image") {
@@ -246,21 +297,38 @@ describe("readseek client parsing", () => {
 		}
 	});
 
-	it("rejects invalid image object bounding boxes", async () => {
-		const imageOutput = JSON.stringify({
-			type: "image/png",
-			file: "/tmp/image.png",
-			format: "png",
-			width: 10,
-			height: 20,
-			animated: false,
-			objects: [{ label: "dot", bbox: [1, 2, 3] }],
-		});
-		spawnMock
-			.mockImplementationOnce(() => spawnResult(""))
-			.mockImplementationOnce(() => spawnResult(imageOutput));
+	it("keeps the image analysis modes that succeed when others fail", async () => {
+		mockImageModes({ failing: ["caption"] });
 
-		await expect(readSeekDetect("/tmp/image.png", { objects: true })).rejects.toThrow(
+		const detection = await readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"]);
+
+		expect(detection.kind).toBe("image");
+		if (detection.kind === "image") {
+			expect(detection.ocr).toBe("OCR TEXT");
+			expect(detection.caption).toBeUndefined();
+			expect(detection.objects).toEqual([{ label: "dot", bbox: [1, 2, 3, 4] }]);
+		}
+	});
+
+	it("rejects invalid image object bounding boxes", async () => {
+		spawnMock.mockImplementation((_bin: string, args: string[]) =>
+			args.includes("--image")
+				? spawnResult(
+					JSON.stringify({
+						type: "image/png",
+						file: "/tmp/image.png",
+						format: "png",
+						width: 10,
+						height: 20,
+						animated: false,
+						mode: "objects",
+						objects: [{ label: "dot", bbox: [1, 2, 3] }],
+					}),
+				)
+				: spawnResult(""),
+		);
+
+		await expect(readSeekImage("/tmp/image.png", ["objects"])).rejects.toThrow(
 			"invalid readseek detect object.bbox",
 		);
 	});

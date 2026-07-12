@@ -26,7 +26,7 @@ import { buildReadOutput } from "./read-output.js";
 
 import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { readSeekRead, readSeekDetect, type ReadSeekDetection } from "./readseek-client.js";
+import { readSeekRead, readSeekDetect, readSeekImage, type ReadSeekDetection } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { resolveReadSeekOcrMode } from "./readseek-settings.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidthCached } from "./tui-render-utils.js";
@@ -183,12 +183,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 
 			let ocrFailed = false;
 			try {
-				const ocrDetection = await readSeekDetect(absolutePath, {
-					ocr: true,
-					caption: true,
-					objects: true,
-					signal,
-				});
+				const ocrDetection = await readSeekImage(absolutePath, ["ocr", "caption", "objects"], { signal });
 				const imageAnalysis = formatImageAnalysis(ocrDetection);
 				if (imageAnalysis) {
 					return succeed({

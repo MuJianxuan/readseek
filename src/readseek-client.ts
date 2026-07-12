@@ -116,6 +116,8 @@ export interface ReadSeekDetectedObject {
 	bbox: [number, number, number, number];
 }
 
+export type ReadSeekImageMode = "ocr" | "caption" | "objects";
+
 export type ReadSeekDetection =
 	| {
 			kind: "source";
@@ -147,18 +149,13 @@ export type ReadSeekDetection =
 			mime?: string;
 		};
 
+type ReadSeekImageDetection = Extract<ReadSeekDetection, { kind: "image" }>;
+
 interface ReadSeekSearchOptions {
 	language?: string;
 	cached?: boolean;
 	others?: boolean;
 	ignored?: boolean;
-	signal?: AbortSignal;
-}
-
-interface ReadSeekDetectOptions {
-	ocr?: boolean;
-	caption?: boolean;
-	objects?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -311,6 +308,16 @@ function readSeekTimeoutMs(): number {
 	return resolveReadSeekTimeoutMs() ?? DEFAULT_READSEEK_TIMEOUT_MS;
 }
 
+const READSEEK_USAGE_HINT = /\n\s*Run readseek(?: [\w-]+)* --help for more information\.?\s*$/;
+
+function readSeekErrorMessage(stderr: string): string {
+	return stderr
+		.replace(READSEEK_USAGE_HINT, "")
+		.replace(/^error:\s*/i, "")
+		.replace(/\s*\n\s*/g, " ")
+		.trim();
+}
+
 async function spawnReadSeekRaw(args: string[], options: RunReadSeekOptions = {}): Promise<string> {
 	return new Promise<string>((resolve, reject) => {
 		let settled = false;
@@ -376,8 +383,8 @@ async function spawnReadSeekRaw(args: string[], options: RunReadSeekOptions = {}
 			const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
 			const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 			if (code === 0) succeed(stdout);
-			else if (signal) fail(new Error((stderr || `readseek killed by signal ${signal}`).replace(/^error:\s*/i, "")));
-			else fail(new Error((stderr || `readseek exited with status ${code}`).replace(/^error:\s*/i, "")));
+			else if (signal) fail(new Error(readSeekErrorMessage(stderr) || `readseek killed by signal ${signal}`));
+			else fail(new Error(readSeekErrorMessage(stderr) || `readseek exited with status ${code}`));
 		});
 	});
 }
@@ -539,8 +546,7 @@ export async function readSeekRead(
 	endLine?: number,
 	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekReadOutput> {
-	const args = ["read", filePath];
-	if (startLine !== undefined) args.push("--start", String(startLine));
+	const args = ["read", startLine === undefined ? filePath : `${filePath}:${startLine}`];
 	if (endLine !== undefined) args.push("--end", String(endLine));
 	return parseReadOutput(await runReadSeek(args, { signal: options.signal }));
 }
@@ -585,7 +591,7 @@ export async function readSeekMapContent(
 	options: { signal?: AbortSignal } = {},
 ): Promise<FileMap | null> {
 	const output = parseMapOutput(
-		await runReadSeek(["map", "--stdin", filePath], { signal: options.signal, stdin: content }),
+		await runReadSeek(["map", `stdin:${filePath}`], { signal: options.signal, stdin: content }),
 	);
 	return fileMapFromReadSeekOutput(output, filePath, Buffer.byteLength(content, "utf8"));
 }
@@ -666,7 +672,7 @@ export async function readSeekCheck(
 	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekCheckOutput> {
 	return parseCheckOutput(
-		await runReadSeek(["check", "--stdin", filePath], { signal: options.signal, stdin: content }),
+		await runReadSeek(["check", `stdin:${filePath}`], { signal: options.signal, stdin: content }),
 	);
 }
 
@@ -733,14 +739,46 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 
 export async function readSeekDetect(
 	filePath: string,
-	options: ReadSeekDetectOptions = {},
+	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekDetection> {
-	const args = ["detect"];
-	if (options.ocr) args.push("--ocr");
-	if (options.caption) args.push("--caption");
-	if (options.objects) args.push("--objects");
-	args.push(filePath);
-	return parseDetectOutput(await runReadSeek(args, { signal: options.signal }));
+	return parseDetectOutput(await runReadSeek(["detect", filePath], { signal: options.signal }));
+}
+
+/**
+ * Analyze an image with each requested vision mode and merge the payloads into
+ * a single detection. readseek accepts one `--image` mode per invocation, so
+ * modes that fail are dropped as long as at least one produced a payload;
+ * otherwise the first failure is rethrown.
+ */
+export async function readSeekImage(
+	filePath: string,
+	modes: ReadSeekImageMode[],
+	options: { signal?: AbortSignal } = {},
+): Promise<ReadSeekDetection> {
+	const results = await Promise.allSettled(
+		modes.map(async (mode) =>
+			parseDetectOutput(await runReadSeek(["read", "--image", mode, filePath], { signal: options.signal })),
+		),
+	);
+
+	let merged: ReadSeekImageDetection | undefined;
+	for (const result of results) {
+		if (result.status !== "fulfilled" || result.value.kind !== "image") continue;
+		const detection = result.value;
+		merged = merged === undefined
+			? detection
+			: {
+				...merged,
+				ocr: detection.ocr ?? merged.ocr,
+				caption: detection.caption ?? merged.caption,
+				objects: detection.objects ?? merged.objects,
+			};
+	}
+	if (merged !== undefined) return merged;
+
+	const failure = results.find((result) => result.status === "rejected");
+	if (failure?.status === "rejected") throw failure.reason;
+	throw new Error(`readseek returned no image analysis for ${filePath}`);
 }
 
 // --- Rename ---
@@ -952,8 +990,8 @@ export async function readSeekIdentify(
 	content: string,
 	options: IdentifyOptions = {},
 ): Promise<IdentifyOutput> {
-	const args = ["identify", "--stdin", filePath];
-	if (options.line !== undefined) args.push("--line", String(options.line));
+	const target = options.line === undefined ? `stdin:${filePath}` : `stdin:${filePath}:${options.line}`;
+	const args = ["identify", target];
 	if (options.column !== undefined) args.push("--column", String(options.column));
 	if (options.language) args.push("--language", options.language);
 	return parseIdentifyOutput(await runReadSeek(args, { signal: options.signal, stdin: content }));
