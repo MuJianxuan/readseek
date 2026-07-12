@@ -178,6 +178,8 @@ fn identifier_at_byte(text: &[u8], byte: usize) -> Option<String> {
 pub(crate) struct CrossFileMatches {
     /// Byte spans of free uses of the old name to rename.
     pub(crate) occurrences: Vec<(usize, usize)>,
+    /// Byte offsets of same-named local declarations and uses that resolve to them.
+    pub(crate) excluded: Vec<usize>,
     /// Byte offsets where renaming to the new name would capture a local binding.
     pub(crate) conflicts: Vec<usize>,
 }
@@ -204,6 +206,11 @@ pub(crate) fn cross_file_matches(
 
     let mut matches = CrossFileMatches {
         occurrences: Vec::new(),
+        excluded: declarations
+            .iter()
+            .filter(|declaration| declaration.name == name)
+            .map(|declaration| declaration.ident.start_byte())
+            .collect(),
         conflicts: Vec::new(),
     };
     collect_free_occurrences(
@@ -216,12 +223,15 @@ pub(crate) fn cross_file_matches(
         &mut matches,
     );
     matches.occurrences.sort_by_key(|&(start, _)| start);
+    matches.excluded.sort_unstable();
+    matches.excluded.dedup();
     matches.conflicts.sort_unstable();
     Some(matches)
 }
 
 /// Walk the tree collecting uses of `name` that do not resolve to a local
-/// declaration, flagging any where `new_name` already binds locally (capture).
+/// declaration, marking same-named local declarations and shadowed uses so a
+/// caller can exclude them from a byte-level name scan.
 #[allow(clippy::too_many_arguments)]
 fn collect_free_occurrences(
     root: Node<'_>,
@@ -238,11 +248,15 @@ fn collect_free_occurrences(
             && node.child_count() == 0
             && (table.is_reference)(node)
             && node.utf8_text(src) == Ok(name)
-            && resolve_node(node, name, declarations, table).is_none()
         {
-            out.occurrences.push((node.start_byte(), node.end_byte()));
-            if resolve_node(node, new_name, declarations, table).is_some() {
-                out.conflicts.push(node.start_byte());
+            let resolves_old = resolve_node(node, name, declarations, table);
+            if resolves_old.is_none() {
+                out.occurrences.push((node.start_byte(), node.end_byte()));
+                if resolve_node(node, new_name, declarations, table).is_some() {
+                    out.conflicts.push(node.start_byte());
+                }
+            } else {
+                out.excluded.push(node.start_byte());
             }
         }
         let mut cursor = node.walk();

@@ -174,24 +174,36 @@ fn workspace_others(
 /// Build the edit plan for a single non-cursor file, or `None` when nothing in
 /// it matches the old name.
 ///
-/// Binding-aware targets retain only free uses, excluding local shadows. A
-/// plain name scan is used for non-binding targets or unavailable binding data.
+/// Binding-aware targets still use a byte-level name scan so preprocessor
+/// bodies and parse-error subtrees are retained, then exclude same-file local
+/// declarations and uses that resolve to them. Non-binding targets rename every
+/// name match.
 fn build_other(
     source: &SourceFile,
     old_name: &str,
     new_name: &str,
     target_is_binding: bool,
 ) -> Option<RenameFileOutput> {
-    let (occurrences, conflict_bytes) = if target_is_binding {
-        match binding::cross_file_matches(source, old_name, new_name) {
-            Some(matches) => (matches.occurrences, matches.conflicts),
-            None => (name_scan(source, old_name), Vec::new()),
-        }
-    } else {
-        (name_scan(source, old_name), Vec::new())
-    };
+    let mut occurrences = name_scan(source, old_name);
     if occurrences.is_empty() {
         return None;
+    }
+
+    let matches = binding::cross_file_matches(source, old_name, new_name);
+    let (excluded, conflict_bytes) = if target_is_binding {
+        match matches {
+            Some(matches) => (matches.excluded, matches.conflicts),
+            None => (Vec::new(), Vec::new()),
+        }
+    } else {
+        let conflicts = matches.map(|matches| matches.conflicts).unwrap_or_default();
+        (Vec::new(), conflicts)
+    };
+    if !excluded.is_empty() {
+        occurrences.retain(|(start_byte, _)| excluded.binary_search(start_byte).is_err());
+        if occurrences.is_empty() {
+            return None;
+        }
     }
 
     let edits = occurrences
@@ -383,5 +395,21 @@ mod tests {
 
         assert_eq!(plan.edits.len(), 1);
         assert_eq!(plan.edits[0].line, 5);
+    }
+
+    #[test]
+    fn workspace_rename_keeps_c_macro_body_occurrence() {
+        let source = source_from_text(
+            Path::new("other.c"),
+            "#define INC() (value++)\nint other;\n".to_owned(),
+            Some(Language::C),
+            ContentCategory::Text,
+            None,
+        );
+
+        let plan = build_other(&source, "value", "renamed", true).expect("workspace rename plan");
+
+        assert_eq!(plan.edits.len(), 1);
+        assert_eq!(plan.edits[0].line, 1);
     }
 }
