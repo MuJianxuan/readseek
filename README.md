@@ -61,7 +61,7 @@ readseek read photo.jpg --image objects   # object labels + bounding boxes
 readseek read photo.jpg --image ocr       # extracted text
 ```
 
-The flags can be combined; each model loads once per invocation. The model files
+Each invocation selects one mode; the requested model loads once. The model files
 (~258 MB BLIP GGUF + ~6 MB YOLOv8-nano + ~1.24 GB TrOCR) are downloaded lazily
 into the user cache directory on first vision use and reused on subsequent runs;
 a progress bar is shown while downloading when stdout is an interactive TTY.
