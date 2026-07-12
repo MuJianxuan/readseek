@@ -50,13 +50,15 @@ printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 
 ## Images
 
-`detect` reports format, dimensions, and animation status for images. Add a vision
-flag to analyze image contents with the BLIP, YOLOv8-nano, and TrOCR models:
+`detect` reports format, dimensions, and animation status for images. `read`
+runs vision analysis on images, defaulting to a caption; pass `--image` to choose
+the task (BLIP, YOLOv8-nano, TrOCR):
 
 ```sh
-readseek detect photo.jpg --caption        # detailed natural-language caption
-readseek detect photo.jpg --objects        # object labels + bounding boxes
-readseek detect photo.jpg --ocr            # extracted text
+readseek read photo.jpg                  # default: caption
+readseek read photo.jpg --image caption   # detailed natural-language caption
+readseek read photo.jpg --image objects   # object labels + bounding boxes
+readseek read photo.jpg --image ocr       # extracted text
 ```
 
 The flags can be combined; each model loads once per invocation. The model files

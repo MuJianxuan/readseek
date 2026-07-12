@@ -3,6 +3,7 @@
 
 use crate::engine::flags::GitFlags;
 use crate::engine::lang::{LANGUAGE_SPECS, Language};
+use crate::engine::output::ImageMode;
 use crate::engine::target::{Target, TargetAddress};
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
@@ -55,18 +56,6 @@ pub(crate) struct DetectCommand {
     /// takes <file> or stdin:<path>
     #[argh(positional)]
     pub(crate) target: Option<String>,
-
-    /// describe an image with a detailed natural-language caption
-    #[argh(switch)]
-    pub(crate) caption: bool,
-
-    /// detect objects in an image, with category labels and bounding boxes
-    #[argh(switch)]
-    pub(crate) objects: bool,
-
-    /// extract text from an image with OCR
-    #[argh(switch)]
-    pub(crate) ocr: bool,
 }
 
 /// read and hash from a line range
@@ -89,6 +78,10 @@ pub(crate) struct ReadCommand {
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
+
+    /// image analysis mode: caption (default), objects, or ocr
+    #[argh(option, from_str_fn(parse_image_mode))]
+    pub(crate) image: Option<ImageMode>,
 }
 
 /// map a file to symbols
@@ -348,6 +341,17 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
                 .then_some(spec.language)
         })
         .ok_or_else(|| format!("unknown language `{value}`"))
+}
+
+pub(crate) fn parse_image_mode(value: &str) -> std::result::Result<ImageMode, String> {
+    match value {
+        "caption" => Ok(ImageMode::Caption),
+        "objects" => Ok(ImageMode::Objects),
+        "ocr" => Ok(ImageMode::Ocr),
+        _ => Err(format!(
+            "unknown image mode `{value}`; expected caption, objects, or ocr"
+        )),
+    }
 }
 
 pub(crate) fn parse_target(value: &str, name_mode: bool) -> Result<Target> {

@@ -105,79 +105,93 @@ fn usage_error(cmd: &str, message: &str) -> ! {
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
         let source = load_path_source(self.target.as_deref(), None)?;
-        let path = source.path.clone();
-        let image_bytes = source.image_bytes;
-        let mut output = output::DetectOutput::from_detection(source.detection);
-        self.apply_vision(&path, image_bytes.as_deref(), &mut output);
+        let output = output::DetectOutput::from_detection(source.detection);
         Ok(serde_json::to_string(&output)?)
     }
+}
 
-    fn apply_vision(&self, path: &Path, bytes: Option<&[u8]>, output: &mut output::DetectOutput) {
-        let request = crate::engine::vision::Request {
-            caption: self.caption,
-            objects: self.objects,
-            ocr: self.ocr,
-        };
-        if !request.caption && !request.objects && !request.ocr {
-            return;
-        }
-        if !output.is_image() {
-            log::warn!("vision skipped: {} is not an image", path.display());
-            return;
-        }
-        let Some(bytes) = bytes else {
-            log::warn!("vision skipped: missing image bytes for {}", path.display());
-            return;
-        };
+/// Run the requested vision tasks against `bytes`, reusing cached results from
+/// `.readseek/vision/` and storing any newly computed ones. Returns the
+/// analysis with the requested fields populated (from cache or fresh); a task
+/// that fails is logged and left `None`.
+fn run_vision(
+    bytes: &[u8],
+    request: crate::engine::vision::Request,
+) -> crate::engine::vision::Analysis {
+    let readseek_dir = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| repo::find_readseek_dir(&cwd));
+    let hash = crate::engine::hash::hash_bytes(bytes);
 
-        // Resolve the cache root from CWD (or an ancestor); None disables caching.
-        let readseek_dir = std::env::current_dir()
-            .ok()
-            .and_then(|cwd| repo::find_readseek_dir(&cwd));
-        let hash = crate::engine::hash::hash_bytes(bytes);
+    let mut entry = readseek_dir
+        .as_deref()
+        .and_then(|dir| vision_cache::load(dir, &hash))
+        .unwrap_or_else(vision_cache::CacheEntry::new_empty);
 
-        let mut entry = readseek_dir
-            .as_deref()
-            .and_then(|dir| vision_cache::load(dir, &hash))
-            .unwrap_or_else(vision_cache::CacheEntry::new_empty);
-
-        // Run only the requested tasks that are not already cached.
-        let missing = crate::engine::vision::Request {
-            caption: request.caption && entry.caption.is_none(),
-            objects: request.objects && entry.objects.is_none(),
-            ocr: request.ocr && entry.ocr.is_none(),
-        };
-        if missing.caption || missing.objects || missing.ocr {
-            match crate::engine::vision::analyze(bytes, missing) {
-                Ok(analysis) => {
-                    if missing.caption {
-                        entry.caption = analysis.caption;
-                    }
-                    if missing.objects {
-                        entry.objects = analysis.objects;
-                    }
-                    if missing.ocr {
-                        entry.ocr = analysis.ocr;
-                    }
-                    if let Some(dir) = readseek_dir.as_deref() {
-                        vision_cache::store(dir, &hash, &entry);
-                    }
+    let missing = crate::engine::vision::Request {
+        caption: request.caption && entry.caption.is_none(),
+        objects: request.objects && entry.objects.is_none(),
+        ocr: request.ocr && entry.ocr.is_none(),
+    };
+    if missing.caption || missing.objects || missing.ocr {
+        match crate::engine::vision::analyze(bytes, missing) {
+            Ok(analysis) => {
+                if missing.caption {
+                    entry.caption = analysis.caption;
                 }
-                Err(error) => log::warn!("vision skipped: {error:#}"),
+                if missing.objects {
+                    entry.objects = analysis.objects;
+                }
+                if missing.ocr {
+                    entry.ocr = analysis.ocr;
+                }
+                if let Some(dir) = readseek_dir.as_deref() {
+                    vision_cache::store(dir, &hash, &entry);
+                }
             }
+            Err(error) => log::warn!("vision skipped: {error:#}"),
         }
+    }
 
-        output.set_analysis(crate::engine::vision::Analysis {
-            caption: if request.caption { entry.caption } else { None },
-            objects: if request.objects { entry.objects } else { None },
-            ocr: if request.ocr { entry.ocr } else { None },
-        });
+    crate::engine::vision::Analysis {
+        caption: if request.caption { entry.caption } else { None },
+        objects: if request.objects { entry.objects } else { None },
+        ocr: if request.ocr { entry.ocr } else { None },
     }
 }
 
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
         let (target, source) = load_source(self.target.as_deref(), false, self.language)?;
+
+        if matches!(
+            source.detection.category,
+            crate::engine::source::ContentCategory::Image(_)
+        ) {
+            if target.address.is_some() {
+                bail!("image targets do not support a line or hash suffix");
+            }
+            if self.end.is_some() || self.limit.is_some() || self.language.is_some() {
+                bail!("--end, --limit, and --language do not apply to images");
+            }
+            let mode = self.image.unwrap_or_default();
+            let request = crate::engine::vision::Request {
+                caption: mode == cli::ImageMode::Caption,
+                objects: mode == cli::ImageMode::Objects,
+                ocr: mode == cli::ImageMode::Ocr,
+            };
+            let Some(bytes) = source.image_bytes.as_deref() else {
+                bail!("missing image bytes for {}", source.path.display());
+            };
+            let analysis = run_vision(bytes, request);
+            let image_output = output::read_image_output(&source, mode, analysis)?;
+            let output = output::ReadOutput::Image(image_output);
+            return Ok(serde_json::to_string(&output)?);
+        }
+
+        if self.image.is_some() {
+            bail!("--image requires an image file");
+        }
         source.require_text()?;
         let start = output::resolve_target(&source, &target)?;
 
@@ -191,7 +205,8 @@ impl cli::ReadCommand {
         } else {
             self.end
         };
-        let output = output::read_output(&source, start, end)?;
+        let text_output = output::read_output(&source, start, end)?;
+        let output = output::ReadOutput::Text(text_output);
         Ok(serde_json::to_string(&output)?)
     }
 }

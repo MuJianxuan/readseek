@@ -16,7 +16,6 @@ use crate::engine::source::{
 };
 use crate::engine::target::{Target, TargetAddress};
 use crate::engine::vision::{Analysis, DetectedObject};
-
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Format {
     #[default]
@@ -88,20 +87,7 @@ impl DetectOutput {
             }
         }
     }
-
-    pub(crate) fn is_image(&self) -> bool {
-        matches!(self, Self::Image(_))
-    }
-
-    pub(crate) fn set_analysis(&mut self, analysis: Analysis) {
-        if let Self::Image(image) = self {
-            image.caption = analysis.caption;
-            image.objects = analysis.objects;
-            image.ocr = analysis.ocr;
-        }
-    }
 }
-
 #[derive(Debug, Serialize)]
 pub(crate) struct DetectSourceOutput {
     #[serde(rename = "type")]
@@ -127,12 +113,6 @@ pub(crate) struct DetectImageOutput {
     mime: Option<String>,
     #[serde(flatten)]
     image: ImageInfo,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    caption: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    objects: Option<Vec<DetectedObject>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ocr: Option<String>,
 }
 
 impl DetectImageOutput {
@@ -142,9 +122,6 @@ impl DetectImageOutput {
             file,
             mime,
             image,
-            caption: None,
-            objects: None,
-            ocr: None,
         }
     }
 }
@@ -190,13 +167,59 @@ impl From<&SourceFile> for SourceHeader {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ImageMode {
+    #[default]
+    Caption,
+    Objects,
+    Ocr,
+}
+
+impl Serialize for ImageMode {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(match self {
+            Self::Caption => "caption",
+            Self::Objects => "objects",
+            Self::Ocr => "ocr",
+        })
+    }
+}
+
 #[derive(Debug, Serialize)]
-pub(crate) struct ReadOutput {
+#[serde(untagged)]
+pub(crate) enum ReadOutput {
+    Text(ReadTextOutput),
+    Image(ReadImageOutput),
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReadTextOutput {
     #[serde(flatten)]
     header: SourceHeader,
     start_line: usize,
     end_line: usize,
     hashlines: Vec<HashLine>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReadImageOutput {
+    file: PathBuf,
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+    #[serde(flatten)]
+    image: ImageInfo,
+    mode: ImageMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    caption: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    objects: Option<Vec<DetectedObject>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ocr: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -452,7 +475,7 @@ pub(crate) fn read_output(
     source: &SourceFile,
     start: Option<usize>,
     end: Option<usize>,
-) -> Result<ReadOutput> {
+) -> Result<ReadTextOutput> {
     let line_count = source.lines.len();
     let start_line = start.unwrap_or(1);
     let requested_end_line = end.unwrap_or(line_count);
@@ -462,7 +485,7 @@ pub(crate) fn read_output(
         bail!("start line must be greater than zero");
     }
     if line_count == 0 && start.is_none() && end.is_none() {
-        return Ok(ReadOutput {
+        return Ok(ReadTextOutput {
             header: source.into(),
             start_line,
             end_line,
@@ -482,11 +505,40 @@ pub(crate) fn read_output(
         .map(HashLine::from)
         .collect();
 
-    Ok(ReadOutput {
+    Ok(ReadTextOutput {
         header: source.into(),
         start_line,
         end_line,
         hashlines,
+    })
+}
+
+pub(crate) fn read_image_output(
+    source: &SourceFile,
+    mode: ImageMode,
+    analysis: Analysis,
+) -> Result<ReadImageOutput> {
+    let mime = source.detection.mime.clone();
+    let type_ = mime
+        .clone()
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let ContentCategory::Image(image) = source.detection.category else {
+        bail!("not an image");
+    };
+    let (caption, objects, ocr) = match mode {
+        ImageMode::Caption => (analysis.caption, None, None),
+        ImageMode::Objects => (None, analysis.objects, None),
+        ImageMode::Ocr => (None, None, analysis.ocr),
+    };
+    Ok(ReadImageOutput {
+        file: source.path.clone(),
+        type_,
+        mime,
+        image,
+        mode,
+        caption,
+        objects,
+        ocr,
     })
 }
 
