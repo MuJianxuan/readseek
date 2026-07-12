@@ -9,9 +9,9 @@
 //! edit so an applier can verify the file has not drifted before writing.
 //!
 //! With `--workspace` the rename expands across a directory or repository. The
-//! cursor file stays binding-accurate; other files are matched by name (free
-//! uses only, local shadows excluded) because readseek has no cross-file symbol
-//! resolver. `--apply` then writes every file all-or-nothing.
+//! cursor file stays binding-accurate; for a lexical binding target, other files
+//! retain only free uses when a binding table is available. Other targets use
+//! name matching. `--apply` then writes every file all-or-nothing.
 
 use crate::engine::binding::{self, OccurrenceKind};
 use crate::engine::flags::GitFlags;
@@ -72,7 +72,7 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     // declaration. Symbols without a lexical binding (macros, top-level functions
     // and types) fall back to the same name-based plan used for the other files,
     // so they rename in a single file as well as across a workspace.
-    let (old_name, conflicts, edits) = if let Some((binding, raw_conflicts)) =
+    let (old_name, conflicts, edits, is_binding) = if let Some((binding, raw_conflicts)) =
         binding::resolve_with_conflicts(&source, cursor_byte, Some(&request.to))
     {
         if binding.name == request.to {
@@ -102,7 +102,7 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
                 )
             })
             .collect();
-        (binding.name, conflicts, edits)
+        (binding.name, conflicts, edits, true)
     } else {
         let name = binding::identifier_at(&source, cursor_byte).with_context(|| {
             format!(
@@ -113,16 +113,16 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
         if name == request.to {
             bail!("new name is identical to the current name");
         }
-        let plan = build_other(&source, &name, &request.to).with_context(|| {
+        let plan = build_other(&source, &name, &request.to, false).with_context(|| {
             format!(
                 "`{name}` has no renamable occurrences in {}",
                 request.target.display()
             )
         })?;
-        (name, plan.conflicts, plan.edits)
+        (name, plan.conflicts, plan.edits, false)
     };
 
-    let others = workspace_others(request, &old_name)?;
+    let others = workspace_others(request, &old_name, is_binding)?;
 
     let applied = if request.apply {
         apply_all(request, &old_name, &edits, &conflicts, &others)?;
@@ -145,12 +145,14 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     })
 }
 
-/// Plan name-based edits for every other file when `--workspace` is set.
-///
-/// The cursor file is excluded; remaining files are resolved per file via
-/// [`binding::cross_file_matches`] (free uses only) and fall back to a plain
-/// name scan for languages without binding support.
-fn workspace_others(request: &Request, old_name: &str) -> Result<Vec<RenameFileOutput>> {
+/// The cursor file is excluded. Lexical binding targets use
+/// [`binding::cross_file_matches`] (free uses only) where available; other
+/// targets and unsupported languages use a plain name scan.
+fn workspace_others(
+    request: &Request,
+    old_name: &str,
+    target_is_binding: bool,
+) -> Result<Vec<RenameFileOutput>> {
     let Some(workspace) = request.workspace.as_ref() else {
         return Ok(Vec::new());
     };
@@ -162,7 +164,7 @@ fn workspace_others(request: &Request, old_name: &str) -> Result<Vec<RenameFileO
         .filter(|path| !is_origin(path, &request.target, origin.as_deref()))
         .filter_map(|path| {
             let source = read_source_containing(path, old_name, request.language)?;
-            build_other(&source, old_name, &request.to)
+            build_other(&source, old_name, &request.to, target_is_binding)
         })
         .collect();
     others.sort_by(|a, b| a.file.cmp(&b.file));
@@ -172,19 +174,25 @@ fn workspace_others(request: &Request, old_name: &str) -> Result<Vec<RenameFileO
 /// Build the edit plan for a single non-cursor file, or `None` when nothing in
 /// it matches the old name.
 ///
-/// Occurrences always come from a byte-level `name_scan` because the workspace
-/// rename is name-based across files — the binding resolver is too conservative
-/// and misses occurrences inside `#define` bodies, token-pasted arguments, and
-/// parse-error subtrees. Conflicts are sourced from `cross_file_matches` when
-/// available, so we still flag naming collisions the binding resolver detects.
-fn build_other(source: &SourceFile, old_name: &str, new_name: &str) -> Option<RenameFileOutput> {
-    let occurrences = name_scan(source, old_name);
+/// Binding-aware targets retain only free uses, excluding local shadows. A
+/// plain name scan is used for non-binding targets or unavailable binding data.
+fn build_other(
+    source: &SourceFile,
+    old_name: &str,
+    new_name: &str,
+    target_is_binding: bool,
+) -> Option<RenameFileOutput> {
+    let (occurrences, conflict_bytes) = if target_is_binding {
+        match binding::cross_file_matches(source, old_name, new_name) {
+            Some(matches) => (matches.occurrences, matches.conflicts),
+            None => (name_scan(source, old_name), Vec::new()),
+        }
+    } else {
+        (name_scan(source, old_name), Vec::new())
+    };
     if occurrences.is_empty() {
         return None;
     }
-    let conflict_bytes = binding::cross_file_matches(source, old_name, new_name)
-        .map(|m| m.conflicts)
-        .unwrap_or_default();
 
     let edits = occurrences
         .into_iter()
@@ -351,4 +359,29 @@ fn is_plain_identifier(name: &str) -> bool {
         return false;
     };
     (first.is_alphabetic() || first == '_') && chars.all(|ch| ch.is_alphanumeric() || ch == '_')
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::build_other;
+    use crate::engine::lang::Language;
+    use crate::engine::source::{ContentCategory, source_from_text};
+
+    #[test]
+    fn workspace_rename_excludes_local_shadow() {
+        let source = source_from_text(
+            Path::new("other.py"),
+            "def f():\n    value = 2\n    return value\n\nprint(value)\n".to_owned(),
+            Some(Language::Python),
+            ContentCategory::Text,
+            None,
+        );
+
+        let plan = build_other(&source, "value", "renamed", true).expect("workspace rename plan");
+
+        assert_eq!(plan.edits.len(), 1);
+        assert_eq!(plan.edits[0].line, 5);
+    }
 }
