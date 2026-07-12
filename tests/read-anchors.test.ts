@@ -4,13 +4,13 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, ocrMode } = vi.hoisted(() => ({
+const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, imageMode } = vi.hoisted(() => ({
 	createReadToolExecuteMock: vi.fn(),
 	readSeekMapMock: vi.fn(),
 	readSeekReadMock: vi.fn(),
 	readSeekDetectMock: vi.fn(),
 	readSeekImageMock: vi.fn(),
-	ocrMode: { value: "force" as "force" | "off" | "auto" },
+	imageMode: { value: "force" as "force" | "off" | "auto" },
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async () => ({
@@ -19,7 +19,7 @@ vi.mock("@earendil-works/pi-coding-agent", async () => ({
 }));
 
 vi.mock("../src/readseek-settings.js", () => ({
-	resolveReadSeekOcrMode: () => ocrMode.value,
+	resolveReadSeekImageMode: () => imageMode.value,
 	resolveReadSeekJsonSettings: () => ({ settings: {}, warnings: [] }),
 	resolveReadSeekSyntaxValidation: () => undefined,
 	resolveReadSeekTimeoutMs: () => undefined,
@@ -37,7 +37,7 @@ const { executeRead } = await import("../src/read.js");
 describe("executeRead anchor tracking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		ocrMode.value = "force";
+		imageMode.value = "force";
 	});
 
 	async function writeImage(cwd: string): Promise<string> {
@@ -169,10 +169,10 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
-	it("skips OCR when ocrMode is off", async () => {
+	it("skips image analysis when imageMode is off", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
-			ocrMode.value = "off";
+			imageMode.value = "off";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
 			createReadToolExecuteMock.mockResolvedValueOnce({
@@ -196,10 +196,10 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
-	it("skips OCR for image-capable models when ocrMode is auto", async () => {
+	it("skips image analysis for image-capable models when imageMode is auto", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
-			ocrMode.value = "auto";
+			imageMode.value = "auto";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
 			createReadToolExecuteMock.mockResolvedValueOnce({

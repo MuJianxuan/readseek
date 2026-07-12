@@ -16,7 +16,7 @@ vi.mock("../src/readseek-settings.js", () => ({
 		settings: { excludeTools: excludeTools.value },
 		warnings: settingsWarnings.value,
 	}),
-	resolveReadSeekOcrMode: () => "force",
+	resolveReadSeekImageMode: () => "force",
 	resolveReadSeekSyntaxValidation: () => undefined,
 	resolveReadSeekTimeoutMs: () => undefined,
 }));
@@ -119,7 +119,7 @@ describe("pi-readseek extension", () => {
 
 	it("warns about settings problems at session start", () => {
 		settingsWarnings.value = [
-			{ source: "/home/user/.pi/agent/readseek/settings.json", message: "Invalid readseek setting at readseek.ocrMode" },
+			{ source: "/home/user/.pi/agent/readseek/settings.json", message: "Invalid readseek setting at readseek.imageMode" },
 		];
 		const ctx = createPi(["read"]);
 
@@ -127,7 +127,7 @@ describe("pi-readseek extension", () => {
 		ctx.runSessionStart();
 
 		expect(ctx.notify).toHaveBeenCalledWith(
-			"Invalid readseek setting at readseek.ocrMode (/home/user/.pi/agent/readseek/settings.json)",
+			"Invalid readseek setting at readseek.imageMode (/home/user/.pi/agent/readseek/settings.json)",
 			"warning",
 		);
 	});

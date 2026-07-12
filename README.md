@@ -48,7 +48,7 @@ Project settings override global settings. All settings live in a single
 {
   "readseek": {
     "excludeTools": [],
-    "ocrMode": "force",
+    "imageMode": "force",
     "syntaxValidation": "warn",
     "timeoutMs": 120000,
     "grep": {
@@ -62,7 +62,7 @@ Project settings override global settings. All settings live in a single
 - **excludeTools:** active tool names to hide after activating `readSeek_*`
   tools. For a readseek-only file surface, use `["read", "edit", "write",
   "grep"]`.
-- **ocrMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
+- **imageMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
   (or its alias `"on"`) always runs it, `"off"` returns only the image
   attachment, and `"auto"` runs it only when the active model does not support
   native image input.

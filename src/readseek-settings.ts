@@ -2,7 +2,7 @@ import { readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type ReadSeekOcrMode = "force" | "off" | "auto";
+export type ReadSeekImageAnalysisMode = "force" | "off" | "auto";
 export type ReadSeekSyntaxValidationMode = "warn" | "block" | "off";
 
 interface ReadSeekGrepSettings {
@@ -12,7 +12,7 @@ interface ReadSeekGrepSettings {
 
 interface ReadSeekJsonSettings {
   excludeTools?: string[];
-  ocrMode?: ReadSeekOcrMode;
+  imageMode?: ReadSeekImageAnalysisMode;
   syntaxValidation?: ReadSeekSyntaxValidationMode;
   timeoutMs?: number;
   grep?: ReadSeekGrepSettings;
@@ -29,7 +29,7 @@ export interface ReadSeekSettingsResult {
   warnings: ReadSeekSettingsWarning[];
 }
 
-const READSEEK_KEYS = ["excludeTools", "ocrMode", "syntaxValidation", "timeoutMs", "grep"];
+const READSEEK_KEYS = ["excludeTools", "imageMode", "syntaxValidation", "timeoutMs", "grep"];
 const READSEEK_GREP_KEYS = ["maxLines", "maxBytes"];
 
 function defaultGlobalSettingsPath(): string {
@@ -91,16 +91,16 @@ function readEnum<T extends string>(
   return undefined;
 }
 
-function readOcrMode(
+function readImageMode(
   raw: Record<string, unknown>,
   source: string,
   warnings: ReadSeekSettingsWarning[],
-): ReadSeekOcrMode | undefined {
-  if (!("ocrMode" in raw)) return undefined;
-  const val = raw.ocrMode;
+): ReadSeekImageAnalysisMode | undefined {
+  if (!("imageMode" in raw)) return undefined;
+  const val = raw.imageMode;
   if (val === "on") return "force";
   if (val === "force" || val === "off" || val === "auto") return val;
-  warnings.push(invalid(source, "readseek.ocrMode"));
+  warnings.push(invalid(source, "readseek.imageMode"));
   return undefined;
 }
 
@@ -153,8 +153,8 @@ function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult 
   const excludeTools = readStringArray(section, "excludeTools", "readseek.excludeTools", source, warnings);
   if (excludeTools !== undefined) settings.excludeTools = excludeTools;
 
-  const ocrMode = readOcrMode(section, source, warnings);
-  if (ocrMode !== undefined) settings.ocrMode = ocrMode;
+  const imageMode = readImageMode(section, source, warnings);
+  if (imageMode !== undefined) settings.imageMode = imageMode;
 
   const syntaxValidation = readEnum(
     section,
@@ -240,8 +240,8 @@ export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
   };
 }
 
-export function resolveReadSeekOcrMode(): ReadSeekOcrMode {
-  return resolveReadSeekJsonSettings().settings.ocrMode ?? "force";
+export function resolveReadSeekImageMode(): ReadSeekImageAnalysisMode {
+  return resolveReadSeekJsonSettings().settings.imageMode ?? "force";
 }
 
 export function resolveReadSeekSyntaxValidation(): ReadSeekSyntaxValidationMode | undefined {

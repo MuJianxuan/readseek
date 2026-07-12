@@ -28,14 +28,14 @@ import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
 import { readSeekRead, readSeekDetect, readSeekImage, type ReadSeekDetection } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
-import { resolveReadSeekOcrMode } from "./readseek-settings.js";
+import { resolveReadSeekImageMode } from "./readseek-settings.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidthCached } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { filePathParam, mapParam, optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 
 const READ_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/read.md", import.meta.url),
-	promptSnippet: "Read text files or images; text reads include hashline anchors and optional maps/symbol lookup, image reads include the attachment plus OCR text",
+	promptSnippet: "Read text files or images; text reads include hashline anchors and optional maps/symbol lookup, image reads include the attachment plus OCR text, an image caption, and detected objects",
 });
 
 interface ReadParams {
@@ -58,7 +58,7 @@ export interface ExecuteReadOptions {
 	onUpdate: any;
 	cwd: string;
 	onSuccessfulRead?: FileAnchoredCallback;
-	/** Whether the active model accepts image input natively. Used when OCR mode is auto. */
+	/** Whether the active model accepts image input natively. Used when imageMode is auto. */
 	modelSupportsImages?: boolean;
 }
 
@@ -177,8 +177,8 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		if (detection?.kind === "image") {
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
-			const ocrMode = resolveReadSeekOcrMode();
-			const shouldRunVision = ocrMode === "force" || (ocrMode === "auto" && !opts.modelSupportsImages);
+			const imageMode = resolveReadSeekImageMode();
+			const shouldRunVision = imageMode === "force" || (imageMode === "auto" && !opts.modelSupportsImages);
 			if (!shouldRunVision) return succeed(builtinResult);
 
 			let ocrFailed = false;

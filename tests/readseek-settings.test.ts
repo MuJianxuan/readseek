@@ -18,7 +18,7 @@ vi.mock("node:os", async (importOriginal) => {
 
 const {
 	resolveReadSeekJsonSettings,
-	resolveReadSeekOcrMode,
+	resolveReadSeekImageMode,
 	resolveReadSeekSyntaxValidation,
 } = await import("../src/readseek-settings.js");
 
@@ -53,33 +53,33 @@ describe("readseek settings", () => {
 		await writeFile(path.join(dir, "settings.json"), JSON.stringify(settings));
 	}
 
-	it("defaults ocrMode to force", () => {
-		expect(resolveReadSeekOcrMode()).toBe("force");
+	it("defaults imageMode to force", () => {
+		expect(resolveReadSeekImageMode()).toBe("force");
 	});
 
-	it("reads ocrMode from global settings", async () => {
-		await writeGlobal({ readseek: { ocrMode: "auto" } });
-		expect(resolveReadSeekOcrMode()).toBe("auto");
+	it("reads imageMode from global settings", async () => {
+		await writeGlobal({ readseek: { imageMode: "auto" } });
+		expect(resolveReadSeekImageMode()).toBe("auto");
 	});
 
-	it("accepts on as an ocrMode alias for force", async () => {
-		await writeGlobal({ readseek: { ocrMode: "on" } });
-		expect(resolveReadSeekOcrMode()).toBe("force");
+	it("accepts on as an imageMode alias for force", async () => {
+		await writeGlobal({ readseek: { imageMode: "on" } });
+		expect(resolveReadSeekImageMode()).toBe("force");
 	});
 
 	it("lets project settings override global", async () => {
-		await writeGlobal({ readseek: { ocrMode: "auto" } });
-		await writeProject({ readseek: { ocrMode: "off" } });
-		expect(resolveReadSeekOcrMode()).toBe("off");
+		await writeGlobal({ readseek: { imageMode: "auto" } });
+		await writeProject({ readseek: { imageMode: "off" } });
+		expect(resolveReadSeekImageMode()).toBe("off");
 	});
 
-	it("warns on invalid ocrMode and falls back to force", async () => {
-		await writeGlobal({ readseek: { ocrMode: "maybe" } });
+	it("warns on invalid imageMode and falls back to force", async () => {
+		await writeGlobal({ readseek: { imageMode: "maybe" } });
 		const { settings, warnings } = resolveReadSeekJsonSettings();
-		expect(settings.ocrMode).toBeUndefined();
+		expect(settings.imageMode).toBeUndefined();
 		expect(warnings).toHaveLength(1);
-		expect(warnings[0]?.path).toBe("readseek.ocrMode");
-		expect(resolveReadSeekOcrMode()).toBe("force");
+		expect(warnings[0]?.path).toBe("readseek.imageMode");
+		expect(resolveReadSeekImageMode()).toBe("force");
 	});
 
 	it("merges nested grep settings", async () => {
@@ -103,28 +103,28 @@ describe("readseek settings", () => {
 	});
 
 	it("warns on unknown keys in the readseek section", async () => {
-		await writeGlobal({ readseek: { ocrmode: "off", grep: { maxlines: 10 } } });
+		await writeGlobal({ readseek: { imagemode: "off", grep: { maxlines: 10 } } });
 		const { warnings } = resolveReadSeekJsonSettings();
-		expect(warnings.map((warning) => warning.path)).toEqual(["readseek.ocrmode", "readseek.grep.maxlines"]);
+		expect(warnings.map((warning) => warning.path)).toEqual(["readseek.imagemode", "readseek.grep.maxlines"]);
 	});
 
 	it("warns when settings are not nested under a readseek section", async () => {
-		await writeGlobal({ read: { ocrMode: "off" } });
+		await writeGlobal({ read: { imageMode: "off" } });
 		const { settings, warnings } = resolveReadSeekJsonSettings();
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]?.path).toBe("readseek");
-		expect(settings.ocrMode).toBeUndefined();
+		expect(settings.imageMode).toBeUndefined();
 	});
 
 	it("picks up settings changes and deletions despite caching", async () => {
-		await writeGlobal({ readseek: { ocrMode: "auto" } });
-		expect(resolveReadSeekOcrMode()).toBe("auto");
-		expect(resolveReadSeekOcrMode()).toBe("auto");
+		await writeGlobal({ readseek: { imageMode: "auto" } });
+		expect(resolveReadSeekImageMode()).toBe("auto");
+		expect(resolveReadSeekImageMode()).toBe("auto");
 
-		await writeGlobal({ readseek: { ocrMode: "off" } });
-		expect(resolveReadSeekOcrMode()).toBe("off");
+		await writeGlobal({ readseek: { imageMode: "off" } });
+		expect(resolveReadSeekImageMode()).toBe("off");
 
 		await rm(path.join(tempHome, ".pi", "agent", "readseek", "settings.json"));
-		expect(resolveReadSeekOcrMode()).toBe("force");
+		expect(resolveReadSeekImageMode()).toBe("force");
 	});
 });
