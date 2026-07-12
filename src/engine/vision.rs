@@ -78,30 +78,6 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     let image = image::load_from_memory(image_bytes).context("decode image")?;
     let mut analysis = Analysis::default();
     let progress = InferenceProgress::new();
-    let task_count =
-        usize::from(request.caption) + usize::from(request.objects) + usize::from(request.ocr);
-
-    if task_count <= 1 {
-        if request.caption {
-            match caption(&image, &progress) {
-                Ok(text) => analysis.caption = Some(text),
-                Err(error) => log::warn!("vision caption skipped: {error:#}"),
-            }
-        }
-        if request.objects {
-            match detect_objects(&image, &progress) {
-                Ok(objects) => analysis.objects = Some(objects),
-                Err(error) => log::warn!("vision objects skipped: {error:#}"),
-            }
-        }
-        if request.ocr {
-            match ocr_text(&image, &progress) {
-                Ok(text) => analysis.ocr = Some(text),
-                Err(error) => log::warn!("vision OCR skipped: {error:#}"),
-            }
-        }
-        return Ok(analysis);
-    }
 
     std::thread::scope(|scope| {
         let caption_handle = request.caption.then(|| {
