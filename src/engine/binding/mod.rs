@@ -543,8 +543,12 @@ static CPP_TABLE: BindingTable = BindingTable {
     scope_kinds: &[
         "compound_statement",
         "function_definition",
+        "if_statement",
+        "switch_statement",
+        "while_statement",
         "for_statement",
         "for_range_loop",
+        "catch_clause",
         "lambda_expression",
     ],
     class_scope_kinds: &[],
