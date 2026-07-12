@@ -10,7 +10,7 @@ use tree_sitter::Parser;
 use crate::cli;
 use crate::cli::GitSelection;
 use crate::engine::flags::GitFlags;
-use crate::engine::lang::{BinaryMode, Language};
+use crate::engine::lang::Language;
 use crate::engine::output::SearchOutput;
 use crate::engine::paths::command_paths;
 use crate::engine::source::SourceFile;
@@ -104,7 +104,7 @@ fn usage_error(cmd: &str, message: &str) -> ! {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let source = load_path_source(self.target.as_deref(), None, BinaryMode::Detect)?;
+        let source = load_path_source(self.target.as_deref(), None)?;
         let path = source.path.clone();
         let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
@@ -177,12 +177,8 @@ impl cli::DetectCommand {
 
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            false,
-            self.language,
-            BinaryMode::Lossy,
-        )?;
+        let (target, source) = load_source(self.target.as_deref(), false, self.language)?;
+        source.require_text()?;
         let start = output::resolve_target(&source, &target)?;
 
         let end = if let Some(limit) = self.limit {
@@ -202,26 +198,24 @@ impl cli::ReadCommand {
 
 impl cli::MapCommand {
     fn run(&self) -> Result<String> {
-        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
+        let source = load_path_source(self.target.as_deref(), self.language)?;
+        source.require_text()?;
         Ok(serde_json::to_string(&output::map_output(&source)?)?)
     }
 }
 
 impl cli::CheckCommand {
     fn run(&self) -> Result<String> {
-        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Reject)?;
+        let source = load_path_source(self.target.as_deref(), self.language)?;
+        source.require_text()?;
         Ok(serde_json::to_string(&output::check_output(&source)?)?)
     }
 }
 
 impl cli::SymbolCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            self.name,
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (target, source) = load_source(self.target.as_deref(), self.name, self.language)?;
+        source.require_text()?;
         let address = if let Some(crate::engine::target::TargetAddress::Name(name)) =
             target.address.as_ref()
         {
@@ -243,12 +237,8 @@ impl cli::SymbolCommand {
 
 impl cli::IdentifyCommand {
     fn run(&self) -> Result<String> {
-        let (target, source) = load_source(
-            self.target.as_deref(),
-            false,
-            self.language,
-            BinaryMode::Reject,
-        )?;
+        let (target, source) = load_source(self.target.as_deref(), false, self.language)?;
+        source.require_text()?;
         let target_line = output::resolve_target(&source, &target)?;
         let output = output::identify_output(&source, target_line, self.column)?;
         Ok(serde_json::to_string(&output)?)
@@ -366,23 +356,18 @@ fn load_source(
     target_str: Option<&str>,
     name_mode: bool,
     language: Option<Language>,
-    binary_mode: BinaryMode,
 ) -> Result<(Target, SourceFile)> {
     let target = crate::cli::parse_target(target_str.context("target required")?, name_mode)?;
-    let source = output::load_source_for_input(&target, language, binary_mode)?;
+    let source = output::load_source_for_input(&target, language)?;
     Ok((target, source))
 }
 
-fn load_path_source(
-    target_str: Option<&str>,
-    language: Option<Language>,
-    binary_mode: BinaryMode,
-) -> Result<SourceFile> {
+fn load_path_source(target_str: Option<&str>, language: Option<Language>) -> Result<SourceFile> {
     let target = crate::cli::parse_target(target_str.context("target required")?, false)?;
     if target.address.is_some() {
         bail!("this command takes a file path, not a line or hash suffix");
     }
-    output::load_source_for_input(&target, language, binary_mode)
+    output::load_source_for_input(&target, language)
 }
 
 fn write_output(json: &str, path: Option<&Path>) -> Result<()> {

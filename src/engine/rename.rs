@@ -18,7 +18,9 @@ use crate::engine::flags::GitFlags;
 use crate::engine::lang::Language;
 use crate::engine::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
-use crate::engine::source::{SourceFile, read_source_containing, source_from_text};
+use crate::engine::source::{
+    ContentCategory, SourceFile, read_source_containing, source_from_text,
+};
 use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
@@ -56,7 +58,13 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     let bytes =
         fs::read(&request.target).with_context(|| format!("read {}", request.target.display()))?;
     let text = String::from_utf8(bytes).context("file is not valid UTF-8")?;
-    let source = source_from_text(&request.target, text, request.language, false, None);
+    let source = source_from_text(
+        &request.target,
+        text,
+        request.language,
+        ContentCategory::Text,
+        None,
+    );
 
     let cursor_byte = source.cursor_byte(line, column)?;
 
@@ -283,7 +291,8 @@ fn apply_all(
         }
         let current =
             fs::read_to_string(path).with_context(|| format!("re-read {}", path.display()))?;
-        let current = source_from_text(path, current, request.language, false, None);
+        let current =
+            source_from_text(path, current, request.language, ContentCategory::Text, None);
         for edit in edits {
             let line = current.line(edit.line).with_context(|| {
                 format!("line {} no longer exists in {}", edit.line, path.display())

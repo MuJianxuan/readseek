@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Serialize, Serializer};
 use std::path::Path;
 use std::sync::OnceLock;
@@ -501,13 +501,6 @@ pub(crate) const LANGUAGE_SPECS: &[LanguageSpec] = &[
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BinaryMode {
-    Reject,
-    Detect,
-    Lossy,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DocumentKind {
     Source,
     Text,
@@ -591,21 +584,6 @@ pub(crate) fn detect_by_path(path: &Path) -> Option<Language> {
 
 pub(crate) fn language_spec(language: Language) -> Option<&'static LanguageSpec> {
     LANGUAGE_SPECS.iter().find(|spec| spec.language == language)
-}
-
-pub(crate) fn extract_plain_text(
-    path: &Path,
-    bytes: Vec<u8>,
-    binary_mode: BinaryMode,
-) -> Result<String> {
-    match binary_mode {
-        BinaryMode::Lossy => match String::from_utf8(bytes) {
-            Ok(text) => Ok(text),
-            Err(error) => Ok(String::from_utf8_lossy(error.as_bytes()).into_owned()),
-        },
-        BinaryMode::Reject | BinaryMode::Detect => String::from_utf8(bytes)
-            .with_context(|| format!("{} is not UTF-8 text", path.display())),
-    }
 }
 
 pub(crate) fn normalize_source_text(mut text: String) -> String {

@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use crate::engine::hash::LineHash;
 use crate::engine::image::ImageInfo;
-use crate::engine::lang::{AnalysisEngine, BinaryMode, Language, serialize_engine};
+use crate::engine::lang::{AnalysisEngine, Language, serialize_engine};
 use crate::engine::source::{
-    Detection, HashLine, SourceFile, Symbol, find_symbol, load_source, load_source_from_bytes,
-    range_hashlines, source_from_text, source_map,
+    ContentCategory, Detection, HashLine, SourceFile, Symbol, find_symbol, load_source,
+    load_source_from_bytes, range_hashlines, source_map,
 };
 use crate::engine::target::{Target, TargetAddress};
 use crate::engine::vision::{Analysis, DetectedObject};
@@ -45,45 +45,48 @@ pub(crate) enum DetectOutput {
 
 impl DetectOutput {
     pub(crate) fn from_detection(detection: Detection) -> Self {
-        let mime = detection
-            .mime
+        let Detection {
+            file,
+            language,
+            engine,
+            supported,
+            category,
+            mime: detect_mime,
+            syntax,
+        } = detection;
+        let mime = detect_mime
             .clone()
             .unwrap_or_else(|| "text/plain".to_string());
 
-        if let Some(image) = detection.image {
-            return Self::Image(DetectImageOutput::new(
-                detection.file,
-                mime,
-                detection.mime,
-                image,
-            ));
-        }
-
-        if detection.binary {
-            return Self::Binary(DetectBinaryOutput {
-                file: detection.file,
+        match category {
+            ContentCategory::Image(image) => {
+                Self::Image(DetectImageOutput::new(file, mime, detect_mime, image))
+            }
+            ContentCategory::Binary => Self::Binary(DetectBinaryOutput {
+                file,
                 type_: mime,
-                mime: detection.mime,
-            });
+                mime: detect_mime,
+            }),
+            ContentCategory::Text => {
+                if language == Language::Unknown {
+                    Self::Text(DetectTextOutput {
+                        file,
+                        type_: mime,
+                        mime: detect_mime,
+                    })
+                } else {
+                    Self::Source(DetectSourceOutput {
+                        file,
+                        language,
+                        engine,
+                        supported,
+                        type_: mime,
+                        mime: detect_mime,
+                        syntax,
+                    })
+                }
+            }
         }
-
-        if detection.language == Language::Unknown {
-            return Self::Text(DetectTextOutput {
-                file: detection.file,
-                type_: mime,
-                mime: detection.mime,
-            });
-        }
-
-        Self::Source(DetectSourceOutput {
-            file: detection.file,
-            language: detection.language,
-            engine: detection.engine,
-            supported: detection.supported,
-            type_: mime,
-            mime: detection.mime,
-            syntax: detection.syntax,
-        })
     }
 
     pub(crate) fn is_image(&self) -> bool {
@@ -431,7 +434,6 @@ pub(crate) fn resolve_target(source: &SourceFile, target: &Target) -> Result<Opt
 pub(crate) fn load_source_for_input(
     target: &Target,
     override_language: Option<Language>,
-    binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
     if target.read_stdin {
         let mut bytes = Vec::new();
@@ -441,14 +443,9 @@ pub(crate) fn load_source_for_input(
         } else {
             &target.path
         };
-        return match String::from_utf8(bytes) {
-            Ok(text) => Ok(source_from_text(path, text, override_language, false, None)),
-            Err(error) => {
-                load_source_from_bytes(path, error.into_bytes(), override_language, binary_mode)
-            }
-        };
+        return load_source_from_bytes(path, bytes, override_language);
     }
-    load_source(&target.path, override_language, binary_mode)
+    load_source(&target.path, override_language)
 }
 
 pub(crate) fn read_output(

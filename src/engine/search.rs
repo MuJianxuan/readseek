@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::engine::lang::{AnalysisEngine, BinaryMode, Language};
+use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::output::{SearchCapture, SearchFileOutput, SearchMatch};
-use crate::engine::source::{SourceFile, line_hash, load_source, range_hashlines};
+use crate::engine::source::{ContentCategory, SourceFile, line_hash, load_source, range_hashlines};
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use std::path::Path;
@@ -43,9 +43,12 @@ pub(crate) fn search_file(
     pattern: &SearchPattern,
     parser: &mut Parser,
 ) -> Result<Option<SearchFileOutput>> {
-    let Ok(source) = load_source(path, override_language, BinaryMode::Reject) else {
+    let Ok(source) = load_source(path, override_language) else {
         return Ok(None);
     };
+    if !matches!(source.detection.category, ContentCategory::Text) {
+        return Ok(None);
+    }
     let detected_language = source.detection.language;
     if source.detection.engine != Some(AnalysisEngine::TreeSitter) {
         return Ok(None);

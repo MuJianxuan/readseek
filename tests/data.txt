@@ -5,7 +5,7 @@
 name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | type=text/plain | language=rust | supported=true
 name=write JSON output to file | path=result.json | stdin=fn main() {}\n | args=--output %s detect stdin:sample.rs | output_file=true | type=text/plain | language=rust | supported=true
 name=file stdin path | stdin=class BufferGreeter {}\n | args=detect stdin:buffer.ts | type=text/plain | file=buffer.ts | language=typescript
-name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect stdin:buffer | type=text/plain | file=buffer | language=bash | supported=true
+name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect stdin:buffer | type=text/x-shellscript | file=buffer | language=bash | supported=true | mime=text/x-shellscript
 name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | type=text/html | language=html | supported=true | mime=text/html
 name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | type=text/xml | language=xml | supported=true | mime=text/xml
 name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | type=text/plain | language=json | supported=true
@@ -41,7 +41,7 @@ name=read preserves blank lines | path=blank-lines.txt | content=one\n\nthree\n 
 name=read empty file | path=empty.txt | content= | args=read %s | line_count=0 | start_line=1 | end_line=0 | hashlines.len=0
 name=read target line | path=target-line.txt | content=one\ntwo\nthree\n | args=read %s:2 --limit 1 | start_line=2 | end_line=2 | hashlines.0.text=two
 name=read stdin path | stdin=one\ntwo\nthree\n | args=read stdin:buffer.ts:2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
-name=read binary lossy text | path=blob-read.bin | content=\x00A\xff\n | args=read %s | language=unknown | line_count=1 | hashlines.0.text=\x00A�
+name=read rejects binary blob | path=blob-read.bin | content=\x00A\xff\n | args=read %s | status=1 | stderr=unsupported binary file
 
 # map
 

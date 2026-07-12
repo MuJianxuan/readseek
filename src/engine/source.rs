@@ -4,8 +4,8 @@
 use crate::engine::hash::{LineHash, hash_line, hash_text};
 use crate::engine::image::ImageInfo;
 use crate::engine::lang::{
-    AnalysisEngine, BinaryMode, DocumentKind, Language, detect_by_path, detect_language,
-    extract_plain_text, language_spec, normalize_source_text, serialize_engine,
+    AnalysisEngine, DocumentKind, Language, detect_by_path, detect_language, language_spec,
+    normalize_source_text,
 };
 use crate::engine::paths::bytes_contain_identifier;
 use crate::engine::symbols;
@@ -14,21 +14,22 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
+pub(crate) enum ContentCategory {
+    Text,
+    Image(ImageInfo),
+    Binary,
+}
+
+#[derive(Debug)]
 pub(crate) struct Detection {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) engine: Option<AnalysisEngine>,
     pub(crate) supported: bool,
-    pub(crate) binary: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) category: ContentCategory,
     pub(crate) mime: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) syntax: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) image: Option<ImageInfo>,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,14 +100,25 @@ impl SourceFile {
         }
         Ok(self.line_starts[line - 1] + column - 1)
     }
+
+    /// Reject non-text documents (images, binaries) before source processing.
+    pub(crate) fn require_text(&self) -> Result<()> {
+        if matches!(self.detection.category, ContentCategory::Text) {
+            return Ok(());
+        }
+        bail!(
+            "unsupported binary file: {} ({})",
+            self.path.display(),
+            self.detection.mime.as_deref().unwrap_or("unknown mime")
+        );
+    }
 }
 
 #[derive(Debug)]
 struct LoadedDocument {
     text: String,
-    binary: bool,
+    category: ContentCategory,
     mime: Option<String>,
-    image: Option<ImageInfo>,
     image_bytes: Option<Vec<u8>>,
 }
 
@@ -137,30 +149,24 @@ pub(crate) struct SourceMap {
     pub(crate) symbols: Vec<Symbol>,
 }
 
-pub(crate) fn load_source(
-    path: &Path,
-    language: Option<Language>,
-    binary_mode: BinaryMode,
-) -> Result<SourceFile> {
+pub(crate) fn load_source(path: &Path, language: Option<Language>) -> Result<SourceFile> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-    load_source_from_bytes(path, bytes, language, binary_mode)
+    load_source_from_bytes(path, bytes, language)
 }
 
 pub(crate) fn load_source_from_bytes(
     path: &Path,
     bytes: Vec<u8>,
     language: Option<Language>,
-    binary_mode: BinaryMode,
 ) -> Result<SourceFile> {
-    let document = load_document(path, bytes, binary_mode)?;
+    let document = load_document(path, bytes)?;
     let mut source = source_from_text(
         path,
         document.text,
         language,
-        document.binary,
+        document.category,
         document.mime,
     );
-    source.detection.image = document.image;
     source.image_bytes = document.image_bytes;
     Ok(source)
 }
@@ -181,7 +187,13 @@ pub(crate) fn read_source_containing(
         return None;
     }
     let text = String::from_utf8(bytes).ok()?;
-    Some(source_from_text(path, text, language, false, None))
+    Some(source_from_text(
+        path,
+        text,
+        language,
+        ContentCategory::Text,
+        None,
+    ))
 }
 
 pub(crate) fn load_indexable_source(
@@ -190,25 +202,34 @@ pub(crate) fn load_indexable_source(
 ) -> Result<Option<SourceFile>> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
-    if is_binary_document(&bytes, mime.as_deref()) {
+    if !is_plaintext(&bytes, mime.as_deref()) {
         return Ok(None);
     }
     let Ok(text) = String::from_utf8(bytes) else {
         return Ok(None);
     };
-    Ok(Some(source_from_text(path, text, language, false, mime)))
+    Ok(Some(source_from_text(
+        path,
+        text,
+        language,
+        ContentCategory::Text,
+        mime,
+    )))
 }
 
 pub(crate) fn source_from_text(
     path: &Path,
     text: String,
     language: Option<Language>,
-    binary: bool,
+    category: ContentCategory,
     mime: Option<String>,
 ) -> SourceFile {
     let text = normalize_source_text(text);
     let path_language = detect_by_path(path);
-    let (detected_language, syntax) = if binary && language.is_none() && path_language.is_none() {
+    let (detected_language, syntax) = if !matches!(category, ContentCategory::Text)
+        && language.is_none()
+        && path_language.is_none()
+    {
         (Language::Unknown, None)
     } else {
         detect_language(path, &text)
@@ -242,10 +263,9 @@ pub(crate) fn source_from_text(
             language,
             engine,
             supported: language != Language::Unknown,
-            binary,
+            category,
             mime,
             syntax,
-            image: None,
         },
         lines,
         line_starts,
@@ -254,48 +274,30 @@ pub(crate) fn source_from_text(
     }
 }
 
-fn load_document(path: &Path, bytes: Vec<u8>, binary_mode: BinaryMode) -> Result<LoadedDocument> {
+fn load_document(path: &Path, bytes: Vec<u8>) -> Result<LoadedDocument> {
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
-    let binary = is_binary_document(&bytes, mime.as_deref());
-    let image = if binary {
-        crate::engine::image::probe(&bytes)
-    } else {
-        None
-    };
 
-    if binary && binary_mode == BinaryMode::Reject {
-        bail!(
-            "unsupported binary file: {} ({})",
-            path.display(),
-            mime.as_deref().unwrap_or("unknown mime")
-        );
-    }
-
-    let (text, image_bytes) = if binary && binary_mode == BinaryMode::Detect {
-        let image_bytes = image.is_some().then_some(bytes);
-        (String::new(), image_bytes)
+    let (category, text, image_bytes) = if is_plaintext(&bytes, mime.as_deref()) {
+        let text = String::from_utf8(bytes)
+            .with_context(|| format!("{} is not UTF-8 text", path.display()))?;
+        (ContentCategory::Text, text, None)
+    } else if let Some(image) = crate::engine::image::probe(&bytes) {
+        (ContentCategory::Image(image), String::new(), Some(bytes))
     } else {
-        let text = extract_plain_text(path, bytes, binary_mode)
-            .with_context(|| format!("extract from {}", path.display()))?;
-        (text, None)
+        (ContentCategory::Binary, String::new(), None)
     };
 
     Ok(LoadedDocument {
         text,
-        binary,
+        category,
         mime,
-        image,
         image_bytes,
     })
 }
 
-fn is_binary_document(bytes: &[u8], mime: Option<&str>) -> bool {
-    const BINARY_PREFIXES: &[&str] = &["application/", "audio/", "font/", "image/", "video/"];
-    mime.is_some_and(|mime| {
-        BINARY_PREFIXES
-            .iter()
-            .any(|prefix| mime.starts_with(prefix))
-    }) || bytes.contains(&0)
+fn is_plaintext(bytes: &[u8], mime: Option<&str>) -> bool {
+    let text_mime = mime.is_none_or(|m| m.starts_with("text/"));
+    text_mime && !bytes.contains(&0)
 }
 
 pub(crate) fn source_map(source: &SourceFile) -> Result<SourceMap> {
