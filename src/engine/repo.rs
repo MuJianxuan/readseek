@@ -106,9 +106,18 @@ struct IndexPathEntry {
     path_len: U16<LittleEndian>,
 }
 
-const _: () = assert!(size_of::<IndexHeader>() == 24, "IndexHeader must be exactly 24 bytes");
-const _: () = assert!(size_of::<IndexNameEntry>() == 12, "IndexNameEntry must be exactly 12 bytes");
-const _: () = assert!(size_of::<IndexPathEntry>() == 6, "IndexPathEntry must be exactly 6 bytes");
+const _: () = assert!(
+    size_of::<IndexHeader>() == 24,
+    "IndexHeader must be exactly 24 bytes"
+);
+const _: () = assert!(
+    size_of::<IndexNameEntry>() == 12,
+    "IndexNameEntry must be exactly 12 bytes"
+);
+const _: () = assert!(
+    size_of::<IndexPathEntry>() == 6,
+    "IndexPathEntry must be exactly 6 bytes"
+);
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct UpdateStats {
@@ -495,7 +504,9 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
     let path_end = name_end
         .checked_add(path_table_size)
         .context("path end overflow")?;
-    let strtab_end = path_end.checked_add(strtab_sz).context("strtab end overflow")?;
+    let strtab_end = path_end
+        .checked_add(strtab_sz)
+        .context("strtab end overflow")?;
     if data.len() < strtab_end {
         log::warn!("truncated def-index data in {}", path.display());
         return Ok(None);
@@ -509,7 +520,8 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
         let entry = IndexNameEntry::ref_from_bytes(
-            &name_bytes[mid * INDEX_NAME_ENTRY_SIZE..mid * INDEX_NAME_ENTRY_SIZE + INDEX_NAME_ENTRY_SIZE],
+            &name_bytes
+                [mid * INDEX_NAME_ENTRY_SIZE..mid * INDEX_NAME_ENTRY_SIZE + INDEX_NAME_ENTRY_SIZE],
         )
         .map_err(|e| anyhow::anyhow!("parse def-index name entry {mid}: {e}"))?;
         let entry_name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
@@ -523,7 +535,8 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
                 for i in 0..count {
                     let idx = first + i;
                     let pe = IndexPathEntry::ref_from_bytes(
-                        &path_bytes[idx * INDEX_PATH_ENTRY_SIZE..idx * INDEX_PATH_ENTRY_SIZE + INDEX_PATH_ENTRY_SIZE],
+                        &path_bytes[idx * INDEX_PATH_ENTRY_SIZE
+                            ..idx * INDEX_PATH_ENTRY_SIZE + INDEX_PATH_ENTRY_SIZE],
                     )
                     .map_err(|e| anyhow::anyhow!("parse def-index path entry {idx}: {e}"))?;
                     let path_str = read_str(strtab, pe.path_off.get(), pe.path_len.get())?;
@@ -696,8 +709,8 @@ fn serialize_shard(shard: &BTreeMap<String, Vec<PathBuf>>) -> Result<Vec<u8>> {
 
     for (name, paths) in shard {
         let name_off = u32::try_from(strtab.len()).context("strtab overflow")?;
-        let name_len = u16::try_from(name.len())
-            .with_context(|| format!("name too long: {}", name.len()))?;
+        let name_len =
+            u16::try_from(name.len()).with_context(|| format!("name too long: {}", name.len()))?;
         strtab.extend_from_slice(name.as_bytes());
 
         let first_path = u32::try_from(path_entries.len()).context("path table overflow")?;
