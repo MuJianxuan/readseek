@@ -4,18 +4,18 @@
 It emits pretty-printed JSON with stable `LINE:HASH` anchors, structural symbol
 maps, parse diagnostics, AST search matches, references, and rename plans.
 
-Current documented CLI API: **0.4.x**.
-
 ## Install
 
-```sh
-npm install -g @jarkkojs/readseek
-```
-
-Or build the native binary from source:
+Build the native binary from source:
 
 ```sh
 cargo build --release
+```
+
+Or install the npm wrapper:
+
+```sh
+npm install -g @jarkkojs/readseek
 ```
 
 ## Common commands
@@ -78,14 +78,5 @@ Pass `--help` to any command for command-specific usage.
 
 ## Licensing
 
-The JavaScript npm wrapper is licensed under `Apache-2.0`. The Rust source and
-native binaries are licensed under `LGPL-2.1-or-later`. Corresponding source for
-each published native binary is available from the GitHub repository tag that
-matches the package version.
-
-readseek downloads the BLIP caption model (a quantized GGUF from
-`lmz/candle-blip`, with the tokenizer from `Salesforce/blip-image-captioning-large`),
-the YOLOv8-nano object-detection model (`lmz/candle-yolo-v8`), and the TrOCR
-printed-text model (`microsoft/trocr-base-printed`) into the `models/` subdirectory
-of the user cache on first use. BLIP is licensed under `BSD-3-Clause`; YOLOv8-nano
-is derived from Ultralytics YOLOv8 (`AGPL-3.0`); TrOCR is released by Microsoft.
+`readseek` is licensed under `LGPL-2.1-or-later`. The JavaScript npm wrapper
+is licensed under `Apache-2.0`.
