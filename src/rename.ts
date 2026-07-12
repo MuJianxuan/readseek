@@ -9,7 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { classifyReadSeekFailure, readSeekRename, type RenameOutput } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
-import { clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 
 const RENAME_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/rename.md", import.meta.url),
@@ -125,7 +125,7 @@ export function registerRenameTool(pi: ExtensionAPI) {
 			let text = theme.fg("toolTitle", theme.bold("rename"));
 			text += ` ${linkToolPath(theme.fg("accent", displayPath), displayPath, cwd)}`;
 			if (args?.to) text += theme.fg("dim", ` → ${args.to}`);
-			return text;
+			return new Text(clampLineToWidth(text, context.width), 0, 0);
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);

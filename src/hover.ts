@@ -11,7 +11,7 @@ import { formatFsError } from "./fs-error.js";
 import { classifyReadSeekFailure, readSeekIdentify } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
-import { clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 
 const HOVER_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/hover.md", import.meta.url),
@@ -109,7 +109,7 @@ export function registerHoverTool(pi: ExtensionAPI) {
 			let text = theme.fg("toolTitle", theme.bold("hover"));
 			text += ` ${linkToolPath(theme.fg("accent", displayPath), displayPath, cwd)}`;
 			if (args?.line) text += theme.fg("dim", `:${args.line}`);
-			return text;
+			return new Text(clampLineToWidth(text, context.width), 0, 0);
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, width } = resolveRenderResultContext(options, rest);
