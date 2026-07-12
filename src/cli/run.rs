@@ -81,6 +81,12 @@ fn parse_cli() -> Result<cli::Cli> {
             ) {
                 usage_error(cmd, "cannot combine --end with --limit");
             }
+            if matches!(
+                &cli.command,
+                Some(cli::Command::Read(command)) if command.limit == Some(0)
+            ) {
+                usage_error(cmd, "limit must be greater than zero");
+            }
             Ok(cli)
         }
         Err(early_exit) if early_exit.status.is_ok() => {
@@ -180,9 +186,6 @@ impl cli::ReadCommand {
         let start = output::resolve_target(&source, &target)?;
 
         let end = if let Some(limit) = self.limit {
-            if limit == 0 {
-                bail!("limit must be greater than zero");
-            }
             let start_line = start.unwrap_or(1);
             Some(
                 start_line
