@@ -111,10 +111,7 @@ pub(super) fn is_hoisted_name(node: Node<'_>) -> bool {
     node.parent().is_some_and(|parent| {
         matches!(
             parent.kind(),
-            "function_declaration"
-                | "generator_function_declaration"
-                | "function_expression"
-                | "class_declaration"
+            "function_declaration" | "generator_function_declaration" | "class_declaration"
         ) && parent.child_by_field_name("name") == Some(node)
     })
 }
