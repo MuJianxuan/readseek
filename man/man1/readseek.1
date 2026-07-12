@@ -337,10 +337,7 @@ Usage error: incorrect invocation or argument combination.
 Binary source-map cache files keyed by file hash.
 .TP
 .I .readseek/def-index/
-Sharded JSON definition index used by \fBdef\fR directory lookup.
-.TP
-.I .readseek/def-index.json
-Legacy definition index removed during cache refresh when present.
+Sharded binary definition index keyed by symbol name, used by \fBdef\fR directory lookup.
 .TP
 .I $XDG_CACHE_HOME/readseek/models/
 Vision model files (BLIP GGUF + tokenizer, YOLOv8-nano weights, and TrOCR
