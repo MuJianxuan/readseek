@@ -410,12 +410,12 @@ fn objects_from_predictions(
     model_w: usize,
     model_h: usize,
 ) -> Result<Vec<DetectedObject>> {
-    let predictions = predictions.to_device(&Device::Cpu)?;
-    let (pred_size, npreds) = predictions.dims2()?;
+    let predictions = predictions.to_device(&Device::Cpu)?.t()?;
+    let (_, pred_size) = predictions.dims2()?;
     let nclasses = pred_size - 4;
+    let flat = predictions.flatten_all()?.to_vec1::<f32>()?;
     let mut bboxes: Vec<Vec<Bbox<Vec<KeyPoint>>>> = (0..nclasses).map(|_| Vec::new()).collect();
-    for index in 0..npreds {
-        let pred = Vec::<f32>::try_from(predictions.i((.., index))?)?;
+    for pred in flat.chunks_exact(pred_size) {
         let confidence = pred[4..]
             .iter()
             .max_by(|a, b| a.total_cmp(b))
