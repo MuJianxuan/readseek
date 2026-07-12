@@ -13,7 +13,7 @@ mod cli;
 mod engine;
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     if env::args_os().len() == 1 {
         match Cli::from_args(&["readseek"], &["--help"]) {
             Err(early_exit) => eprintln!("{}", early_exit.output),

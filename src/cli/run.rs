@@ -66,7 +66,11 @@ impl cli::DetectCommand {
             objects: self.objects,
             ocr: self.ocr,
         };
-        if (!request.caption && !request.objects && !request.ocr) || !output.is_image() {
+        if !request.caption && !request.objects && !request.ocr {
+            return;
+        }
+        if !output.is_image() {
+            log::warn!("vision skipped: {} is not an image", path.display());
             return;
         }
         let Some(bytes) = bytes else {
