@@ -163,3 +163,5 @@ name=map rejects target suffix | path=symbol.ts | content=hi\n | args=map %s:2 |
 name=read trailing-colon path | platform=unix | path=bar: | content=hi\n | args=read %s | line_count=1 | hashlines.0.text=hi
 name=detect warns vision on non-image | path=note.txt | content=hi\n | args=detect %s --ocr | status=0 | stderr=is not an image
 name=cli unknown command exits 2 | args=frobnicate | status=2 | stderr=Run readseek --help for more information
+name=output version rejected | path=output.txt | content=unchanged\n | args=--output %s --version | status=2 | stderr=--output is only valid with commands that produce JSON
+name=output init rejected | path=output.txt | content=unchanged\n | args=--output %s init %s | status=2 | stderr=--output is only valid with commands that produce JSON

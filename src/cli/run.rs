@@ -65,19 +65,28 @@ fn parse_cli() -> Result<cli::Cli> {
         .unwrap_or("readseek");
     let cli_args: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
     match cli::Cli::from_args(&[cmd], &cli_args) {
-        Ok(cli) => Ok(cli),
+        Ok(cli) => {
+            if cli.output.is_some()
+                && (cli.version || matches!(&cli.command, Some(cli::Command::Init(_))))
+            {
+                usage_error(
+                    cmd,
+                    "--output is only valid with commands that produce JSON",
+                );
+            }
+            Ok(cli)
+        }
         Err(early_exit) if early_exit.status.is_ok() => {
             println!("{}", early_exit.output);
             process::exit(0);
         }
-        Err(early_exit) => {
-            eprintln!(
-                "{}\nRun {cmd} --help for more information.",
-                early_exit.output
-            );
-            process::exit(2);
-        }
+        Err(early_exit) => usage_error(cmd, &early_exit.output),
     }
+}
+
+fn usage_error(cmd: &str, message: &str) -> ! {
+    eprintln!("{message}\nRun {cmd} --help for more information.");
+    process::exit(2);
 }
 
 impl cli::DetectCommand {
