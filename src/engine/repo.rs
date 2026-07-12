@@ -29,6 +29,12 @@ const SYM_ENTRY_SIZE: usize = size_of::<SymEntry>();
 const BLAKE3_RAW_LEN: usize = 32;
 const ENGINE_TAG_NONE: u8 = 0xff;
 const CHECKSUM_OFFSET: usize = offset_of!(Header, checksum);
+const INDEX_MAGIC: [u8; 4] = *b"RSIX";
+const INDEX_SCHEMA_VERSION: u32 = 1;
+const INDEX_HEADER_SIZE: usize = size_of::<IndexHeader>();
+const INDEX_NAME_ENTRY_SIZE: usize = size_of::<IndexNameEntry>();
+const INDEX_PATH_ENTRY_SIZE: usize = size_of::<IndexPathEntry>();
+const INDEX_CHECKSUM_OFFSET: usize = offset_of!(IndexHeader, checksum);
 
 const _: () = assert!(
     crate::engine::hash::HASHLINE_MODULUS <= 0x10000,
@@ -73,6 +79,37 @@ const _: () = assert!(
     "SymEntry must be exactly 42 bytes",
 );
 
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[repr(C)]
+struct IndexHeader {
+    magic: [u8; 4],
+    version: U32<LittleEndian>,
+    name_count: U32<LittleEndian>,
+    path_count: U32<LittleEndian>,
+    strtab_sz: U32<LittleEndian>,
+    checksum: U32<LittleEndian>,
+}
+
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[repr(C)]
+struct IndexNameEntry {
+    name_off: U32<LittleEndian>,
+    name_len: U16<LittleEndian>,
+    first_path: U32<LittleEndian>,
+    path_count: U16<LittleEndian>,
+}
+
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[repr(C)]
+struct IndexPathEntry {
+    path_off: U32<LittleEndian>,
+    path_len: U16<LittleEndian>,
+}
+
+const _: () = assert!(size_of::<IndexHeader>() == 24, "IndexHeader must be exactly 24 bytes");
+const _: () = assert!(size_of::<IndexNameEntry>() == 12, "IndexNameEntry must be exactly 12 bytes");
+const _: () = assert!(size_of::<IndexPathEntry>() == 6, "IndexPathEntry must be exactly 6 bytes");
+
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct UpdateStats {
     pub(crate) created: usize,
@@ -80,11 +117,9 @@ pub(crate) struct UpdateStats {
     pub(crate) unchanged: usize,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct DefIndexEntry {
     pub(crate) name: String,
     pub(crate) qualified_name: String,
-    pub(crate) file_hash: String,
     pub(crate) path: PathBuf,
 }
 
@@ -169,7 +204,7 @@ fn shard_bucket(name: &str) -> u32 {
 fn def_index_shard_path(readseek_dir: &Path, name: &str) -> PathBuf {
     readseek_dir
         .join(DEF_INDEX_DIR)
-        .join(format!("{}.json", shard_bucket(name)))
+        .join(format!("{}.bin", shard_bucket(name)))
 }
 
 pub(crate) fn load_map(
@@ -415,16 +450,90 @@ pub(crate) fn store_map(
     Ok(())
 }
 
-pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<DefIndexEntry>>> {
+pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<PathBuf>>> {
     let path = def_index_shard_path(readseek_dir, name);
     if !path.exists() {
         return Ok(None);
     }
-
     let data = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let index: std::collections::BTreeMap<String, Vec<DefIndexEntry>> =
-        serde_json::from_slice(&data).with_context(|| format!("parse {}", path.display()))?;
-    Ok(Some(index.get(name).cloned().unwrap_or_default()))
+    if data.len() < INDEX_HEADER_SIZE {
+        log::warn!("truncated def-index file: {}", path.display());
+        return Ok(None);
+    }
+    let header = IndexHeader::ref_from_bytes(&data[..INDEX_HEADER_SIZE])
+        .map_err(|e| anyhow::anyhow!("parse def-index header of {}: {e}", path.display()))?;
+    if header.magic != INDEX_MAGIC {
+        log::warn!("invalid magic in {}", path.display());
+        return Ok(None);
+    }
+    if header.version.get() != INDEX_SCHEMA_VERSION {
+        log::warn!(
+            "unsupported def-index schema version {} in {}",
+            header.version.get(),
+            path.display()
+        );
+        return Ok(None);
+    }
+    let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+    if header.checksum.get() != crc32.checksum(&data[INDEX_HEADER_SIZE..]) {
+        log::warn!("checksum mismatch in {}", path.display());
+        return Ok(None);
+    }
+    let name_count = header.name_count.get() as usize;
+    let path_count = header.path_count.get() as usize;
+    let strtab_sz = header.strtab_sz.get() as usize;
+    let name_table_size = name_count
+        .checked_mul(INDEX_NAME_ENTRY_SIZE)
+        .context("def-index name table overflow")?;
+    let path_table_size = path_count
+        .checked_mul(INDEX_PATH_ENTRY_SIZE)
+        .context("def-index path table overflow")?;
+    let name_start = INDEX_HEADER_SIZE;
+    let name_end = name_start
+        .checked_add(name_table_size)
+        .context("name end overflow")?;
+    let path_end = name_end
+        .checked_add(path_table_size)
+        .context("path end overflow")?;
+    let strtab_end = path_end.checked_add(strtab_sz).context("strtab end overflow")?;
+    if data.len() < strtab_end {
+        log::warn!("truncated def-index data in {}", path.display());
+        return Ok(None);
+    }
+    let name_bytes = &data[name_start..name_end];
+    let path_bytes = &data[name_end..path_end];
+    let strtab = &data[path_end..strtab_end];
+    let needle = name.as_bytes();
+    let mut lo = 0usize;
+    let mut hi = name_count;
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let entry = IndexNameEntry::ref_from_bytes(
+            &name_bytes[mid * INDEX_NAME_ENTRY_SIZE..mid * INDEX_NAME_ENTRY_SIZE + INDEX_NAME_ENTRY_SIZE],
+        )
+        .map_err(|e| anyhow::anyhow!("parse def-index name entry {mid}: {e}"))?;
+        let entry_name = read_str(strtab, entry.name_off.get(), entry.name_len.get())?;
+        match needle.cmp(entry_name.as_bytes()) {
+            std::cmp::Ordering::Less => hi = mid,
+            std::cmp::Ordering::Greater => lo = mid + 1,
+            std::cmp::Ordering::Equal => {
+                let first = entry.first_path.get() as usize;
+                let count = entry.path_count.get() as usize;
+                let mut paths = Vec::with_capacity(count);
+                for i in 0..count {
+                    let idx = first + i;
+                    let pe = IndexPathEntry::ref_from_bytes(
+                        &path_bytes[idx * INDEX_PATH_ENTRY_SIZE..idx * INDEX_PATH_ENTRY_SIZE + INDEX_PATH_ENTRY_SIZE],
+                    )
+                    .map_err(|e| anyhow::anyhow!("parse def-index path entry {idx}: {e}"))?;
+                    let path_str = read_str(strtab, pe.path_off.get(), pe.path_len.get())?;
+                    paths.push(PathBuf::from(path_str));
+                }
+                return Ok(Some(paths));
+            }
+        }
+    }
+    Ok(Some(Vec::new()))
 }
 
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
@@ -486,7 +595,6 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let shards = build_index_shards(index_entries);
     let written_prefixes = write_index_shards(&readseek_dir, &shards)?;
     remove_stale_index_shards(&readseek_dir, &written_prefixes)?;
-    remove_legacy_index(&readseek_dir);
     stats.removed += remove_stale_maps(&readseek_dir, &active_hashes)?;
 
     let active_image_hashes: HashSet<String> = paths
@@ -523,7 +631,6 @@ fn process_update_path(readseek_dir: &Path, path: &Path) -> Result<Option<Update
         .map(|symbol| DefIndexEntry {
             name: symbol.name,
             qualified_name: symbol.qualified_name,
-            file_hash: source.file_hash.clone(),
             path: source.path.clone(),
         })
         .collect();
@@ -537,8 +644,8 @@ fn process_update_path(readseek_dir: &Path, path: &Path) -> Result<Option<Update
 
 fn build_index_shards(
     index_entries: Vec<DefIndexEntry>,
-) -> BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>> {
-    let mut shards: BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>> = BTreeMap::new();
+) -> BTreeMap<u32, BTreeMap<String, Vec<PathBuf>>> {
+    let mut shards: BTreeMap<u32, BTreeMap<String, Vec<PathBuf>>> = BTreeMap::new();
     for entry in index_entries {
         let bucket = shard_bucket(&entry.name);
         shards
@@ -546,7 +653,7 @@ fn build_index_shards(
             .or_default()
             .entry(entry.name.clone())
             .or_default()
-            .push(entry.clone());
+            .push(entry.path.clone());
         if entry.qualified_name != entry.name {
             let bucket = shard_bucket(&entry.qualified_name);
             shards
@@ -554,37 +661,110 @@ fn build_index_shards(
                 .or_default()
                 .entry(entry.qualified_name.clone())
                 .or_default()
-                .push(entry);
+                .push(entry.path);
         }
     }
     for inner in shards.values_mut() {
-        for entries in inner.values_mut() {
-            entries.sort_unstable_by(|left, right| {
-                left.qualified_name
-                    .cmp(&right.qualified_name)
-                    .then_with(|| left.path.cmp(&right.path))
-            });
+        for paths in inner.values_mut() {
+            paths.sort();
+            paths.dedup();
         }
     }
-
     shards
 }
 
 fn write_index_shards(
     readseek_dir: &Path,
-    shards: &BTreeMap<u32, BTreeMap<String, Vec<DefIndexEntry>>>,
+    shards: &BTreeMap<u32, BTreeMap<String, Vec<PathBuf>>>,
 ) -> Result<BTreeSet<u32>> {
     let shard_dir = readseek_dir.join(DEF_INDEX_DIR);
     fs::create_dir_all(&shard_dir).with_context(|| format!("create {}", shard_dir.display()))?;
     let mut written_buckets = BTreeSet::new();
     for (bucket, shard) in shards {
-        let data = serde_json::to_vec(shard).context("serialize definition index shard")?;
-        let path = shard_dir.join(format!("{bucket}.json"));
+        let data = serialize_shard(shard)?;
+        let path = shard_dir.join(format!("{bucket}.bin"));
         write_atomic(&path, &data)?;
         written_buckets.insert(*bucket);
     }
-
     Ok(written_buckets)
+}
+
+fn serialize_shard(shard: &BTreeMap<String, Vec<PathBuf>>) -> Result<Vec<u8>> {
+    let mut strtab = Vec::new();
+    let mut name_entries = Vec::new();
+    let mut path_entries = Vec::new();
+
+    for (name, paths) in shard {
+        let name_off = u32::try_from(strtab.len()).context("strtab overflow")?;
+        let name_len = u16::try_from(name.len())
+            .with_context(|| format!("name too long: {}", name.len()))?;
+        strtab.extend_from_slice(name.as_bytes());
+
+        let first_path = u32::try_from(path_entries.len()).context("path table overflow")?;
+        let path_count = u16::try_from(paths.len())
+            .with_context(|| format!("too many paths for one name: {}", paths.len()))?;
+        for path in paths {
+            let path_str = path.to_string_lossy();
+            let path_off = u32::try_from(strtab.len()).context("strtab overflow")?;
+            let path_len = u16::try_from(path_str.len())
+                .with_context(|| format!("path too long: {}", path_str.len()))?;
+            strtab.extend_from_slice(path_str.as_bytes());
+            path_entries.push(IndexPathEntry {
+                path_off: U32::new(path_off),
+                path_len: U16::new(path_len),
+            });
+        }
+        name_entries.push(IndexNameEntry {
+            name_off: U32::new(name_off),
+            name_len: U16::new(name_len),
+            first_path: U32::new(first_path),
+            path_count: U16::new(path_count),
+        });
+    }
+
+    let name_count = u32::try_from(name_entries.len()).context("too many names")?;
+    let path_count = u32::try_from(path_entries.len()).context("too many paths")?;
+    let strtab_sz = u32::try_from(strtab.len()).context("strtab size overflow")?;
+
+    let header = IndexHeader {
+        magic: INDEX_MAGIC,
+        version: U32::new(INDEX_SCHEMA_VERSION),
+        name_count: U32::new(name_count),
+        path_count: U32::new(path_count),
+        strtab_sz: U32::new(strtab_sz),
+        checksum: U32::new(0),
+    };
+
+    let name_total = name_entries
+        .len()
+        .checked_mul(INDEX_NAME_ENTRY_SIZE)
+        .context("name table overflow")?;
+    let path_total = path_entries
+        .len()
+        .checked_mul(INDEX_PATH_ENTRY_SIZE)
+        .context("path table overflow")?;
+    let total = INDEX_HEADER_SIZE
+        .checked_add(name_total)
+        .and_then(|v| v.checked_add(path_total))
+        .and_then(|v| v.checked_add(strtab.len()))
+        .context("shard size overflow")?;
+
+    let mut buf = Vec::with_capacity(total);
+    buf.extend_from_slice(header.as_bytes());
+    for entry in &name_entries {
+        buf.extend_from_slice(entry.as_bytes());
+    }
+    for entry in &path_entries {
+        buf.extend_from_slice(entry.as_bytes());
+    }
+    buf.extend_from_slice(&strtab);
+
+    let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
+    let checksum = crc32.checksum(&buf[INDEX_HEADER_SIZE..]);
+    buf[INDEX_CHECKSUM_OFFSET..INDEX_CHECKSUM_OFFSET + size_of::<U32<LittleEndian>>()]
+        .copy_from_slice(&checksum.to_le_bytes());
+
+    Ok(buf)
 }
 
 fn remove_stale_index_shards(readseek_dir: &Path, written_buckets: &BTreeSet<u32>) -> Result<()> {
@@ -594,7 +774,7 @@ fn remove_stale_index_shards(readseek_dir: &Path, written_buckets: &BTreeSet<u32
     {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "json") {
+        if path.extension().is_some_and(|ext| ext == "bin") {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let retained = stem
                 .parse::<u32>()
@@ -604,15 +784,7 @@ fn remove_stale_index_shards(readseek_dir: &Path, written_buckets: &BTreeSet<u32
             }
         }
     }
-
     Ok(())
-}
-
-fn remove_legacy_index(readseek_dir: &Path) {
-    let legacy_path = readseek_dir.join("def-index.json");
-    if legacy_path.exists() {
-        fs::remove_file(&legacy_path).ok();
-    }
 }
 
 fn remove_stale_maps(readseek_dir: &Path, active_hashes: &HashSet<String>) -> Result<usize> {
