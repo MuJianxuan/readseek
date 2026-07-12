@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Image vision analysis: captioning (BLIP), object detection
-//! (YOLOv8-nano), and OCR (`TrOCR`). Models run on CPU through pure-Rust
-//! inference stacks and are fetched lazily into the user cache directory (see
+//! (YOLOv8-nano), and OCR (`TrOCR`). Models run on the best available device
+//! (Metal on macOS, CPU elsewhere) through pure-Rust inference stacks and
+//! are fetched lazily into the user cache directory (see
 //! [`crate::engine::model`]). Tasks run independently, so a failure in one
 //! leaves the other's results intact.
 
@@ -119,10 +120,30 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
     Ok(analysis)
 }
 
+/// Pick the best available inference [`Device`]: Metal on macOS, CPU
+/// elsewhere. Metal selection is best-effort — if the GPU is unavailable we
+/// fall back to CPU so headless CI keeps working.
+fn best_device() -> Device {
+    #[cfg(target_os = "macos")]
+    {
+        match Device::new_metal(0) {
+            Ok(device) => device,
+            Err(err) => {
+                log::warn!("Metal unavailable, falling back to CPU: {err}");
+                Device::Cpu
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Device::Cpu
+    }
+}
+
 /// Generate a concise caption for `image` with the quantized BLIP model,
 /// mirroring the `candle-examples/examples/blip` decoder loop.
 fn caption(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
-    let device = Device::Cpu;
+    let device = best_device();
     let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
     let tokenizer_path = model::file("blip-tokenizer.json")?;
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
@@ -199,7 +220,7 @@ fn detect_objects(
     image: &image::DynamicImage,
     progress: &InferenceProgress,
 ) -> Result<Vec<DetectedObject>> {
-    let device = Device::Cpu;
+    let device = best_device();
     let model_path = model::file("yolov8n.safetensors")?;
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
     let yolo = YoloV8::load(vb, Multiples::n(), 80)?;
@@ -228,7 +249,7 @@ struct TrOcrConfig {
 /// with one shared model and the results are joined with newlines. When no text
 /// rows are found the whole image is recognized as a fallback.
 fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
-    let device = Device::Cpu;
+    let device = best_device();
     let model_path = model::file("trocr-base-printed.safetensors")?;
     let tokenizer_path = model::file("trocr-tokenizer.json")?;
     let config_path = model::file("trocr-config.json")?;
