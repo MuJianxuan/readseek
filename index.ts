@@ -12,16 +12,31 @@ import { SessionAnchors } from "./src/session-anchors.js";
 import { readSeekBinaryAvailability } from "./src/readseek-client.js";
 import { resolveReadSeekJsonSettings, type ReadSeekSettingsWarning } from "./src/readseek-settings.js";
 
-const READSEEK_TOOL_NAMES = [
-	"readSeek_read",
-	"readSeek_edit",
-	"readSeek_grep",
-	"readSeek_search",
-	"readSeek_refs",
-	"readSeek_rename",
-	"readSeek_hover",
-	"readSeek_write",
-	"readSeek_def",
+/** Built-in tool names that pi-readseek can replace with a readSeek-backed implementation. */
+const REPLACEABLE_TOOLS = {
+	read: "readSeek_read",
+	edit: "readSeek_edit",
+	write: "readSeek_write",
+	grep: "readSeek_grep",
+} as const;
+
+type ReplacedBuiltIn = keyof typeof REPLACEABLE_TOOLS;
+
+/**
+ * Canonical list of readSeek tools in registration/activation order. Each
+ * replaceable entry carries the built-in name it swaps in when replaced; null
+ * entries are readSeek-only and never replaced.
+ */
+const READSEEK_TOOL_ENTRIES: ReadonlyArray<{ builtIn: ReplacedBuiltIn | null; readSeekName: string }> = [
+	{ builtIn: "read", readSeekName: "readSeek_read" },
+	{ builtIn: "edit", readSeekName: "readSeek_edit" },
+	{ builtIn: "grep", readSeekName: "readSeek_grep" },
+	{ builtIn: null, readSeekName: "readSeek_search" },
+	{ builtIn: null, readSeekName: "readSeek_refs" },
+	{ builtIn: null, readSeekName: "readSeek_rename" },
+	{ builtIn: null, readSeekName: "readSeek_hover" },
+	{ builtIn: "write", readSeekName: "readSeek_write" },
+	{ builtIn: null, readSeekName: "readSeek_def" },
 ];
 
 function formatSettingsWarning(warning: ReadSeekSettingsWarning): string {
@@ -33,19 +48,39 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const markAnchored = (absolutePath: string) => sessionAnchors.markAnchored(absolutePath);
 	const hasFreshAnchors = (absolutePath: string) => sessionAnchors.hasFreshAnchors(absolutePath);
 
-	registerReadTool(pi, { onSuccessfulRead: markAnchored });
-	registerEditTool(pi, { wasReadInSession: hasFreshAnchors });
-	registerGrepTool(pi, { onFileAnchored: markAnchored });
+	// Resolve replacedTools at load time so the readSeek implementation is
+	// registered under the built-in name (e.g. "edit") when replaced. Extension
+	// tool registrations override built-ins of the same name in pi's tool
+	// definition registry, so registering under "edit" makes calls to `edit`
+	// dispatch to the readSeek implementation.
+	const { settings } = resolveReadSeekJsonSettings();
+	const replacedBuiltIns = new Set<ReplacedBuiltIn>(
+		(settings.replacedTools ?? []) as ReplacedBuiltIn[],
+	);
+	// Only swap registration under the built-in name when the readSeek binary
+	// is available; otherwise keep readSeek_* names so pi's built-ins stay
+	// intact and usable.
+	const binaryAvailable = readSeekBinaryAvailability().available;
+	const swap = (builtIn: ReplacedBuiltIn, readSeekName: string) =>
+		binaryAvailable && replacedBuiltIns.has(builtIn) ? builtIn : readSeekName;
+
+	const readName = swap("read", "readSeek_read");
+	const editName = swap("edit", "readSeek_edit");
+	const writeName = swap("write", "readSeek_write");
+	const grepName = swap("grep", "readSeek_grep");
+
+	registerReadTool(pi, { onSuccessfulRead: markAnchored, name: readName });
+	registerEditTool(pi, { wasReadInSession: hasFreshAnchors, name: editName });
+	registerGrepTool(pi, { onFileAnchored: markAnchored, name: grepName });
 	registerSgTool(pi, { onFileAnchored: markAnchored });
 	registerRefsTool(pi, { onFileAnchored: markAnchored });
 	registerRenameTool(pi);
 	registerHoverTool(pi);
 	registerDefTool(pi, { onFileAnchored: markAnchored });
-	registerWriteTool(pi, { onFileAnchored: markAnchored });
+	registerWriteTool(pi, { onFileAnchored: markAnchored, name: writeName });
 
 	pi.on("session_start", (_event, ctx) => {
-		const { settings, warnings } = resolveReadSeekJsonSettings();
-		const replacedTools = new Set<string>(settings.replacedTools ?? []);
+		const { warnings } = resolveReadSeekJsonSettings();
 		const problems = warnings.map(formatSettingsWarning);
 
 		const availability = readSeekBinaryAvailability();
@@ -60,8 +95,24 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 
 		if (!availability.available) return;
 
-		const activeTools = [...pi.getActiveTools(), ...READSEEK_TOOL_NAMES]
-			.filter((name) => !replacedTools.has(name));
+		// readSeek tools were registered at load under names chosen from the
+		// load-time replacedTools. Replaced built-ins are registered under the
+		// built-in name, so the built-in stays active (now readSeek-backed);
+		// their readSeek_* variant was never registered and is excluded.
+		const activeReadSeekNames = READSEEK_TOOL_ENTRIES.map((entry) =>
+			entry.builtIn && replacedBuiltIns.has(entry.builtIn) ? entry.builtIn : entry.readSeekName,
+		);
+		const inactiveReadSeekNames = new Set(
+			READSEEK_TOOL_ENTRIES.filter(
+				(entry): entry is { builtIn: ReplacedBuiltIn; readSeekName: string } =>
+					entry.builtIn !== null && replacedBuiltIns.has(entry.builtIn),
+			).map((entry) => entry.readSeekName),
+		);
+
+		const activeTools = [...pi.getActiveTools(), ...activeReadSeekNames].filter(
+			(name) => !inactiveReadSeekNames.has(name),
+		);
 		pi.setActiveTools([...new Set(activeTools)]);
 	});
+
 }

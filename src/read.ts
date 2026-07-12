@@ -49,6 +49,7 @@ interface ReadParams {
 
 interface ReadToolOptions {
 	onSuccessfulRead?: FileAnchoredCallback;
+	name?: string;
 }
 
 export interface ExecuteReadOptions {
@@ -460,7 +461,7 @@ function splitReadSeekLines(text: string): string[] {
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		name: "readSeek_read",
+		name: options.name ?? "readSeek_read",
 		label: "Read",
 		description: READ_PROMPT_METADATA.description,
 		promptSnippet: READ_PROMPT_METADATA.promptSnippet,

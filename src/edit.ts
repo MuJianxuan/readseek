@@ -110,6 +110,7 @@ function mapEditFileError(err: any, filePath: string, _displayPath: string, _pha
 export interface EditToolOptions {
 	wasReadInSession?: FreshAnchorsPredicate;
 	syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
+	name?: string;
 }
 
 export interface ExecuteEditOptions {
@@ -565,7 +566,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 
 export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		name: "readSeek_edit",
+		name: options.name ?? "readSeek_edit",
 		label: "Edit",
 		description: EDIT_PROMPT_METADATA.description,
 		promptSnippet: EDIT_PROMPT_METADATA.promptSnippet,

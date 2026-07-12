@@ -169,6 +169,7 @@ function escapeForRegex(s: string): string {
 
 interface GrepToolOptions {
 	onFileAnchored?: FileAnchoredCallback;
+	name?: string;
 }
 
 export interface ExecuteGrepOptions {
@@ -514,7 +515,7 @@ export async function executeGrep(opts: ExecuteGrepOptions): Promise<any> {
 
 export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}) {
 	const tool = registerReadSeekTool(pi, {
-		name: "readSeek_grep",
+		name: options.name ?? "readSeek_grep",
 		label: "grep",
 		description: GREP_PROMPT_METADATA.description,
 		parameters: grepSchema,

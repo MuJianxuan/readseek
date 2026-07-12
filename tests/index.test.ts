@@ -81,23 +81,35 @@ describe("pi-readseek extension", () => {
 		expect(ctx.activeTools()).toEqual(["read", "bash", "edit", "write", ...READSEEK_TOOLS]);
 	});
 
-	it("replaces configured built-in tools with their readseek equivalents", () => {
+	it("replaces configured built-in tools by registering readseek under the built-in name", () => {
 		replacedTools.value = ["read", "edit", "write", "grep"];
 		const ctx = createPi(["read", "bash", "edit", "write", "grep"]);
 
 		piReadSeekExtension(ctx.pi);
 		ctx.runSessionStart();
 
-		expect(ctx.activeTools()).toEqual([
-			"bash",
-			"readSeek_read",
-			"readSeek_edit",
-			"readSeek_grep",
+		// Replaced readSeek tools are registered under the built-in name; the
+		// readSeek_* variants are not registered at all.
+		expect(new Set(ctx.registeredTools)).toEqual(new Set([
+			"read", "edit", "grep", "write",
 			"readSeek_search",
 			"readSeek_refs",
 			"readSeek_rename",
 			"readSeek_hover",
-			"readSeek_write",
+			"readSeek_def",
+		]));
+		// The built-in name stays active (now readSeek-backed); the readSeek_*
+		// variants are dropped.
+		expect(ctx.activeTools()).toEqual([
+			"read",
+			"bash",
+			"edit",
+			"write",
+			"grep",
+			"readSeek_search",
+			"readSeek_refs",
+			"readSeek_rename",
+			"readSeek_hover",
 			"readSeek_def",
 		]);
 	});
@@ -116,6 +128,19 @@ describe("pi-readseek extension", () => {
 		);
 		expect(ctx.pi.setActiveTools).not.toHaveBeenCalled();
 		expect(ctx.activeTools()).toEqual(["read", "bash"]);
+	});
+
+	it("does not override a built-in with readSeek when the binary is unavailable", () => {
+		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-arm64" };
+		replacedTools.value = ["edit"];
+		const ctx = createPi(["edit", "bash"]);
+
+		piReadSeekExtension(ctx.pi);
+
+		// readSeek_edit is registered as readSeek_edit (not "edit"), so pi's
+		// built-in edit definition is not overridden.
+		expect(ctx.registeredTools).toContain("readSeek_edit");
+		expect(ctx.registeredTools).not.toContain("edit");
 	});
 
 	it("warns about settings problems at session start", () => {

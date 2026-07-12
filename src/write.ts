@@ -123,6 +123,7 @@ function generateWriteDiff(previousContent: string, nextContent: string): { diff
 
 export interface WriteToolOptions {
   onFileAnchored?: FileAnchoredCallback;
+  name?: string;
 }
 
 function buildWriteFsErrorResult(err: any, absolutePath: string) {
@@ -242,7 +243,7 @@ export async function executeWrite(opts: {
 
 export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = {}) {
   const tool = registerReadSeekTool(pi, {
-    name: "readSeek_write",
+    name: options.name ?? "readSeek_write",
     label: "write",
     description: WRITE_PROMPT_METADATA.description,
     promptSnippet: WRITE_PROMPT_METADATA.promptSnippet,
