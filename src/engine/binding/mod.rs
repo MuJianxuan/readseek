@@ -17,6 +17,7 @@ use serde::Serialize;
 use tree_sitter::{Node, Parser, Tree};
 
 mod cpp;
+mod csharp;
 mod go;
 mod python;
 mod rust;
@@ -515,6 +516,7 @@ fn binding_table(language: Language) -> Option<&'static BindingTable> {
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
             Some(&TYPESCRIPT_TABLE)
         }
+        Language::CSharp => Some(&CSHARP_TABLE),
         Language::Vimscript => Some(&VIMSCRIPT_TABLE),
         _ => None,
     }
@@ -644,6 +646,33 @@ static GO_TABLE: BindingTable = BindingTable {
     declared_idents: go::declared_idents,
     resolution: Resolution::Lexical,
     is_reference: go::is_reference,
+    escapes_scope: never_escapes,
+    binds_past: never_binds_past,
+};
+
+static CSHARP_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "block",
+        "method_declaration",
+        "constructor_declaration",
+        "if_statement",
+        "switch_statement",
+        "while_statement",
+        "for_statement",
+        "foreach_statement",
+        "catch_clause",
+        "lambda_expression",
+        "using_statement",
+        "lock_statement",
+        "checked_statement",
+        "unsafe_statement",
+        "fixed_statement",
+    ],
+    class_scope_kinds: &["class_declaration"],
+    identifier_kinds: &["identifier"],
+    declared_idents: csharp::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: csharp::is_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
 };
