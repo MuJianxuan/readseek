@@ -443,7 +443,9 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "enumerator" => named_symbol(node, source, "name", "enumerator"),
         "enum_specifier" => named_symbol(node, source, "name", "enum"),
         "class_specifier" => named_symbol(node, source, "name", "class"),
-        "namespace_definition" => named_symbol(node, source, "name", "namespace"),
+        "namespace_definition" | "namespace_alias_definition" => {
+            named_symbol(node, source, "name", "namespace")
+        }
         "declaration" | "type_definition" => {
             let text = node.utf8_text(source.as_bytes()).ok()?;
             if bytes_contain_identifier(text.as_bytes(), b"typedef") {
@@ -491,6 +493,8 @@ fn c_symbol(node: Node<'_>, source: &str) -> Option<(String, String)> {
         "preproc_def" | "preproc_function_def" => {
             descendant_identifier(node, source).map(|name| ("macro".to_owned(), name))
         }
+        "alias_declaration" => named_symbol(node, source, "name", "type"),
+        "concept_definition" => named_symbol(node, source, "name", "concept"),
         _ => None,
     }
 }
