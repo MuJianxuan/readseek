@@ -52,8 +52,16 @@ fn main() {
             continue;
         }
 
-        test_count += 1;
         let case = Case::parse(index + 1, line);
+        if let Some(platform) = case.platform {
+            if platform == "unix" && !cfg!(unix) {
+                continue;
+            }
+            if platform == "windows" && !cfg!(windows) {
+                continue;
+            }
+        }
+        test_count += 1;
         if !run_test(&case.name, || case.run(bin)) {
             failed_count += 1;
         }
@@ -81,6 +89,7 @@ struct Case<'a> {
     args: &'a str,
     status: Option<i32>,
     stderr: Option<&'a str>,
+    platform: Option<&'a str>,
     symbols: Vec<Symbol<'a>>,
     checks: Vec<(&'a str, &'a str)>,
 }
@@ -95,6 +104,7 @@ impl<'a> Case<'a> {
             args: "",
             status: None,
             stderr: None,
+            platform: None,
             symbols: Vec::new(),
             checks: Vec::new(),
         };
@@ -112,6 +122,7 @@ impl<'a> Case<'a> {
                     case.status = Some(value.parse().expect("status must be an integer"));
                 }
                 "stderr" => case.stderr = Some(value),
+                "platform" => case.platform = Some(value),
                 "symbol" => case.symbols.push(parse_symbol(value)),
                 _ => case.checks.push((key, value)),
             }
