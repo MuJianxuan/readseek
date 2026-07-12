@@ -56,10 +56,6 @@ pub(crate) struct DetectCommand {
     #[argh(positional)]
     pub(crate) target: Option<String>,
 
-    /// language override
-    #[argh(option, from_str_fn(parse_language))]
-    pub(crate) language: Option<Language>,
-
     /// describe an image with a detailed natural-language caption
     #[argh(switch)]
     pub(crate) caption: bool,

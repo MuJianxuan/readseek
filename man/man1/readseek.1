@@ -7,8 +7,7 @@ readseek \- structural source-code reader with stable line hashing
 \fBreadseek\fR [\fB\-V\fR|\fB--version\fR]
 \fBreadseek\fR [\fB--output\fR \fIpath\fR] [\fB--readseek-dir\fR \fIdir\fR] \fIcommand\fR ...
 
-\fBreadseek detect\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--caption\fR] [\fB--objects\fR] [\fB--ocr\fR]
+\fBreadseek detect\fR [\fB--caption\fR] [\fB--objects\fR] [\fB--ocr\fR]
     \fItarget\fR
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
@@ -87,9 +86,8 @@ d05|
 .SH LANGUAGES
 
 .B readseek
-detects the language from the file name, extension, shebang line, and syntax hints.
-Pass \fB--language\fR when detection is ambiguous, when input comes from a synthetic
-path, or when a file has no meaningful extension.
+ detects the language from the file name, extension, shebang line, and syntax hints.
+Commands that parse source accept \fB--language\fR to force a specific language.
 
 The following language identifiers are accepted:
 \fBassembly\fR,

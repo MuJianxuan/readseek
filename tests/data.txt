@@ -6,7 +6,6 @@ name=file rust | path=sample.rs | content=fn main() {}\n | args=detect %s | type
 name=write JSON output to file | path=result.json | stdin=fn main() {}\n | args=--output %s detect stdin:sample.rs | output_file=true | type=text/plain | language=rust | supported=true
 name=file stdin path | stdin=class BufferGreeter {}\n | args=detect stdin:buffer.ts | type=text/plain | file=buffer.ts | language=typescript
 name=detect stdin extensionless shebang | stdin=#!/usr/bin/env bash\necho hello\n | args=detect stdin:buffer | type=text/plain | file=buffer | language=bash | supported=true
-name=detect stdin extensionless with override | stdin=fn main() {}\n | args=detect stdin:buffer --language rust | type=text/plain | file=buffer | language=rust | supported=true
 name=file html | path=index.html | content=<!doctype html><html><body>Hello</body></html>\n | args=detect %s | type=text/html | language=html | supported=true | mime=text/html
 name=file xml | path=sample.xml | content=<?xml version="1.0"?><note><body>Hello</body></note>\n | args=detect %s | type=text/xml | language=xml | supported=true | mime=text/xml
 name=file json | path=sample.json | content={"name": "sample"}\n | args=detect %s | type=text/plain | language=json | supported=true
@@ -19,8 +18,7 @@ name=file perl | path=sample.pl | content=sub greet { return "hello"; }\n | args
 name=file zig | path=sample.zig | content=pub fn main() void {}\n | args=detect %s | type=text/plain | language=zig | supported=true
 name=file vimscript | path=plugin.vim | content=function! Greet() abort\nendfunction\n | args=detect %s | type=text/plain | language=vimscript | supported=true
 name=file meson build | path=meson.build | content=project('sample', 'c')\n | args=detect %s | type=text/plain | language=meson | supported=true
-name=file language override | path=script | content=#!/usr/bin/env node\nfunction main() {}\n | args=detect %s --language typescript | type=text/x-shellscript | language=typescript | supported=true
-name=file language alias | path=header | content=int add(int a, int b);\n | args=detect %s --language c-plus-plus | type=text/plain | language=cpp | supported=true
+name=detect rejects language override | path=script | content=fn main() {}\n | args=detect %s --language rust | status=2 | stderr=Unrecognized argument: --language
 name=file special filename | path=go.mod | content=module example.com/readseek\n | args=detect %s | type=text/plain | language=go | supported=true
 name=file tex | path=paper.tex | content=\\section{Intro}\nText.\n | args=detect %s | type=text/plain | language=latex | supported=true
 name=file typst | path=paper.typ | content== Intro\nText.\n | args=detect %s | type=text/plain | language=typst | supported=true

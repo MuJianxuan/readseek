@@ -104,7 +104,7 @@ fn usage_error(cmd: &str, message: &str) -> ! {
 
 impl cli::DetectCommand {
     fn run(&self) -> Result<String> {
-        let source = load_path_source(self.target.as_deref(), self.language, BinaryMode::Detect)?;
+        let source = load_path_source(self.target.as_deref(), None, BinaryMode::Detect)?;
         let path = source.path.clone();
         let image_bytes = source.image_bytes;
         let mut output = output::DetectOutput::from_detection(source.detection);
