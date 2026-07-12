@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { excludeTools, settingsWarnings, availability } = vi.hoisted(() => ({
-	excludeTools: { value: [] as string[] },
+const { replaceTools, settingsWarnings, availability } = vi.hoisted(() => ({
+	replaceTools: { value: [] as string[] },
 	settingsWarnings: { value: [] as Array<{ source: string; message: string }> },
 	availability: { value: { available: true } as { available: true } | { available: false; reason: string } },
 }));
@@ -13,7 +13,7 @@ vi.mock("../src/readseek-client.js", async (importOriginal) => ({
 
 vi.mock("../src/readseek-settings.js", () => ({
 	resolveReadSeekJsonSettings: () => ({
-		settings: { excludeTools: excludeTools.value },
+		settings: { replaceTools: replaceTools.value },
 		warnings: settingsWarnings.value,
 	}),
 	resolveReadSeekImageMode: () => "force",
@@ -66,7 +66,7 @@ function createPi(activeToolNames: string[]) {
 
 describe("pi-readseek extension", () => {
 	beforeEach(() => {
-		excludeTools.value = [];
+		replaceTools.value = [];
 		settingsWarnings.value = [];
 		availability.value = { available: true };
 	});
@@ -81,8 +81,8 @@ describe("pi-readseek extension", () => {
 		expect(ctx.activeTools()).toEqual(["read", "bash", "edit", "write", ...READSEEK_TOOLS]);
 	});
 
-	it("excludes configured active tools after adding readseek tools", () => {
-		excludeTools.value = ["read", "edit", "write", "grep", "readSeek_hover"];
+	it("replaces configured built-in tools with their readseek equivalents", () => {
+		replaceTools.value = ["read", "edit", "write", "grep"];
 		const ctx = createPi(["read", "bash", "edit", "write", "grep"]);
 
 		piReadSeekExtension(ctx.pi);
@@ -96,6 +96,7 @@ describe("pi-readseek extension", () => {
 			"readSeek_search",
 			"readSeek_refs",
 			"readSeek_rename",
+			"readSeek_hover",
 			"readSeek_write",
 			"readSeek_def",
 		]);
@@ -103,7 +104,7 @@ describe("pi-readseek extension", () => {
 
 	it("leaves the active tools alone when readseek ships no binary for the platform", () => {
 		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-arm64" };
-		excludeTools.value = ["read"];
+		replaceTools.value = ["read"];
 		const ctx = createPi(["read", "bash"]);
 
 		piReadSeekExtension(ctx.pi);
@@ -132,15 +133,4 @@ describe("pi-readseek extension", () => {
 		);
 	});
 
-	it("warns about tool names that excludeTools cannot match", () => {
-		excludeTools.value = ["readseek_hover", "read"];
-		const ctx = createPi(["read", "bash"]);
-
-		piReadSeekExtension(ctx.pi);
-		ctx.runSessionStart();
-
-		expect(ctx.notify).toHaveBeenCalledTimes(1);
-		expect(ctx.notify).toHaveBeenCalledWith('Unknown tool "readseek_hover" in readseek.excludeTools', "warning");
-		expect(ctx.activeTools()).toEqual(["bash", ...READSEEK_TOOLS]);
-	});
 });

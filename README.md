@@ -48,7 +48,7 @@ optional (defaults shown):
 ```json
 {
   "readseek": {
-    "excludeTools": [],
+    "replaceTools": [],
     "imageMode": "force",
     "syntaxValidation": "warn",
     "timeoutMs": 120000,
@@ -60,9 +60,9 @@ optional (defaults shown):
 }
 ```
 
-- **excludeTools:** active tool names to hide after activating `readSeek_*`
-  tools. For a readseek-only file surface, use `["read", "edit", "write",
-  "grep"]`.
+- **replaceTools:** built-in tool names to replace with their `readSeek_*` equivalents.
+  Valid values are `"read"`, `"edit"`, `"write"`, and `"grep"`. For a
+  readseek-only file surface, use `["read", "edit", "write", "grep"]`.
 - **imageMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
   (or its alias `"on"`) always runs it, `"off"` returns only the image
   attachment, and `"auto"` runs it only when the active model does not support

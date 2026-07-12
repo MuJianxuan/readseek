@@ -45,12 +45,8 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event, ctx) => {
 		const { settings, warnings } = resolveReadSeekJsonSettings();
-		const excludeTools = new Set(settings.excludeTools ?? []);
-		const knownTools = new Set([...pi.getAllTools().map((tool) => tool.name), ...READSEEK_TOOL_NAMES]);
+		const replaceTools = new Set<string>(settings.replaceTools ?? []);
 		const problems = warnings.map(formatSettingsWarning);
-		for (const name of excludeTools) {
-			if (!knownTools.has(name)) problems.push(`Unknown tool "${name}" in readseek.excludeTools`);
-		}
 
 		const availability = readSeekBinaryAvailability();
 		if (!availability.available) {
@@ -65,7 +61,7 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 		if (!availability.available) return;
 
 		const activeTools = [...pi.getActiveTools(), ...READSEEK_TOOL_NAMES]
-			.filter((name) => !excludeTools.has(name));
+			.filter((name) => !replaceTools.has(name));
 		pi.setActiveTools([...new Set(activeTools)]);
 	});
 }

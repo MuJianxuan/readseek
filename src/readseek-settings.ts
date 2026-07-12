@@ -4,14 +4,22 @@ import { join } from "node:path";
 
 export type ReadSeekImageAnalysisMode = "force" | "off" | "auto";
 export type ReadSeekSyntaxValidationMode = "warn" | "block" | "off";
-
 interface ReadSeekGrepSettings {
   maxLines?: number;
   maxBytes?: number;
 }
 
+const READSEEK_TOOL_REPLACEMENTS = {
+  read: "readSeek_read",
+  edit: "readSeek_edit",
+  grep: "readSeek_grep",
+  write: "readSeek_write",
+} as const;
+
+type ReadSeekReplacementTool = keyof typeof READSEEK_TOOL_REPLACEMENTS;
+
 interface ReadSeekJsonSettings {
-  excludeTools?: string[];
+  replaceTools?: ReadSeekReplacementTool[];
   imageMode?: ReadSeekImageAnalysisMode;
   syntaxValidation?: ReadSeekSyntaxValidationMode;
   timeoutMs?: number;
@@ -29,7 +37,7 @@ export interface ReadSeekSettingsResult {
   warnings: ReadSeekSettingsWarning[];
 }
 
-const READSEEK_KEYS = ["excludeTools", "imageMode", "syntaxValidation", "timeoutMs", "grep"];
+const READSEEK_KEYS = ["replaceTools", "imageMode", "syntaxValidation", "timeoutMs", "grep"];
 const READSEEK_GREP_KEYS = ["maxLines", "maxBytes"];
 
 function globalSettingsPath(): string {
@@ -104,29 +112,27 @@ function readImageMode(
   return undefined;
 }
 
-function readStringArray(
+function readReplaceTools(
   raw: Record<string, unknown>,
-  key: string,
-  path: string,
   source: string,
   warnings: ReadSeekSettingsWarning[],
-): string[] | undefined {
-  if (!(key in raw)) return undefined;
-  const value = raw[key];
+): ReadSeekReplacementTool[] | undefined {
+  if (!("replaceTools" in raw)) return undefined;
+  const value = raw.replaceTools;
   if (!Array.isArray(value)) {
-    warnings.push(invalid(source, path));
+    warnings.push(invalid(source, "readseek.replaceTools"));
     return undefined;
   }
 
-  const strings: string[] = [];
-  value.forEach((item, index) => {
-    if (typeof item !== "string" || item.trim() === "") {
-      warnings.push(invalid(source, `${path}[${index}]`));
-      return;
+  const tools: ReadSeekReplacementTool[] = [];
+  value.forEach((tool, index) => {
+    if (typeof tool === "string" && Object.hasOwn(READSEEK_TOOL_REPLACEMENTS, tool)) {
+      tools.push(tool as ReadSeekReplacementTool);
+    } else {
+      warnings.push(invalid(source, `readseek.replaceTools[${index}]`));
     }
-    strings.push(item);
   });
-  return strings;
+  return tools;
 }
 
 function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult {
@@ -150,8 +156,8 @@ function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult 
   const section = raw.readseek;
   warnUnknownKeys(section, READSEEK_KEYS, "readseek", source, warnings);
 
-  const excludeTools = readStringArray(section, "excludeTools", "readseek.excludeTools", source, warnings);
-  if (excludeTools !== undefined) settings.excludeTools = excludeTools;
+  const replaceTools = readReplaceTools(section, source, warnings);
+  if (replaceTools !== undefined) settings.replaceTools = replaceTools;
 
   const imageMode = readImageMode(section, source, warnings);
   if (imageMode !== undefined) settings.imageMode = imageMode;
