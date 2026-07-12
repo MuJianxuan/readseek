@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { excludeTools } = vi.hoisted(() => ({
+const { excludeTools, settingsWarnings } = vi.hoisted(() => ({
 	excludeTools: { value: [] as string[] },
+	settingsWarnings: { value: [] as Array<{ source: string; message: string }> },
 }));
 
 vi.mock("../src/readseek-settings.js", () => ({
-	resolveReadSeekExcludeTools: () => excludeTools.value,
-	resolveReadSeekJsonSettings: () => ({ settings: {}, warnings: [] }),
+	resolveReadSeekJsonSettings: () => ({
+		settings: { excludeTools: excludeTools.value },
+		warnings: settingsWarnings.value,
+	}),
 	resolveReadSeekOcrMode: () => "force",
 	resolveReadSeekSyntaxValidation: () => undefined,
 	resolveReadSeekTimeoutMs: () => undefined,
@@ -28,17 +31,19 @@ const READSEEK_TOOLS = [
 
 function createPi(activeToolNames: string[]) {
 	let activeTools = [...activeToolNames];
-	let sessionStart: (() => void) | undefined;
+	let sessionStart: ((event: unknown, ctx: unknown) => void) | undefined;
 	const registeredTools: string[] = [];
+	const notify = vi.fn();
 
 	const pi = {
 		registerTool: vi.fn((tool: { name: string }) => {
 			registeredTools.push(tool.name);
 		}),
-		on: vi.fn((event: string, handler: () => void) => {
+		on: vi.fn((event: string, handler: (event: unknown, ctx: unknown) => void) => {
 			if (event === "session_start") sessionStart = handler;
 		}),
 		getActiveTools: vi.fn(() => [...activeTools]),
+		getAllTools: vi.fn(() => [...activeToolNames, ...registeredTools].map((name) => ({ name }))),
 		setActiveTools: vi.fn((toolNames: string[]) => {
 			activeTools = [...toolNames];
 		}),
@@ -47,14 +52,19 @@ function createPi(activeToolNames: string[]) {
 	return {
 		pi: pi as any,
 		registeredTools,
-		runSessionStart: () => sessionStart?.(),
+		notify,
+		runSessionStart: () => sessionStart?.({ reason: "startup" }, { hasUI: true, ui: { notify } }),
 		activeTools: () => activeTools,
 	};
 }
 
 describe("pi-readseek extension", () => {
-	it("activates readseek tools without removing active built-ins", () => {
+	beforeEach(() => {
 		excludeTools.value = [];
+		settingsWarnings.value = [];
+	});
+
+	it("activates readseek tools without removing active built-ins", () => {
 		const ctx = createPi(["read", "bash", "edit", "write"]);
 
 		piReadSeekExtension(ctx.pi);
@@ -82,5 +92,32 @@ describe("pi-readseek extension", () => {
 			"readSeek_write",
 			"readSeek_def",
 		]);
+	});
+
+	it("warns about settings problems at session start", () => {
+		settingsWarnings.value = [
+			{ source: "/home/user/.pi/agent/readseek/settings.json", message: "Invalid readseek setting at readseek.ocrMode" },
+		];
+		const ctx = createPi(["read"]);
+
+		piReadSeekExtension(ctx.pi);
+		ctx.runSessionStart();
+
+		expect(ctx.notify).toHaveBeenCalledWith(
+			"Invalid readseek setting at readseek.ocrMode (/home/user/.pi/agent/readseek/settings.json)",
+			"warning",
+		);
+	});
+
+	it("warns about tool names that excludeTools cannot match", () => {
+		excludeTools.value = ["readseek_hover", "read"];
+		const ctx = createPi(["read", "bash"]);
+
+		piReadSeekExtension(ctx.pi);
+		ctx.runSessionStart();
+
+		expect(ctx.notify).toHaveBeenCalledTimes(1);
+		expect(ctx.notify).toHaveBeenCalledWith('Unknown tool "readseek_hover" in readseek.excludeTools', "warning");
+		expect(ctx.activeTools()).toEqual(["bash", ...READSEEK_TOOLS]);
 	});
 });

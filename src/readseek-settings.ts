@@ -18,16 +18,19 @@ interface ReadSeekJsonSettings {
   grep?: ReadSeekGrepSettings;
 }
 
-interface ReadSeekSettingsWarning {
+export interface ReadSeekSettingsWarning {
   source: string;
   message: string;
   path?: string;
 }
 
-interface ReadSeekSettingsResult {
+export interface ReadSeekSettingsResult {
   settings: ReadSeekJsonSettings;
   warnings: ReadSeekSettingsWarning[];
 }
+
+const READSEEK_KEYS = ["excludeTools", "ocrMode", "syntaxValidation", "timeoutMs", "grep"];
+const READSEEK_GREP_KEYS = ["maxLines", "maxBytes"];
 
 function defaultGlobalSettingsPath(): string {
   return join(homedir(), ".pi/agent/readseek/settings.json");
@@ -43,6 +46,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function invalid(source: string, path: string): ReadSeekSettingsWarning {
   return { source, path, message: `Invalid readseek setting at ${path}` };
+}
+
+function warnUnknownKeys(
+  raw: Record<string, unknown>,
+  known: string[],
+  prefix: string,
+  source: string,
+  warnings: ReadSeekSettingsWarning[],
+): void {
+  for (const key of Object.keys(raw)) {
+    if (known.includes(key)) continue;
+    const path = `${prefix}.${key}`;
+    warnings.push({ source, path, message: `Unknown readseek setting at ${path}` });
+  }
 }
 
 function readPositive(
@@ -102,21 +119,36 @@ function readStringArray(
   }
 
   const strings: string[] = [];
-  for (const item of value) {
+  value.forEach((item, index) => {
     if (typeof item !== "string" || item.trim() === "") {
-      warnings.push(invalid(source, path));
-      return undefined;
+      warnings.push(invalid(source, `${path}[${index}]`));
+      return;
     }
     strings.push(item);
-  }
+  });
   return strings;
 }
 
 function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult {
   const settings: ReadSeekJsonSettings = {};
   const warnings: ReadSeekSettingsWarning[] = [];
-  if (!isRecord(raw) || !isRecord(raw.readseek)) return { settings, warnings };
+  if (!isRecord(raw)) {
+    warnings.push({ source, message: "Invalid readseek settings: expected a JSON object" });
+    return { settings, warnings };
+  }
+  if (!("readseek" in raw)) {
+    if (Object.keys(raw).length > 0) {
+      warnings.push({ source, path: "readseek", message: "Missing readseek section: every setting belongs under \"readseek\"" });
+    }
+    return { settings, warnings };
+  }
+  if (!isRecord(raw.readseek)) {
+    warnings.push(invalid(source, "readseek"));
+    return { settings, warnings };
+  }
+
   const section = raw.readseek;
+  warnUnknownKeys(section, READSEEK_KEYS, "readseek", source, warnings);
 
   const excludeTools = readStringArray(section, "excludeTools", "readseek.excludeTools", source, warnings);
   if (excludeTools !== undefined) settings.excludeTools = excludeTools;
@@ -139,6 +171,7 @@ function validateSettings(raw: unknown, source: string): ReadSeekSettingsResult 
 
   if ("grep" in section) {
     if (isRecord(section.grep)) {
+      warnUnknownKeys(section.grep, READSEEK_GREP_KEYS, "readseek.grep", source, warnings);
       const grep: ReadSeekGrepSettings = {};
       const maxLines = readPositive(section.grep, "maxLines", "readseek.grep.maxLines", source, warnings);
       if (maxLines !== undefined) grep.maxLines = maxLines;
@@ -205,10 +238,6 @@ export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
     settings: mergeSettings(globalResult.settings, projectResult.settings),
     warnings: [...globalResult.warnings, ...projectResult.warnings],
   };
-}
-
-export function resolveReadSeekExcludeTools(): string[] {
-  return resolveReadSeekJsonSettings().settings.excludeTools ?? [];
 }
 
 export function resolveReadSeekOcrMode(): ReadSeekOcrMode {

@@ -23,7 +23,6 @@ vi.mock("../src/readseek-settings.js", () => ({
 	resolveReadSeekJsonSettings: () => ({ settings: {}, warnings: [] }),
 	resolveReadSeekSyntaxValidation: () => undefined,
 	resolveReadSeekTimeoutMs: () => undefined,
-	resolveReadSeekExcludeTools: () => [],
 }));
 
 vi.mock("../src/readseek-client.js", () => ({

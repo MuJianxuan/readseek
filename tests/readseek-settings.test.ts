@@ -17,7 +17,6 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 const {
-	resolveReadSeekExcludeTools,
 	resolveReadSeekJsonSettings,
 	resolveReadSeekOcrMode,
 	resolveReadSeekSyntaxValidation,
@@ -91,16 +90,30 @@ describe("readseek settings", () => {
 
 	it("reads excludeTools and syntaxValidation", async () => {
 		await writeGlobal({ readseek: { excludeTools: ["read", "edit"], syntaxValidation: "block" } });
-		expect(resolveReadSeekExcludeTools()).toEqual(["read", "edit"]);
+		expect(resolveReadSeekJsonSettings().settings.excludeTools).toEqual(["read", "edit"]);
 		expect(resolveReadSeekSyntaxValidation()).toBe("block");
 	});
 
-	it("warns on invalid excludeTools", async () => {
+	it("keeps the valid excludeTools entries and warns about the rest", async () => {
 		await writeGlobal({ readseek: { excludeTools: ["read", ""] } });
-		const { warnings } = resolveReadSeekJsonSettings();
+		const { settings, warnings } = resolveReadSeekJsonSettings();
 		expect(warnings).toHaveLength(1);
-		expect(warnings[0]?.path).toBe("readseek.excludeTools");
-		expect(resolveReadSeekExcludeTools()).toEqual([]);
+		expect(warnings[0]?.path).toBe("readseek.excludeTools[1]");
+		expect(settings.excludeTools).toEqual(["read"]);
+	});
+
+	it("warns on unknown keys in the readseek section", async () => {
+		await writeGlobal({ readseek: { ocrmode: "off", grep: { maxlines: 10 } } });
+		const { warnings } = resolveReadSeekJsonSettings();
+		expect(warnings.map((warning) => warning.path)).toEqual(["readseek.ocrmode", "readseek.grep.maxlines"]);
+	});
+
+	it("warns when settings are not nested under a readseek section", async () => {
+		await writeGlobal({ read: { ocrMode: "off" } });
+		const { settings, warnings } = resolveReadSeekJsonSettings();
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]?.path).toBe("readseek");
+		expect(settings.ocrMode).toBeUndefined();
 	});
 
 	it("picks up settings changes and deletions despite caching", async () => {
