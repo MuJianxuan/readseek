@@ -189,7 +189,7 @@ fn lock_runtime<T>(
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
     let mut image = image::load_from_memory(image_bytes).context("decode image")?;
     let long = image.width().max(image.height());
-    if long <= IMAGE_MAX_LONG_EDGE {
+    if long > IMAGE_MAX_LONG_EDGE {
         let scale = f64::from(IMAGE_MAX_LONG_EDGE) / f64::from(long);
         let target_w = (f64::from(image.width()) * scale).round() as u32;
         let target_h = (f64::from(image.height()) * scale).round() as u32;
