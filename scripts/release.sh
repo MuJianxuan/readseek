@@ -81,6 +81,8 @@ pi_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- package
 [[ -n "$readseek_log" ]] || readseek_log='- No source changes.'
 [[ -n "$pi_log" ]] || pi_log='- Merged pi-readseek into this repository.'
 
+npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts
+
 npm --prefix packages/pi-readseek run typecheck
 npm --prefix packages/pi-readseek test
 
