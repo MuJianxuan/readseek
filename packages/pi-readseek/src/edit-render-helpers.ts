@@ -1,0 +1,141 @@
+const VARIANT_KEYS = ["set_line", "replace_lines", "insert_after", "replace"] as const;
+
+export type EditTypeCounts = {
+  set_line: number;
+  replace_lines: number;
+  insert_after: number;
+  replace: number;
+  total: number;
+};
+
+export function countEditTypes(edits: unknown[] | undefined): EditTypeCounts {
+  const counts: EditTypeCounts = {
+    set_line: 0,
+    replace_lines: 0,
+    insert_after: 0,
+    replace: 0,
+    total: 0,
+  };
+  if (!edits) return counts;
+  for (const edit of edits) {
+    counts.total++;
+    if (edit && typeof edit === "object") {
+      for (const key of VARIANT_KEYS) {
+        if (key in edit) {
+          counts[key]++;
+          break;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+export interface DiffStats {
+  added: number;
+  removed: number;
+}
+
+export function parseDiffStats(diff: string | undefined): DiffStats {
+  if (!diff) return { added: 0, removed: 0 };
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) added++;
+    else if (line.startsWith("-")) removed++;
+  }
+  return { added, removed };
+}
+
+export interface EditCallTextResult {
+  path: string | null;
+  suffix: string | undefined;
+}
+
+export function formatEditCallText(
+  args: Record<string, unknown> | undefined,
+  argsComplete: boolean,
+): EditCallTextResult {
+  const rawPath = typeof args?.path === "string" ? args.path : null;
+
+  if (!argsComplete) {
+    return { path: rawPath, suffix: undefined };
+  }
+
+  const edits = args?.edits;
+  if (!Array.isArray(edits) || edits.length === 0) {
+    return { path: rawPath, suffix: undefined };
+  }
+
+  const counts = countEditTypes(edits);
+  const parts: string[] = [];
+  for (const key of VARIANT_KEYS) {
+    if (counts[key] > 0) {
+      parts.push(`${counts[key]} ${key}`);
+    }
+  }
+  const word = counts.total === 1 ? "edit" : "edits";
+  const suffix = `${counts.total} ${word} (${parts.join(", ")})`;
+  return { path: rawPath, suffix };
+}
+
+export interface EditResultTextInput {
+  isError: boolean;
+  diff: string;
+  warnings: string[];
+  noopEdits: unknown[];
+  errorText: string;
+  semanticClassification?: "no-op" | "whitespace-only" | "semantic" | "mixed";
+}
+
+export interface EditResultTextOutput {
+  diffStats: string | undefined;
+  noOp: boolean;
+  warningsBadge: string | undefined;
+  errorText: string | undefined;
+  semanticBadge: string | undefined;
+}
+
+export function formatEditResultText(input: EditResultTextInput): EditResultTextOutput {
+  const { isError, diff, warnings, noopEdits, errorText } = input;
+
+  // No-op detection: error + noopEdits present OR error text contains "No changes made"
+  const isNoOp = isError && (
+    (Array.isArray(noopEdits) && noopEdits.length > 0) ||
+    errorText.includes("No changes made")
+  );
+
+  // Diff stats
+  const stats = parseDiffStats(diff);
+  const hasDiffStats = stats.added > 0 || stats.removed > 0;
+  const diffStats = hasDiffStats ? `+${stats.added} / -${stats.removed}` : undefined;
+
+  // Warnings badge
+  let warningsBadge: string | undefined;
+  if (warnings.length === 1) {
+    warningsBadge = "\u26a0 1 warning";
+  } else if (warnings.length > 1) {
+    warningsBadge = `\u26a0 ${warnings.length} warnings`;
+  }
+
+  // Error text (only for errors)
+  const showErrorText = isError ? errorText : undefined;
+
+  // Semantic classification badge (success only)
+  let semanticBadge: string | undefined;
+  if (!isError && !isNoOp && input.semanticClassification) {
+    switch (input.semanticClassification) {
+      case "whitespace-only": semanticBadge = "ws-only"; break;
+      case "semantic": semanticBadge = "\u2713 semantic"; break;
+      case "mixed": semanticBadge = "mixed"; break;
+    }
+  }
+  return {
+    diffStats,
+    noOp: isNoOp,
+    warningsBadge,
+    errorText: showErrorText,
+    semanticBadge,
+  };
+}
