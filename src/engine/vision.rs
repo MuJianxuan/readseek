@@ -30,7 +30,7 @@ use candle_transformers::{
 use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 use std::io::IsTerminal as _;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokenizers::Tokenizer;
 
@@ -70,6 +70,110 @@ pub(crate) struct Analysis {
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
     pub(crate) ocr: Option<String>,
+}
+
+struct CaptionRuntime {
+    device: Device,
+    tokenizer: Tokenizer,
+    model: quantized_blip::BlipForConditionalGeneration,
+}
+
+struct ObjectRuntime {
+    device: Device,
+    yolo: YoloV8,
+}
+
+struct OcrRuntime {
+    device: Device,
+    tokenizer: Tokenizer,
+    config: TrOcrConfig,
+    model: trocr::TrOCRModel,
+}
+
+fn init_caption_runtime() -> Result<CaptionRuntime> {
+    let device = best_device();
+    let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
+    let tokenizer_path = model::file("blip-tokenizer.json")?;
+    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
+    let config = blip::Config::image_captioning_large();
+    let vb = quantized_var_builder::VarBuilder::from_gguf(&model_path, &device)?;
+    let model = quantized_blip::BlipForConditionalGeneration::new(&config, vb)?;
+    Ok(CaptionRuntime {
+        device,
+        tokenizer,
+        model,
+    })
+}
+
+fn caption_runtime() -> Result<&'static Mutex<CaptionRuntime>> {
+    static RUNTIME: OnceLock<Result<Mutex<CaptionRuntime>, String>> = OnceLock::new();
+    match RUNTIME.get_or_init(|| {
+        init_caption_runtime()
+            .map(Mutex::new)
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(anyhow!(error.clone())),
+    }
+}
+
+fn init_object_runtime() -> Result<ObjectRuntime> {
+    let device = best_device();
+    let model_path = model::file("yolov8n.safetensors")?;
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
+    let yolo = YoloV8::load(vb, Multiples::n(), 80)?;
+    Ok(ObjectRuntime { device, yolo })
+}
+
+fn object_runtime() -> Result<&'static Mutex<ObjectRuntime>> {
+    static RUNTIME: OnceLock<Result<Mutex<ObjectRuntime>, String>> = OnceLock::new();
+    match RUNTIME.get_or_init(|| {
+        init_object_runtime()
+            .map(Mutex::new)
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(anyhow!(error.clone())),
+    }
+}
+
+fn init_ocr_runtime() -> Result<OcrRuntime> {
+    let device = best_device();
+    let model_path = model::file("trocr-base-printed.safetensors")?;
+    let tokenizer_path = model::file("trocr-tokenizer.json")?;
+    let config_path = model::file("trocr-config.json")?;
+    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
+    let config: TrOcrConfig =
+        serde_json::from_slice(&std::fs::read(&config_path).context("read trocr config")?)?;
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
+    let model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
+    Ok(OcrRuntime {
+        device,
+        tokenizer,
+        config,
+        model,
+    })
+}
+
+fn ocr_runtime() -> Result<&'static Mutex<OcrRuntime>> {
+    static RUNTIME: OnceLock<Result<Mutex<OcrRuntime>, String>> = OnceLock::new();
+    match RUNTIME.get_or_init(|| {
+        init_ocr_runtime()
+            .map(Mutex::new)
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(anyhow!(error.clone())),
+    }
+}
+
+fn lock_runtime<T>(
+    runtime: &'static Mutex<T>,
+    name: &str,
+) -> Result<std::sync::MutexGuard<'static, T>> {
+    runtime
+        .lock()
+        .map_err(|_| anyhow!("{name} runtime mutex poisoned"))
 }
 
 /// Run the requested tasks against `image_bytes`. Each task runs independently;
@@ -147,25 +251,25 @@ fn best_device() -> Device {
 /// Generate a concise caption for `image` with the quantized BLIP model,
 /// mirroring the `candle-examples/examples/blip` decoder loop.
 fn caption(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
-    let device = best_device();
-    let model_path = model::file("blip-image-captioning-large-q4k.gguf")?;
-    let tokenizer_path = model::file("blip-tokenizer.json")?;
-    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
-    let config = blip::Config::image_captioning_large();
-    let vb = quantized_var_builder::VarBuilder::from_gguf(&model_path, &device)?;
-    let mut model = quantized_blip::BlipForConditionalGeneration::new(&config, vb)?;
-
-    let image_embeds = blip_image(image, &device)?
+    let mut runtime = lock_runtime(caption_runtime()?, "caption")?;
+    let CaptionRuntime {
+        device,
+        tokenizer,
+        model,
+    } = &mut *runtime;
+    model.reset_kv_cache();
+    let image_embeds = blip_image(image, device)?
         .unsqueeze(0)?
         .apply(model.vision_model())?;
 
-    let mut tokens = vec![BLIP_DEC_TOKEN];
-    let mut generated = Vec::new();
+    let mut tokens = Vec::with_capacity(CAPTION_MAX_TOKENS + 1);
+    tokens.push(BLIP_DEC_TOKEN);
+    let mut generated = Vec::with_capacity(CAPTION_MAX_TOKENS);
     for index in 0..CAPTION_MAX_TOKENS {
         progress.maybe_reveal();
         let context_size = if index > 0 { 1 } else { tokens.len() };
         let start_pos = tokens.len().saturating_sub(context_size);
-        let input = Tensor::new(&tokens[start_pos..], &device)?.unsqueeze(0)?;
+        let input = Tensor::new(&tokens[start_pos..], device)?.unsqueeze(0)?;
         let logits = model.text_decoder().forward(&input, &image_embeds)?;
         let logits = logits.squeeze(0)?;
         let logits = logits.get(logits.dim(0)? - 1)?;
@@ -224,12 +328,9 @@ fn detect_objects(
     image: &image::DynamicImage,
     progress: &InferenceProgress,
 ) -> Result<Vec<DetectedObject>> {
-    let device = best_device();
-    let model_path = model::file("yolov8n.safetensors")?;
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
-    let yolo = YoloV8::load(vb, Multiples::n(), 80)?;
-
-    let (input, model_w, model_h, orig_w, orig_h) = yolo_image(image, &device)?;
+    let runtime = lock_runtime(object_runtime()?, "objects")?;
+    let ObjectRuntime { device, yolo } = &*runtime;
+    let (input, model_w, model_h, orig_w, orig_h) = yolo_image(image, device)?;
     progress.maybe_reveal();
     let predictions = yolo.forward(&input)?.squeeze(0)?;
     progress.maybe_reveal();
@@ -253,15 +354,13 @@ struct TrOcrConfig {
 /// with one shared model and the results are joined with newlines. When no text
 /// rows are found the whole image is recognized as a fallback.
 fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result<String> {
-    let device = best_device();
-    let model_path = model::file("trocr-base-printed.safetensors")?;
-    let tokenizer_path = model::file("trocr-tokenizer.json")?;
-    let config_path = model::file("trocr-config.json")?;
-    let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
-    let config: TrOcrConfig =
-        serde_json::from_slice(&std::fs::read(&config_path).context("read trocr config")?)?;
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
-    let mut model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
+    let mut runtime = lock_runtime(ocr_runtime()?, "ocr")?;
+    let OcrRuntime {
+        device,
+        tokenizer,
+        config,
+        model,
+    } = &mut *runtime;
     let lines = text_lines(image);
     let crops: Vec<image::DynamicImage> = if lines.is_empty() {
         vec![image.clone()]
@@ -274,7 +373,7 @@ fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result
 
     let inputs: Vec<Tensor> = crops
         .iter()
-        .map(|crop| trocr_image(crop, &device))
+        .map(|crop| trocr_image(crop, device))
         .collect::<Result<Vec<_>>>()?;
     let batched = Tensor::stack(&inputs, 0)?;
     progress.maybe_reveal();
@@ -284,14 +383,7 @@ fn ocr_text(image: &image::DynamicImage, progress: &InferenceProgress) -> Result
     for index in 0..crops.len() {
         progress.maybe_reveal();
         let line_encoder_xs = encoder_xs.i(index)?.unsqueeze(0)?;
-        let line = decode_line(
-            &line_encoder_xs,
-            &mut model,
-            &config,
-            &tokenizer,
-            &device,
-            progress,
-        )?;
+        let line = decode_line(&line_encoder_xs, model, config, tokenizer, device, progress)?;
         if !line.is_empty() {
             text.push(line);
         }
@@ -435,9 +527,10 @@ fn decode_line(
     progress: &InferenceProgress,
 ) -> Result<String> {
     model.reset_kv_cache();
-    let mut tokens = vec![config.decoder.decoder_start_token_id];
+    let mut tokens = Vec::with_capacity(OCR_MAX_TOKENS + 1);
+    tokens.push(config.decoder.decoder_start_token_id);
     let eos = config.decoder.eos_token_id;
-    let mut generated = Vec::new();
+    let mut generated = Vec::with_capacity(OCR_MAX_TOKENS);
     for index in 0..OCR_MAX_TOKENS {
         progress.maybe_reveal();
         let context_size = if index >= 1 { 1 } else { tokens.len() };
