@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
-//
-// Vendored YOLOv8 architecture from the candle project
-// (https://github.com/huggingface/candle), file
-// candle-examples/examples/yolo-v8/model.rs at tag 0.11.0, licensed
-// MIT OR Apache-2.0. Tracing spans were stripped to avoid pulling the
-// `tracing` crate; the pose variant is retained verbatim but unused.
+
+// Based on YOLOv8 architecture code from https://github.com/huggingface/candle,
+// which is licensed with MIT OR Apache-2.0.
 
 #![allow(dead_code, clippy::all, clippy::pedantic)]
 use candle::{D, DType, IndexOp, Result, Tensor};
