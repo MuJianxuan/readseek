@@ -332,6 +332,7 @@ impl Module for Encoder {
     fn forward(&self, xs: &Tensor) -> CResult<Tensor> {
         let mut xs = xs.clone();
         for layer in self.layers.iter() {
+            xs = crate::engine::tome::merge(&xs, crate::engine::tome::DEFAULT_R, true)?;
             xs = xs.apply(layer)?
         }
         Ok(xs)

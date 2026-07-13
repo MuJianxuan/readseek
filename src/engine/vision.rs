@@ -18,13 +18,14 @@
 )]
 
 use crate::engine::model;
+use crate::engine::quantized_blip;
 use crate::engine::quantized_trocr;
 use crate::engine::yolo::{COCO_CLASSES, Multiples, YoloV8};
 use anyhow::{Context as _, Result, anyhow};
 use candle::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Module, VarBuilder};
 use candle_transformers::{
-    models::{blip, quantized_blip, trocr, vit},
+    models::{blip, trocr, vit},
     object_detection::{Bbox, KeyPoint, non_maximum_suppression},
     quantized_var_builder,
 };
