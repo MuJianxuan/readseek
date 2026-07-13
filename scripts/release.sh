@@ -27,6 +27,7 @@ version_parts() {
 
 release_files=(
 	Cargo.toml
+	Cargo.lock
 	package.json
 	package-lock.json
 	npm/darwin-arm64/package.json
