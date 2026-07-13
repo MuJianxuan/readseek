@@ -12,6 +12,7 @@ pub(crate) mod lang;
 pub(crate) mod model;
 pub(crate) mod output;
 pub(crate) mod paths;
+pub(crate) mod quantized_trocr;
 pub(crate) mod refs;
 pub(crate) mod rename;
 pub(crate) mod repo;

@@ -18,6 +18,7 @@
 )]
 
 use crate::engine::model;
+use crate::engine::quantized_trocr;
 use crate::engine::yolo::{COCO_CLASSES, Multiples, YoloV8};
 use anyhow::{Context as _, Result, anyhow};
 use candle::{DType, Device, IndexOp, Tensor};
@@ -87,7 +88,7 @@ struct OcrRuntime {
     device: Device,
     tokenizer: Tokenizer,
     config: TrOcrConfig,
-    model: trocr::TrOCRModel,
+    model: quantized_trocr::TrOCRModel,
 }
 
 fn init_caption_runtime() -> Result<CaptionRuntime> {
@@ -145,8 +146,12 @@ fn init_ocr_runtime() -> Result<OcrRuntime> {
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
     let config: TrOcrConfig =
         serde_json::from_slice(&std::fs::read(&config_path).context("read trocr config")?)?;
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device)? };
-    let model = trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
+    let gguf_path = model::local_cache_path(quantized_trocr::Q4K_GGUF_NAME)?;
+    if !gguf_path.exists() {
+        quantized_trocr::build_q4k_gguf(&model_path, &gguf_path)?;
+    }
+    let vb = quantized_var_builder::VarBuilder::from_gguf(&gguf_path, &device)?;
+    let model = quantized_trocr::TrOCRModel::new(&config.encoder, &config.decoder, vb)?;
     Ok(OcrRuntime {
         device,
         tokenizer,
@@ -520,7 +525,7 @@ mod tests {
 /// `candle-examples/examples/trocr` decoder loop.
 fn decode_line(
     encoder_xs: &Tensor,
-    model: &mut trocr::TrOCRModel,
+    model: &mut quantized_trocr::TrOCRModel,
     config: &TrOcrConfig,
     tokenizer: &Tokenizer,
     device: &Device,

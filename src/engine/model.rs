@@ -105,6 +105,16 @@ fn cache_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// Path under the readseek model cache directory for a locally produced file
+/// that is not downloaded from a registry — e.g. the runtime-quantized `TrOCR`
+/// `q4_K` GGUF, derived from the SHA-256-verified F32 safetensors and reused
+/// across runs so the one-time quantization cost is paid only once.
+pub(crate) fn local_cache_path(name: &str) -> Result<PathBuf> {
+    let dir = cache_dir()?.join(CACHE_SUBDIR);
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    Ok(dir.join(name))
+}
+
 /// Downloads `remote` from `repo` into `target` via a `.part` file, then
 /// atomically renames. A progress bar is shown when stdout is a TTY.
 fn download(repo: &str, revision: &str, remote: &str, local: &str, target: &PathBuf) -> Result<()> {
