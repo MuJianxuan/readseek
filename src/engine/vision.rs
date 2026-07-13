@@ -37,8 +37,10 @@ use tokenizers::Tokenizer;
 
 const CAPTION_MAX_TOKENS: usize = 256;
 /// Maximum tokens generated for OCR text; bounded by the `TrOCR` decoder
-/// `max_position_embeddings` (512) so position indices stay in range.
+/// `max_position_embeddings` (512).
 const OCR_MAX_TOKENS: usize = 512;
+/// Long-edge cap
+const IMAGE_MAX_LONG_EDGE: u32 = 1280;
 const YOLO_CONFIDENCE: f32 = 0.25;
 const YOLO_NMS: f32 = 0.45;
 /// BLIP decoder start token (`[DEC]`) that seeds caption generation.
@@ -185,7 +187,14 @@ fn lock_runtime<T>(
 /// a task that fails is logged and left `None` so it is recomputed on a later
 /// run instead of being cached as final-empty.
 pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
-    let image = image::load_from_memory(image_bytes).context("decode image")?;
+    let mut image = image::load_from_memory(image_bytes).context("decode image")?;
+    let long = image.width().max(image.height());
+    if long <= IMAGE_MAX_LONG_EDGE {
+        let scale = f64::from(IMAGE_MAX_LONG_EDGE) / f64::from(long);
+        let target_w = (f64::from(image.width()) * scale).round() as u32;
+        let target_h = (f64::from(image.height()) * scale).round() as u32;
+        image = image.resize_exact(target_w, target_h, image::imageops::FilterType::Triangle);
+    }
     let mut analysis = Analysis::default();
     let progress = InferenceProgress::new();
 
