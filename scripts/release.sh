@@ -170,7 +170,6 @@ pi-readseek:
 $pi_log
 EOF
 
-printf 'Created %s. Create the signed tag with:\n\n' "$(git rev-parse --short HEAD)"
-printf 'git tag -s %q -F %q\n' "$next_ver" "$release_notes"
-printf '\nTag message:\n\n'
-cat "$release_notes"
+git tag -s "$next_ver" -F "$release_notes"
+
+echo "tagged $next_ver"
