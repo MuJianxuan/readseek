@@ -18,6 +18,15 @@ Or install the npm wrapper:
 npm install -g @jarkkojs/readseek
 ```
 
+## Pi extension
+
+The bundled [pi-readseek extension](packages/pi-readseek/README.md) exposes
+ReadSeek's anchored file and structural-code tools in Pi:
+
+```sh
+pi install npm:pi-readseek
+```
+
 ## Common commands
 
 ```sh

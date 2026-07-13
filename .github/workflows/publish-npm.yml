@@ -79,6 +79,7 @@ jobs:
               'npm/darwin-arm64/package.json',
               'npm/linux-x64/package.json',
               'npm/win32-x64/package.json',
+              'packages/pi-readseek/package.json',
             ].every((file) => tagHasFile(tag, file));
           }
 
@@ -123,6 +124,7 @@ jobs:
             'npm/darwin-arm64/package.json',
             'npm/linux-x64/package.json',
             'npm/win32-x64/package.json',
+            'packages/pi-readseek/package.json',
           ];
           const packages = packageFiles.map((file) => JSON.parse(readTagFile(latest.tag, file)));
           const missingPackages = packages.filter((data) =>
@@ -187,6 +189,14 @@ jobs:
             if (root.optionalDependencies?.[data.name] !== root.version) {
               throw new Error(`package.json optional dependency ${data.name} does not match ${root.version}`);
             }
+          }
+
+          const piReadseek = JSON.parse(readTagFile('packages/pi-readseek/package.json'));
+          if (piReadseek.version !== root.version) {
+            throw new Error(`packages/pi-readseek/package.json version ${piReadseek.version} does not match ${root.version}`);
+          }
+          if (piReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
+            throw new Error('pi-readseek must depend on the synchronized readseek version');
           }
           NODE
         env:
@@ -333,7 +343,7 @@ jobs:
           chmod 755 npm/linux-x64/bin/readseek
           test -f npm/win32-x64/bin/readseek.exe
 
-      - name: Publish npm packages
+      - name: Publish readseek npm packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -352,9 +362,27 @@ jobs:
           publish_if_missing npm/win32-x64
           publish_if_missing .
 
+      - name: Test pi-readseek
+        run: |
+          npm ci --prefix packages/pi-readseek
+          npm --prefix packages/pi-readseek run typecheck
+          npm --prefix packages/pi-readseek test
+
+      - name: Publish pi-readseek
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          package_name="$(node -p \"require('./packages/pi-readseek/package.json').name\")"
+          package_version="$(node -p \"require('./packages/pi-readseek/package.json').version\")"
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "${package_name}@${package_version} is already published"
+            exit 0
+          fi
+          npm publish ./packages/pi-readseek --access public --provenance
+
   github-release:
     name: Create GitHub Release
-    needs: [metadata, build]
+    needs: [metadata, build, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write

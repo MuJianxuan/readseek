@@ -126,15 +126,19 @@ const readSeekBinaryPattern = /[\\/]bin[\\/]readseek(\.exe)?$/;
 
 describe("readseek client parsing", () => {
 	let tempHome: string;
+	let originalCwd: string;
 
 	beforeEach(async () => {
 		tempHome = await mkdtemp(path.join(tmpdir(), "pi-readseek-home-"));
+		originalCwd = process.cwd();
+		process.chdir(tempHome);
 		homeDir.value = tempHome;
 		spawnMock.mockReset();
 	});
 
 	afterEach(async () => {
 		await rm(tempHome, { recursive: true, force: true });
+		process.chdir(originalCwd);
 	});
 
 	it("targets the start line for ranged reads", async () => {

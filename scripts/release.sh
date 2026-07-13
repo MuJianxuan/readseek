@@ -5,49 +5,45 @@
 set -euo pipefail
 
 die() {
-	echo "$1" >&2
+	printf '%s\n' "$1" >&2
 	exit 1
 }
 
 ver_gt() {
-	if   (( $1 > $4 )); then return 0
+	if (( $1 > $4 )); then return 0
 	elif (( $1 == $4 && $2 > $5 )); then return 0
 	elif (( $1 == $4 && $2 == $5 && $3 > $6 )); then return 0
 	else return 1
 	fi
 }
 
-sed_in_place() {
-	local script="$1"
-	local path
-	local backups=()
-
-	shift
-	for path in "$@"; do
-		backups+=("$path.bak")
-	done
-	sed -E -i.bak "$script" "$@" || {
-		local status=$?
-		rm -f -- "${backups[@]}"
-		return "$status"
-	}
-	rm -f -- "${backups[@]}"
+version_parts() {
+	[[ "$1" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
+		|| die "invalid version: $1"
+	VERSION_A="${BASH_REMATCH[1]}"
+	VERSION_B="${BASH_REMATCH[2]}"
+	VERSION_C="${BASH_REMATCH[3]}"
 }
 
-committed=0
-npm_package_jsons=(
+release_files=(
+	Cargo.toml
 	package.json
+	package-lock.json
 	npm/darwin-arm64/package.json
 	npm/linux-x64/package.json
 	npm/win32-x64/package.json
+	man/man1/readseek.1
+	packages/pi-readseek/package.json
+	packages/pi-readseek/package-lock.json
 )
+committed=0
 
 cleanup() {
 	local status=$?
+
 	if (( status != 0 && !committed )); then
-		git restore -- Cargo.toml Cargo.lock man/man1/readseek.1 \
-			"${npm_package_jsons[@]}" \
-			2>/dev/null || true
+		git restore --staged -- "${release_files[@]}" 2>/dev/null || true
+		git restore -- "${release_files[@]}" 2>/dev/null || true
 	fi
 	return "$status"
 }
@@ -55,96 +51,123 @@ trap cleanup EXIT
 
 next_ver="${1:-}"
 [[ -n "$next_ver" ]] || die "usage: scripts/release.sh <next-version>"
-
-[[ "$next_ver" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
-	|| die "invalid version: $next_ver"
-next_a="${BASH_REMATCH[1]}"
-next_b="${BASH_REMATCH[2]}"
-next_c="${BASH_REMATCH[3]}"
+version_parts "$next_ver"
+next_a="$VERSION_A"
+next_b="$VERSION_B"
+next_c="$VERSION_C"
 
 branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" \
 	|| die "HEAD is detached; check out a branch before releasing"
-
 [[ -z "$(git status --porcelain)" ]] \
 	|| die "working directory is not clean"
-
 [[ -z "$(git tag -l "$next_ver")" ]] \
 	|| die "tag $next_ver already exists"
 
-cur_ver="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' Cargo.toml | head -1)" \
-	|| die "cannot find version in Cargo.toml"
-[[ -n "$cur_ver" ]] || die "cannot find version in Cargo.toml"
+core_ver="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' Cargo.toml | head -1)"
+[[ -n "$core_ver" ]] || die "cannot find version in Cargo.toml"
+version_parts "$core_ver"
+ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
+	|| die "$next_ver is not greater than readseek $core_ver"
 
-[[ "$cur_ver" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
-	|| die "cannot parse version components from: $cur_ver"
-cur_a="${BASH_REMATCH[1]}"
-cur_b="${BASH_REMATCH[2]}"
-cur_c="${BASH_REMATCH[3]}"
+pi_ver="$(node -p 'require("./packages/pi-readseek/package.json").version')" \
+	|| die "cannot find pi-readseek version"
+version_parts "$pi_ver"
+ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
+	|| die "$next_ver is not greater than pi-readseek $pi_ver"
 
-ver_gt "$next_a" "$next_b" "$next_c" "$cur_a" "$cur_b" "$cur_c" \
-	|| die "$next_ver is not greater than current $cur_ver"
+readseek_log="$(git log --first-parent --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- . ':(exclude)packages/pi-readseek')"
+pi_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/pi-readseek)"
+[[ -n "$readseek_log" ]] || readseek_log='- No source changes.'
+[[ -n "$pi_log" ]] || pi_log='- Merged pi-readseek into this repository.'
 
-man_page="man/man1/readseek.1"
-[[ -f "$man_page" ]] || die "missing man page: $man_page"
+npm --prefix packages/pi-readseek run typecheck
+npm --prefix packages/pi-readseek test
 
-sed_in_place "/^[[:space:]]*version[[:space:]]*=/s/${cur_ver//./\\.}/$next_ver/" Cargo.toml
-grep -q "^[[:space:]]*version = \"$next_ver\"" Cargo.toml \
-	|| die "failed to update version in Cargo.toml"
-
-cargo build
-cargo test
-
-command -v node >/dev/null || die "node is required to update npm package versions"
-
-node - "$next_ver" "${npm_package_jsons[@]}" <<'NODE'
+node - "$next_ver" <<'NODE'
 const fs = require('node:fs');
 
-const [nextVersion, ...packagePaths] = process.argv.slice(2);
-const packages = packagePaths.map((packagePath) => [
+const [nextVersion] = process.argv.slice(2);
+const corePackagePaths = [
+  'package.json',
+  'npm/darwin-arm64/package.json',
+  'npm/linux-x64/package.json',
+  'npm/win32-x64/package.json',
+];
+const corePackages = corePackagePaths.map((packagePath) => [
   packagePath,
   JSON.parse(fs.readFileSync(packagePath, 'utf8')),
 ]);
-const root = packages[0][1];
+const root = corePackages[0][1];
 
 root.version = nextVersion;
-
-for (const [, data] of packages.slice(1)) {
+for (const [, data] of corePackages.slice(1)) {
   data.version = nextVersion;
-
-  if (!Object.prototype.hasOwnProperty.call(root.optionalDependencies, data.name)) {
-    throw new Error(`package.json missing optional dependency ${data.name}`);
-  }
-
   root.optionalDependencies[data.name] = nextVersion;
 }
-
-for (const [packagePath, data] of packages) {
+for (const [packagePath, data] of corePackages) {
   fs.writeFileSync(packagePath, `${JSON.stringify(data, null, 2)}\n`);
 }
+
+const coreLockPath = 'package-lock.json';
+const coreLock = JSON.parse(fs.readFileSync(coreLockPath, 'utf8'));
+coreLock.version = nextVersion;
+coreLock.packages[''].version = nextVersion;
+for (const name of Object.keys(root.optionalDependencies)) {
+  coreLock.packages[''].optionalDependencies[name] = nextVersion;
+}
+fs.writeFileSync(coreLockPath, `${JSON.stringify(coreLock, null, 2)}\n`);
+
+const piPackagePath = 'packages/pi-readseek/package.json';
+const piPackage = JSON.parse(fs.readFileSync(piPackagePath, 'utf8'));
+piPackage.version = nextVersion;
+piPackage.dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+fs.writeFileSync(piPackagePath, `${JSON.stringify(piPackage, null, 2)}\n`);
+
+const piLockPath = 'packages/pi-readseek/package-lock.json';
+const piLock = JSON.parse(fs.readFileSync(piLockPath, 'utf8'));
+piLock.version = nextVersion;
+piLock.packages[''].version = nextVersion;
+piLock.packages[''].dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+fs.writeFileSync(piLockPath, `${JSON.stringify(piLock, null, 2)}\n`);
 NODE
 
+sed -E -i.bak "s/^([[:space:]]*version[[:space:]]*=[[:space:]]*)\"${core_ver//./\\.}\"/\1\"$next_ver\"/" Cargo.toml
+rm -f Cargo.toml.bak
+grep -q "^[[:space:]]*version = \"$next_ver\"" Cargo.toml \
+	|| die "failed to update version in Cargo.toml"
+
 date="$(date '+%Y-%m-%d')"
-sed_in_place 's/^(\.TH [^[:space:]]* [0-9][0-9]*) "[^"]*"/\1 "'"$date"'"/' "$man_page"
-grep -q '^\.TH .* "'"$date"'"' "$man_page" \
-	|| die "failed to update $man_page"
-sed_in_place 's/"readseek [0-9][^"]*"/"readseek '"$next_ver"'"/' "$man_page"
-grep -q '^\.TH .* "readseek '"$next_ver"'"' "$man_page" \
-	|| die "failed to update version in $man_page"
+sed -E -i.bak 's/^(\.TH [^[:space:]]* [0-9][0-9]*) "[^"]*"/\1 "'"$date"'"/' man/man1/readseek.1
+sed -E -i.bak 's/"readseek [0-9][^"]*"/"readseek '"$next_ver"'"/' man/man1/readseek.1
+rm -f man/man1/readseek.1.bak
 
-git rev-parse -q --verify "refs/tags/$cur_ver" >/dev/null \
-	|| die "current version tag $cur_ver does not exist"
-range="${cur_ver}..HEAD"
+grep -q '^\.TH .* "'"$date"'"' man/man1/readseek.1 \
+	|| die "failed to update man/man1/readseek.1 date"
+grep -q '^\.TH .* "readseek '"$next_ver"'"' man/man1/readseek.1 \
+	|| die "failed to update man/man1/readseek.1 version"
 
-log=""
-while IFS=$'\x1f' read -r subj author; do
-	log+="- $subj ($author)"$'\n'
-done < <(git log --pretty=tformat:'%s%x1f%an' --no-merges "$range")
-log="${log%$'\n'}"
+cargo build
+cargo test
+cargo clippy --all-targets --all-features
+cargo fmt --check
 
-git commit -a -s -m "Bump the version to $next_ver"
+git add -- "${release_files[@]}"
+git commit -s -m "Bump the version to $next_ver"
 committed=1
 
-sob="Signed-off-by: $(git config user.name) <$(git config user.email)>"
-printf 'readseek %s\n\n%s\n\n%s\n' "$next_ver" "$log" "$sob" | git tag -s "$next_ver" -F -
 
-echo "tagged $next_ver"
+release_notes="$(git rev-parse --git-path "readseek-$next_ver-tag-message.txt")"
+cat >"$release_notes" <<EOF
+readseek $next_ver
+
+readseek:
+$readseek_log
+
+pi-readseek:
+$pi_log
+EOF
+
+printf 'Created %s. Create the signed tag with:\n\n' "$(git rev-parse --short HEAD)"
+printf 'git tag -s %q -F %q\n' "$next_ver" "$release_notes"
+printf '\nTag message:\n\n'
+cat "$release_notes"

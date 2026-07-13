@@ -15,7 +15,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jarkkojs/pi-readseek.git"
+    "url": "git+https://github.com/jarkkojs/readseek.git"
   },
   "author": "Maxwell Newman",
   "license": "MIT",
@@ -63,7 +63,7 @@
     "test": "tests"
   },
   "bugs": {
-    "url": "https://github.com/jarkkojs/pi-readseek/issues"
+    "url": "https://github.com/jarkkojs/readseek/issues"
   },
-  "homepage": "https://github.com/jarkkojs/pi-readseek#readme"
+  "homepage": "https://github.com/jarkkojs/readseek/tree/main/packages/pi-readseek#readme"
 }

@@ -46,3 +46,30 @@ jobs:
 
       - name: Format check
         run: cargo fmt --check
+
+  pi-readseek:
+    name: Test pi-readseek
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/pi-readseek
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/pi-readseek/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
