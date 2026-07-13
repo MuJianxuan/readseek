@@ -159,6 +159,7 @@ git commit -s -m "Bump the version to $next_ver"
 committed=1
 
 
+sob="Signed-off-by: $(git config user.name) <$(git config user.email)>"
 release_notes="$(git rev-parse --git-path "readseek-$next_ver-tag-message.txt")"
 cat >"$release_notes" <<EOF
 readseek $next_ver
@@ -168,6 +169,8 @@ $readseek_log
 
 pi-readseek:
 $pi_log
+
+$sob
 EOF
 
 git tag -s "$next_ver" -F "$release_notes"
