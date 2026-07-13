@@ -364,8 +364,8 @@ jobs:
 
       - name: Test pi-readseek
         run: |
-          npm install --package-lock=false --ignore-scripts ./npm/linux-x64
-          npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts ./
+          npm install --package-lock=false --ignore-scripts --no-save ./npm/linux-x64
+          npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts --no-save ./
           npm --prefix packages/pi-readseek run typecheck
           npm --prefix packages/pi-readseek test
 
