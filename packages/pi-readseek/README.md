@@ -76,7 +76,7 @@ optional (defaults shown):
 
 ## Licensing
 
-`pi-readseek` is licensed under `MIT`. See [LICENSE](LICENSE) for more
+`pi-readseek` is licensed under `Apache-2.0`. See [LICENSE](LICENSE) for more
 information.
 
 The upstream `@jarkkojs/readseek` packages are licensed separately as
