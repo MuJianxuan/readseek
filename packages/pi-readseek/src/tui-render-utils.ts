@@ -28,6 +28,20 @@ export function linkToolPath(styledText: string, rawPath: string, cwd: string): 
   }
 }
 
+export function linkedPathLine(
+  theme: RendererTheme,
+  rawPath: string,
+  displayPath: string,
+  cwd: string,
+  suffix: string,
+  width: number | undefined,
+): string {
+  const pathWidth = width === undefined ? undefined : Math.max(1, width - 2 - visibleWidth(suffix));
+  const visiblePath = pathWidth === undefined ? displayPath : truncateToWidth(displayPath, pathWidth);
+  const linkedPath = linkToolPath(theme.fg("dim", visiblePath), rawPath, cwd);
+  return `  ${linkedPath}${theme.fg("dim", suffix)}`;
+}
+
 export function appendExpandHint(text: string, hidden: boolean): string {
   return hidden ? `${text}${EXPAND_HINT}` : text;
 }
@@ -264,8 +278,7 @@ export function renderAnchoredFilesResult(
   if (expanded) {
     for (const file of files.slice(0, 20)) {
       const display = relative(cwd, file.path) || file.path;
-      const linkedPath = linkToolPath(theme.fg("dim", display), file.path, cwd);
-      text += `\n  ${linkedPath}${theme.fg("dim", ` (${file.lines.length})`)}`;
+      text += `\n${linkedPathLine(theme, file.path, display, cwd, ` (${file.lines.length})`, width)}`;
     }
     if (files.length > 20) text += "\n" + theme.fg("muted", `  … and ${files.length - 20} more files`);
   }

@@ -9,7 +9,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { classifyReadSeekFailure, readSeekRename, type RenameOutput } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkedPathLine, linkToolPath, renderErrorResult, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 
 const RENAME_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/rename.md", import.meta.url),
@@ -121,14 +121,13 @@ export function registerRenameTool(pi: ExtensionAPI) {
 			const context = rest[0] ?? {};
 			const cwd = context.cwd ?? process.cwd();
 			const displayPath = typeof args?.path === "string" ? args.path : "?";
-			const oldName = typeof args?.to === "string" ? "" : "";
 			let text = theme.fg("toolTitle", theme.bold("rename"));
 			text += ` ${linkToolPath(theme.fg("accent", displayPath), displayPath, cwd)}`;
 			if (args?.to) text += theme.fg("dim", ` → ${args.to}`);
 			return new Text(clampLineToWidth(text, context.width), 0, 0);
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
-			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);
+			const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
 			if (isPartial) return renderPendingResult("pending rename", width, theme);
 
@@ -138,21 +137,29 @@ export function registerRenameTool(pi: ExtensionAPI) {
 			const output = readSeekValue?.output as RenameOutput | undefined;
 
 			if (isError || result.isError) {
-			return new Text(textContent || "rename failed", 0, 0);
+				return renderErrorResult(textContent, { expanded, width, fallback: "rename failed", theme });
 			}
 
-		let text = summaryLine(
-			output?.applied
+			const outputs = output ? [output, ...output.others] : [];
+			const editCount = outputs.reduce((total, file) => total + file.edits.length, 0);
+			const conflictCount = outputs.reduce((total, file) => total + file.conflicts.length, 0);
+			const fileCount = outputs.length;
+			const action = output?.applied
 				? `renamed ${output.old_name} → ${output.new_name}`
-				: `rename plan for ${output?.old_name ?? "?"} → ${output?.new_name ?? "?"} (dry-run)`,
-		);
+				: `rename plan for ${output?.old_name ?? "?"} → ${output?.new_name ?? "?"} (dry-run)`;
+			const details = output
+				? ` • ${editCount} ${editCount === 1 ? "edit" : "edits"} in ${fileCount} ${fileCount === 1 ? "file" : "files"}`
+				: "";
+			const conflicts = conflictCount > 0 ? ` • ${conflictCount} ${conflictCount === 1 ? "conflict" : "conflicts"}` : "";
+			let text = summaryLine(`${action}${details}${conflicts}`, {
+				theme,
+				style: conflictCount > 0 ? "warning" : "success",
+			});
 
 			if (expanded && output) {
-				const files = new Set<string>();
-				files.add(output.file);
-				for (const o of output.others) files.add(o.file);
-				for (const f of files) {
-					text += `\n  ${f}`;
+				for (const file of outputs) {
+					const display = path.relative(cwd, file.file) || file.file;
+					text += `\n${linkedPathLine(theme, file.file, display, cwd, ` (${file.edits.length} edits)`, width)}`;
 				}
 			}
 

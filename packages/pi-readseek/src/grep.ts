@@ -19,7 +19,7 @@ import { resolveToCwd } from "./path-utils.js";
 import { throwIfAborted } from "./runtime.js";
 import { formatGrepCallText, formatGrepResultText, GREP_TRUNCATION_THRESHOLD } from "./grep-render-helpers.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkedPathLine, linkToolPath, renderErrorResult, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 import { searchPathParam } from "./readseek-params.js";
@@ -597,8 +597,7 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 				for (const r of readSeekValue.records) if (r.path && r.kind === "match") fileCounts.set(r.path, (fileCounts.get(r.path) ?? 0) + 1);
 				for (const [filePath, count] of [...fileCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
 					const display = path.relative(cwd, filePath) || filePath;
-					const linkedPath = linkToolPath(theme.fg("dim", display), filePath, cwd);
-					text += `\n  ${linkedPath}${theme.fg("dim", ` (${count})`)}`;
+					text += `\n${linkedPathLine(theme, filePath, display, cwd, ` (${count})`, width)}`;
 				}
 				if (fileCounts.size > 20) text += "\n" + theme.fg("muted", `  … and ${fileCounts.size - 20} more files`);
 			}

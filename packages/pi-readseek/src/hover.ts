@@ -11,7 +11,7 @@ import { formatFsError } from "./fs-error.js";
 import { classifyReadSeekFailure, readSeekIdentify } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
-import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
+import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 
 const HOVER_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/hover.md", import.meta.url),
@@ -112,7 +112,7 @@ export function registerHoverTool(pi: ExtensionAPI) {
 			return new Text(clampLineToWidth(text, context.width), 0, 0);
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
-			const { isPartial, isError, width } = resolveRenderResultContext(options, rest);
+			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);
 
 			if (isPartial) return renderPendingResult("pending hover", width, theme);
 
@@ -120,10 +120,18 @@ export function registerHoverTool(pi: ExtensionAPI) {
 			const textContent = content?.type === "text" ? content.text : "";
 
 			if (isError || result.isError) {
-			return new Text(textContent || "hover failed", 0, 0);
+				return renderErrorResult(textContent, { expanded, width, fallback: "hover failed", theme });
 			}
 
-		return new Text(textContent.split("\n")[0] || "", 0, 0);
+			const output = (result.details as any)?.readSeekValue?.output;
+			const label = output?.identifier?.text
+				? `identified ${output.identifier.text}`
+				: output?.symbol?.name
+					? `symbol ${output.symbol.name}`
+					: "identified cursor";
+			let text = summaryLine(label, { hidden: !!textContent && !expanded, theme, style: "success" });
+			if (expanded && textContent) text += `\n${textContent}`;
+			return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
 		},
 	});
 }
