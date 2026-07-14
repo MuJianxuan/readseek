@@ -264,7 +264,8 @@ export function renderAnchoredFilesResult(
   if (expanded) {
     for (const file of files.slice(0, 20)) {
       const display = relative(cwd, file.path) || file.path;
-      text += "\n" + theme.fg("dim", `  ${display} (${file.lines.length})`);
+      const linkedPath = linkToolPath(theme.fg("dim", display), file.path, cwd);
+      text += `\n  ${linkedPath}${theme.fg("dim", ` (${file.lines.length})`)}`;
     }
     if (files.length > 20) text += "\n" + theme.fg("muted", `  … and ${files.length - 20} more files`);
   }

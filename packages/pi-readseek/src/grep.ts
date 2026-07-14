@@ -597,7 +597,8 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 				for (const r of readSeekValue.records) if (r.path && r.kind === "match") fileCounts.set(r.path, (fileCounts.get(r.path) ?? 0) + 1);
 				for (const [filePath, count] of [...fileCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
 					const display = path.relative(cwd, filePath) || filePath;
-					text += "\n" + theme.fg("dim", `  ${display} (${count})`);
+					const linkedPath = linkToolPath(theme.fg("dim", display), filePath, cwd);
+					text += `\n  ${linkedPath}${theme.fg("dim", ` (${count})`)}`;
 				}
 				if (fileCounts.size > 20) text += "\n" + theme.fg("muted", `  … and ${fileCounts.size - 20} more files`);
 			}
