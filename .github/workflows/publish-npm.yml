@@ -80,6 +80,7 @@ jobs:
               'npm/linux-x64/package.json',
               'npm/win32-x64/package.json',
               'packages/pi-readseek/package.json',
+              'packages/opencode-readseek/package.json',
             ].every((file) => tagHasFile(tag, file));
           }
 
@@ -125,6 +126,7 @@ jobs:
             'npm/linux-x64/package.json',
             'npm/win32-x64/package.json',
             'packages/pi-readseek/package.json',
+            'packages/opencode-readseek/package.json',
           ];
           const packages = packageFiles.map((file) => JSON.parse(readTagFile(latest.tag, file)));
           const missingPackages = packages.filter((data) =>
@@ -197,6 +199,14 @@ jobs:
           }
           if (piReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
             throw new Error('pi-readseek must depend on the synchronized readseek version');
+          }
+
+          const opencodeReadseek = JSON.parse(readTagFile('packages/opencode-readseek/package.json'));
+          if (opencodeReadseek.version !== root.version) {
+            throw new Error(`packages/opencode-readseek/package.json version ${opencodeReadseek.version} does not match ${root.version}`);
+          }
+          if (opencodeReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
+            throw new Error('opencode-readseek must depend on the synchronized readseek version');
           }
           NODE
         env:
@@ -380,6 +390,24 @@ jobs:
             exit 0
           fi
           npm publish ./packages/pi-readseek --access public --provenance
+
+
+      - name: Test opencode-readseek
+        run: |
+          npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts --no-save ./
+          npm --prefix packages/opencode-readseek run typecheck
+
+      - name: Publish opencode-readseek
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          package_name="$(node -p "require('./packages/opencode-readseek/package.json').name")"
+          package_version="$(node -p "require('./packages/opencode-readseek/package.json').version")"
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "${package_name}@${package_version} is already published"
+            exit 0
+          fi
+          npm publish ./packages/opencode-readseek --access public --provenance
 
   github-release:
     name: Create GitHub Release

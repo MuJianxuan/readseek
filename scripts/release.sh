@@ -36,6 +36,8 @@ release_files=(
 	man/man1/readseek.1
 	packages/pi-readseek/package.json
 	packages/pi-readseek/package-lock.json
+	packages/opencode-readseek/package.json
+	packages/opencode-readseek/package-lock.json
 )
 committed=0
 
@@ -76,15 +78,25 @@ version_parts "$pi_ver"
 ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
 	|| die "$next_ver is not greater than pi-readseek $pi_ver"
 
-readseek_log="$(git log --first-parent --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- . ':(exclude)packages/pi-readseek')"
+	opencode_ver="$(node -p 'require("./packages/opencode-readseek/package.json").version')" \
+	|| die "cannot find opencode-readseek version"
+version_parts "$opencode_ver"
+	ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
+	|| die "$next_ver is not greater than opencode-readseek $opencode_ver"
+
+readseek_log="$(git log --first-parent --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- . ':(exclude)packages/pi-readseek' ':(exclude)packages/opencode-readseek')"
 pi_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/pi-readseek)"
+opencode_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/opencode-readseek)"
 [[ -n "$readseek_log" ]] || readseek_log='- No source changes.'
 [[ -n "$pi_log" ]] || pi_log='- Merged pi-readseek into this repository.'
+[[ -n "$opencode_log" ]] || opencode_log='- Merged opencode-readseek into this repository.'
 
 npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts
+npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts
 
 npm --prefix packages/pi-readseek run typecheck
 npm --prefix packages/pi-readseek test
+npm --prefix packages/opencode-readseek run typecheck
 
 node - "$next_ver" <<'NODE'
 const fs = require('node:fs');
@@ -132,6 +144,19 @@ piLock.version = nextVersion;
 piLock.packages[''].version = nextVersion;
 piLock.packages[''].dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
 fs.writeFileSync(piLockPath, `${JSON.stringify(piLock, null, 2)}\n`);
+
+const opencodePackagePath = 'packages/opencode-readseek/package.json';
+const opencodePackage = JSON.parse(fs.readFileSync(opencodePackagePath, 'utf8'));
+opencodePackage.version = nextVersion;
+opencodePackage.dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+fs.writeFileSync(opencodePackagePath, `${JSON.stringify(opencodePackage, null, 2)}\n`);
+
+const opencodeLockPath = 'packages/opencode-readseek/package-lock.json';
+const opencodeLock = JSON.parse(fs.readFileSync(opencodeLockPath, 'utf8'));
+opencodeLock.version = nextVersion;
+opencodeLock.packages[''].version = nextVersion;
+opencodeLock.packages[''].dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+fs.writeFileSync(opencodeLockPath, `${JSON.stringify(opencodeLock, null, 2)}\n`);
 NODE
 
 sed -E -i.bak "s/^([[:space:]]*version[[:space:]]*=[[:space:]]*)\"${core_ver//./\\.}\"/\1\"$next_ver\"/" Cargo.toml
@@ -169,6 +194,9 @@ $readseek_log
 
 pi-readseek:
 $pi_log
+
+opencode-readseek:
+$opencode_log
 
 $sob
 EOF

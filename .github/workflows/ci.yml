@@ -87,3 +87,42 @@ jobs:
 
       - name: Test
         run: npm test
+
+
+  opencode-readseek:
+    name: Test opencode-readseek
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/opencode-readseek
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/opencode-readseek/package-lock.json
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Stage readseek binary
+        working-directory: .
+        run: |
+          cargo build
+          mkdir -p npm/linux-x64/bin
+          cp target/debug/readseek npm/linux-x64/bin/readseek
+          chmod 755 npm/linux-x64/bin/readseek
+
+      - name: Install local readseek packages
+        working-directory: .
+        run: |
+          npm install --package-lock=false --ignore-scripts --no-save ./npm/linux-x64
+          npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts --no-save ./
+
+      - name: Type check
+        run: npm run typecheck
