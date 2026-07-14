@@ -529,6 +529,13 @@ mod tests {
     fn text_lines_detects_light_text() {
         assert_eq!(text_lines(&two_line_image(0, 255)), [(10, 19), (30, 39)]);
     }
+
+    #[test]
+    fn yolo_image_clamps_thin_image_dimension() {
+        let image = image::DynamicImage::new_rgb8(1, 1280);
+        let (_, width, height, _, _) = yolo_image(&image, &Device::Cpu).unwrap();
+        assert_eq!((width, height), (32, 640));
+    }
 }
 
 /// Decode one line from its encoder output, mirroring the
@@ -579,10 +586,10 @@ fn yolo_image(
         let h = orig_h as usize;
         if w < h {
             let w = w * 640 / h;
-            (w / 32 * 32, 640)
+            ((w / 32 * 32).max(32), 640)
         } else {
             let h = h * 640 / w;
-            (640, h / 32 * 32)
+            (640, (h / 32 * 32).max(32))
         }
     };
     let resized = image.resize_exact(w as u32, h as u32, image::imageops::FilterType::CatmullRom);
