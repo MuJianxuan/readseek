@@ -554,12 +554,12 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
-			if (isPartial) return renderPendingResult("pending grep", width);
+			if (isPartial) return renderPendingResult("pending grep", width, theme);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";
 
-			if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
+			if (isError || result.isError) return renderErrorResult(textContent, { expanded, width, theme });
 
 			const readSeekValue = (result.details as any)?.readSeekValue as {
 				tool: "grep";
@@ -583,10 +583,14 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 				hasBinaryWarning,
 			});
 
-			if (info.noMatches && !hasBinaryWarning) return new Text(summaryLine("no matches"), 0, 0);
+			if (info.noMatches && !hasBinaryWarning) return new Text(summaryLine("no matches", { theme, style: "dim" }), 0, 0);
 			const matchCount = readSeekValue?.totalMatches ?? 0;
 			const matchWord = matchCount === 1 ? "match" : "matches";
-			let text = summaryLine(`${matchCount} ${matchWord} returned`, { hidden: !!textContent && !expanded });
+			let text = summaryLine(`${matchCount} ${matchWord} returned`, {
+				hidden: !!textContent && !expanded,
+				theme,
+				style: "success",
+			});
 			for (const badge of info.badges) text += theme.fg(badge.startsWith("⚠") ? "warning" : "dim", `  ${badge}`);
 			if (expanded && readSeekValue?.records) {
 				const fileCounts = new Map<string, number>();

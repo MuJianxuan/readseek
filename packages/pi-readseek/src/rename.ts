@@ -130,7 +130,7 @@ export function registerRenameTool(pi: ExtensionAPI) {
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);
 
-			if (isPartial) return renderPendingResult("pending rename", width);
+			if (isPartial) return renderPendingResult("pending rename", width, theme);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";

@@ -322,11 +322,11 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
     },
     renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
       const { isPartial, expanded, width, context } = resolveRenderResultContext(options, rest);
-      if (isPartial) return renderPendingResult("pending write", width);
+      if (isPartial) return renderPendingResult("pending write", width, theme);
       const details = result.details ?? {};
       const output = result.content?.[0]?.type === "text" ? result.content[0].text : "";
       if (result.isError || details.readSeekValue?.ok === false) {
-        return renderErrorResult(output, { expanded, width, fallback: "write failed" });
+        return renderErrorResult(output, { expanded, width, fallback: "write failed", theme });
       }
       const diffData = details.diffData;
       const state = details.writeState === "overwritten" ? "overwritten" : "created";
@@ -336,7 +336,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       if (state === "created") {
         const readSeekLines = (details.readSeekValue?.lines ?? []) as Array<{ raw: string }>;
         const hasContent = readSeekLines.length > 0;
-        const header = summaryLine(state, { hidden: hasContent && !expanded });
+        const header = summaryLine(state, { hidden: hasContent && !expanded, theme, style: "success" });
         const lines = header.split("\n");
         if (expanded && hasContent) {
           const content = readSeekLines.map((l) => l.raw).join("\n");
@@ -346,7 +346,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
       }
       // Overwrite: the old vs new comparison still carries signal — keep the diff UI.
       const hasExpandableDiff = !!diffData;
-      let text = summaryLine(state, { hidden: hasExpandableDiff && !expanded });
+      let text = summaryLine(state, { hidden: hasExpandableDiff && !expanded, theme, style: "success" });
       if (expanded && hasExpandableDiff) {
         return upsertDiffComponent(context.lastComponent, { prefixLines: text.split("\n"), diffData, theme, expanded: true });
       }

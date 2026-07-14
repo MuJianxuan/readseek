@@ -114,7 +114,7 @@ export function registerHoverTool(pi: ExtensionAPI) {
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, width } = resolveRenderResultContext(options, rest);
 
-			if (isPartial) return renderPendingResult("pending hover", width);
+			if (isPartial) return renderPendingResult("pending hover", width, theme);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";

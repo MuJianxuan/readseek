@@ -627,7 +627,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			const { isPartial, isError, expanded, width, context } = resolveRenderResultContext(options, rest);
 
 			if (isPartial) {
-				return renderPendingResult("pending edit", width);
+				return renderPendingResult("pending edit", width, theme);
 			}
 
 			// Extract data from result
@@ -659,16 +659,16 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 			let text = "";
 
 			if (info.noOp) {
-				text = summaryLine("no-op");
+				text = summaryLine("no-op", { theme, style: "dim" });
 				if (expanded && info.errorText) text += `\n${theme.fg("error", info.errorText)}`;
 			} else if (info.errorText) {
 				const firstLine = info.errorText.split("\n")[0] || "Error";
-				text = summaryLine(expanded ? info.errorText : firstLine);
+				text = summaryLine(expanded ? info.errorText : firstLine, { theme, style: "error" });
 			} else {
 				const badges: string[] = [`edited +${stats.added} -${stats.removed}`];
 				if (info.semanticBadge) badges.push(info.semanticBadge.replace(/^✓\s*/, ""));
 				if (info.warningsBadge) badges.push(info.warningsBadge);
-				text = summaryLine(badges.join(" • "), { hidden: !!diffData && !expanded });
+				text = summaryLine(badges.join(" • "), { hidden: !!diffData && !expanded, theme, style: "success" });
 				if (expanded && diffData) {
 					return upsertDiffComponent(context.lastComponent, { prefixLines: text.split("\n"), diffData, theme, expanded: true });
 				}

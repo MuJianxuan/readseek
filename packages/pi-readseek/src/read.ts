@@ -509,20 +509,28 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 		},
 		renderResult(result: any, options: ToolRenderResultOptions, theme: any, ...rest: any[]) {
 			const { isPartial, isError, expanded, width } = resolveRenderResultContext(options, rest);
-			if (isPartial) return renderPendingResult("pending read", width);
+			if (isPartial) return renderPendingResult("pending read", width, theme);
 
 			const content = result.content?.[0];
 			const textContent = content?.type === "text" ? content.text : "";
 			if (isError || result.isError) {
 				const firstLine = textContent.split("\n")[0] || "Error";
 				const errorText = expanded ? (textContent || firstLine) : firstLine;
-				return new Text(clampLinesToWidth([summaryLine(errorText)], width).join("\n"), 0, 0);
+				return new Text(clampLinesToWidth([summaryLine(errorText, { theme, style: "error" })], width).join("\n"), 0, 0);
 			}
 
 			const readSeekValue = (result.details as any)?.readSeekValue as { range: { startLine: number; endLine: number; totalLines: number }; truncation: any; symbol: any; map: any; warnings: ReadSeekWarning[] } | undefined;
 			if (!readSeekValue) {
 				const lines = textContent.split("\n").filter(Boolean).length || textContent.split("\n").length;
-				return new Text(summaryLine(`loaded ${lines} ${lines === 1 ? "line" : "lines"}`, { hidden: !!textContent && !expanded }), 0, 0);
+				return new Text(
+					summaryLine(`loaded ${lines} ${lines === 1 ? "line" : "lines"}`, {
+						hidden: !!textContent && !expanded,
+						theme,
+						style: "success",
+					}),
+					0,
+					0,
+				);
 			}
 
 			const info = formatReadResultText({ range: readSeekValue.range, truncation: readSeekValue.truncation, symbol: readSeekValue.symbol, map: readSeekValue.map, warnings: readSeekValue.warnings });
@@ -532,7 +540,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 			if (info.symbolBadge) summaryParts.push(info.symbolBadge);
 			for (const badge of info.badges) summaryParts.push(badge);
 			const summary = summaryParts.join(" • ");
-			let text = summaryLine(summary, { hidden: !!textContent && !expanded });
+			let text = summaryLine(summary, { hidden: !!textContent && !expanded, theme, style: "success" });
 			if (expanded && textContent) text += "\n" + wrapReadHashlinesForWidthCached(content, textContent, width);
 			return new Text(clampLinesToWidth(text.split("\n"), width).join("\n"), 0, 0);
 		},

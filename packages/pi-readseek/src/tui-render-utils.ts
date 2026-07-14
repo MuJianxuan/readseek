@@ -32,8 +32,12 @@ export function appendExpandHint(text: string, hidden: boolean): string {
   return hidden ? `${text}${EXPAND_HINT}` : text;
 }
 
-export function summaryLine(summary: string, options: { hidden?: boolean } = {}): string {
-  return appendExpandHint(`${SUMMARY_PREFIX} ${summary}`, !!options.hidden);
+export function summaryLine(
+  summary: string,
+  options: { hidden?: boolean; theme?: RendererTheme; style?: string } = {},
+): string {
+  const prefix = options.theme ? options.theme.fg(options.style ?? "dim", SUMMARY_PREFIX) : SUMMARY_PREFIX;
+  return appendExpandHint(`${prefix} ${summary}`, !!options.hidden);
 }
 
 export function isRendererExpanded(options?: { expanded?: boolean }, context?: { expanded?: boolean }): boolean {
@@ -172,8 +176,8 @@ export function wrapReadHashlinesForWidthCached(
 /**
  * Render the `isPartial` placeholder line shared by every tool's `renderResult`.
  */
-export function renderPendingResult(pendingLabel: string, width: number | undefined): Text {
-  return new Text(clampLinesToWidth([summaryLine(pendingLabel)], width).join("\n"), 0, 0);
+export function renderPendingResult(pendingLabel: string, width: number | undefined, theme?: RendererTheme): Text {
+  return new Text(clampLinesToWidth([summaryLine(pendingLabel, { theme, style: "muted" })], width).join("\n"), 0, 0);
 }
 
 /**
@@ -183,11 +187,15 @@ export function renderPendingResult(pendingLabel: string, width: number | undefi
  */
 export function renderErrorResult(
   textContent: string,
-  options: { expanded: boolean; width: number | undefined; fallback?: string },
+  options: { expanded: boolean; width: number | undefined; fallback?: string; theme?: RendererTheme },
 ): Text {
   const firstLine = textContent.split("\n")[0] || (options.fallback ?? "Error");
   const body = options.expanded && textContent ? textContent : firstLine;
-  return new Text(clampLinesToWidth(summaryLine(body).split("\n"), options.width).join("\n"), 0, 0);
+  return new Text(
+    clampLinesToWidth(summaryLine(body, { theme: options.theme, style: "error" }).split("\n"), options.width).join("\n"),
+    0,
+    0,
+  );
 }
 
 export interface AnchoredFilesLabels {
@@ -232,23 +240,27 @@ export function renderAnchoredFilesResult(
 ): Text {
   const { isPartial, isError, expanded, cwd, width } = resolveRenderResultContext(options, rest);
 
-  if (isPartial) return renderPendingResult(labels.pendingLabel, width);
+  if (isPartial) return renderPendingResult(labels.pendingLabel, width, theme);
 
   const content = result.content?.[0];
   const textContent = content?.type === "text" ? content.text : "";
-  if (isError || result.isError) return renderErrorResult(textContent, { expanded, width });
+  if (isError || result.isError) return renderErrorResult(textContent, { expanded, width, theme });
 
   const readSeekValue = (result.details as any)?.readSeekValue as
     | { files: Array<{ path: string; lines: any[] }> }
     | undefined;
   const files = readSeekValue?.files ?? [];
-  if (files.length === 0) return new Text(summaryLine(labels.emptyLabel), 0, 0);
+  if (files.length === 0) return new Text(summaryLine(labels.emptyLabel, { theme, style: "dim" }), 0, 0);
 
   const fileCount = files.length;
   const total = files.reduce((sum: number, f: any) => sum + f.lines.length, 0);
   const unitWord = total === 1 ? labels.unitSingular : labels.unitPlural;
   const fileWord = fileCount === 1 ? "file" : "files";
-  let text = summaryLine(`${total} ${unitWord} in ${fileCount} ${fileWord}`, { hidden: !expanded });
+  let text = summaryLine(`${total} ${unitWord} in ${fileCount} ${fileWord}`, {
+    hidden: !expanded,
+    theme,
+    style: "success",
+  });
   if (expanded) {
     for (const file of files.slice(0, 20)) {
       const display = relative(cwd, file.path) || file.path;

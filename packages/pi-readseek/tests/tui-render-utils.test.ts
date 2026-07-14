@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { wrapReadHashlinesForWidth, wrapReadHashlinesForWidthCached } from "../src/tui-render-utils.js";
+import { summaryLine, wrapReadHashlinesForWidth, wrapReadHashlinesForWidthCached } from "../src/tui-render-utils.js";
+
+describe("summaryLine", () => {
+	it("applies semantic color only to the existing marker", () => {
+		const theme = {
+			fg: (style: string, text: string) => `<${style}>${text}</${style}>`,
+			bold: (text: string) => text,
+		};
+
+		expect(summaryLine("3 matches", { theme, style: "success" })).toBe("<success>↳</success> 3 matches");
+	});
+});
 
 describe("wrapReadHashlinesForWidthCached", () => {
 	it("matches the uncached wrap across repeated calls", () => {
