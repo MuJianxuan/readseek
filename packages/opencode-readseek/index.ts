@@ -11,9 +11,14 @@ const require = createRequire(import.meta.url);
 const readseekScript = require.resolve("@jarkkojs/readseek/bin/readseek.js");
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
+type RenamePlan = {
+  summary: string;
+  files: Set<string>;
+};
+
 class SessionAnchors {
   #pathsBySession = new Map<string, Set<string>>();
-  #renamePlans = new Map<string, string>();
+  #renamePlans = new Map<string, RenamePlan>();
 
   mark(sessionID: string, filePath: string): void {
     let paths = this.#pathsBySession.get(sessionID);
@@ -25,15 +30,33 @@ class SessionAnchors {
   }
 
   forget(filePath: string): void {
-    for (const paths of this.#pathsBySession.values()) paths.delete(filePath);
+    const absolutePath = path.resolve(filePath);
+    for (const paths of this.#pathsBySession.values()) paths.delete(absolutePath);
+    for (const [sessionID, plan] of this.#renamePlans) {
+      if (plan.files.has(absolutePath)) this.#renamePlans.delete(sessionID);
+    }
+  }
+
+  deleteSession(sessionID: string): void {
+    this.#pathsBySession.delete(sessionID);
+    this.#renamePlans.delete(sessionID);
   }
 
   planRename(sessionID: string, output: unknown): void {
     if (!output || typeof output !== "object") return;
-    const { old_name: oldName, new_name: newName } = output as Record<string, unknown>;
-    if (typeof oldName === "string" && typeof newName === "string") {
-      this.#renamePlans.set(sessionID, `${oldName} -> ${newName}`);
+    const record = output as Record<string, unknown>;
+    const { file, old_name: oldName, new_name: newName, others } = record;
+    if (typeof file !== "string" || typeof oldName !== "string" || typeof newName !== "string") return;
+
+    const files = new Set([path.resolve(file)]);
+    if (Array.isArray(others)) {
+      for (const item of others) {
+        if (!item || typeof item !== "object") continue;
+        const otherFile = (item as Record<string, unknown>).file;
+        if (typeof otherFile === "string") files.add(path.resolve(otherFile));
+      }
     }
+    this.#renamePlans.set(sessionID, { summary: `${oldName} -> ${newName}`, files });
   }
 
   render(sessionID: string): string | undefined {
@@ -46,7 +69,7 @@ class SessionAnchors {
       .join("\n")}`);
     }
     const renamePlan = this.#renamePlans.get(sessionID);
-    if (renamePlan) sections.push(`## Pending ReadSeek Rename Plan\n- ${renamePlan}`);
+    if (renamePlan) sections.push(`## Pending ReadSeek Rename Plan\n- ${renamePlan.summary}`);
     return sections.length === 0 ? undefined : sections.join("\n\n");
   }
 }
@@ -319,8 +342,11 @@ export const ReadSeekPlugin: Plugin = async () => {
       ),
     },
     event: async ({ event }) => {
-      if (event.type !== "file.edited") return;
-      anchors.forget(path.resolve(event.properties.file));
+      if (event.type === "file.edited" || event.type === "file.watcher.updated") {
+        anchors.forget(event.properties.file);
+        return;
+      }
+      if (event.type === "session.deleted") anchors.deleteSession(event.properties.info.id);
     },
     "tool.execute.before": async (input, output) => {
       if (input.tool === "readseek_rename" && output.args.apply === true) {
