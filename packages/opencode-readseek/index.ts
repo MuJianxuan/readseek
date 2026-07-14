@@ -9,6 +9,7 @@ import { tool, type Plugin, type ToolContext } from "@opencode-ai/plugin";
 
 const require = createRequire(import.meta.url);
 const readseekScript = require.resolve("@jarkkojs/readseek/bin/readseek.js");
+const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 
 class SessionAnchors {
   #pathsBySession = new Map<string, Set<string>>();
@@ -99,9 +100,13 @@ function optionalFlag(args: string[], enabled: boolean | undefined, flag: string
   if (enabled) args.push(flag);
 }
 
-async function runReadSeek(directory: string, args: string[]): Promise<unknown> {
+async function runReadSeek(context: ToolContext, args: string[]): Promise<unknown> {
+  context.abort.throwIfAborted();
   const child = Bun.spawn([process.execPath, readseekScript, ...args], {
-    cwd: directory,
+    cwd: context.directory,
+    killSignal: "SIGKILL",
+    maxBuffer: MAX_OUTPUT_BYTES,
+    signal: context.abort,
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -110,6 +115,7 @@ async function runReadSeek(directory: string, args: string[]): Promise<unknown> 
     new Response(child.stderr).text(),
     child.exited,
   ]);
+  context.abort.throwIfAborted();
   if (exitCode !== 0) throw new Error(stderr.trim() || `readseek exited with status ${exitCode}`);
 
   try {
@@ -184,7 +190,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           await authorizeRead(context, filePath);
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
           if (input.limit !== undefined) args.push("--end", String((input.offset ?? 1) + input.limit - 1));
-          return runReadSeek(context.directory, args);
+          return runReadSeek(context, args);
         },
       ),
       readseek_map: readseekTool(
@@ -193,7 +199,7 @@ export const ReadSeekPlugin: Plugin = async () => {
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
-          return runReadSeek(context.directory, ["map", filePath]);
+          return runReadSeek(context, ["map", filePath]);
         },
       ),
       readseek_search: readseekTool(
@@ -212,7 +218,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           const args = ["search", target, input.pattern as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          const result = await runReadSeek(context.directory, args);
+          const result = await runReadSeek(context, args);
           return result;
         },
       ),
@@ -232,7 +238,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           const args = ["def", target, "--format", "plain", input.name as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          return runReadSeek(context.directory, args);
+          return runReadSeek(context, args);
         },
       ),
       readseek_refs: readseekTool(
@@ -257,7 +263,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           if (input.column) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          return runReadSeek(context.directory, args);
+          return runReadSeek(context, args);
         },
       ),
       readseek_hover: readseekTool(
@@ -274,7 +280,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           const args = ["identify", `${filePath}:${input.line}`];
           if (input.column) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
-          return runReadSeek(context.directory, args);
+          return runReadSeek(context, args);
         },
       ),
       readseek_rename: readseekTool(
@@ -292,14 +298,14 @@ export const ReadSeekPlugin: Plugin = async () => {
           if (input.workspace) {
             const identifyArgs = ["identify", `${filePath}:${input.line}`];
             if (input.column) identifyArgs.push("--column", String(input.column));
-            const name = identifiedName(await runReadSeek(context.directory, identifyArgs));
+            const name = identifiedName(await runReadSeek(context, identifyArgs));
             if (!name) throw new Error("readseek could not identify a binding at the rename cursor");
             await authorizeSearch(context, context.directory, name);
           }
           const args = ["rename", filePath, "--line", String(input.line), "--to", input.to as string];
           if (input.column) args.push("--column", String(input.column));
           if (input.workspace) args.push("--workspace", context.directory);
-          return runReadSeek(context.directory, args);
+          return runReadSeek(context, args);
         },
       ),
       readseek_check: readseekTool(
@@ -308,7 +314,7 @@ export const ReadSeekPlugin: Plugin = async () => {
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
-          return runReadSeek(context.directory, ["check", filePath]);
+          return runReadSeek(context, ["check", filePath]);
         },
       ),
     },
