@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBuf>> {
     let metadata = fs::metadata(target).with_context(|| format!("stat {}", target.display()))?;
     if metadata.is_file() {
+        if git2::Repository::discover(target).is_ok() {
+            flags.validate()?;
+        }
         return Ok(vec![target.to_path_buf()]);
     }
     if !metadata.is_dir() {
@@ -297,4 +300,40 @@ fn collect_search_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn file_target_validates_git_flags() {
+        let directory = std::env::temp_dir().join(format!(
+            "readseek-paths-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        git2::Repository::init(&directory).unwrap();
+        let file = directory.join("file.rs");
+        fs::write(&file, "fn main() {}\n").unwrap();
+
+        let error = command_paths(
+            &file,
+            GitFlags {
+                cached: false,
+                others: false,
+                ignored: true,
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("--ignored requires --others"));
+        fs::remove_dir_all(directory).unwrap();
+    }
 }
