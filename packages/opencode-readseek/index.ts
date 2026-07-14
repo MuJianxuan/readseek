@@ -257,9 +257,13 @@ function resultPresentation(kind: PresentationKind, args: any, value: unknown): 
     case "rename": {
       const oldName = output.old_name;
       const newName = output.new_name;
-      const edits = items(output.edits).length;
-      const conflicts = items(output.conflicts).length;
-      const others = items(output.others).length;
+      const otherOutputs = items(output.others).map(record);
+      const edits = otherOutputs.reduce((total, item) => total + items(item.edits).length, items(output.edits).length);
+      const conflicts = otherOutputs.reduce(
+        (total, item) => total + items(item.conflicts).length,
+        items(output.conflicts).length,
+      );
+      const others = otherOutputs.length;
       const title =
         typeof oldName === "string" && typeof newName === "string"
           ? `Plan ${oldName} -> ${newName}`

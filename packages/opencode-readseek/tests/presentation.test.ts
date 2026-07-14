@@ -74,7 +74,7 @@ describe("OpenCode presentation", () => {
           new_name: "after",
           edits: [{}, {}],
           conflicts: [{}],
-          others: [{ file: "/repo/b.ts" }],
+          others: [{ file: "/repo/b.ts", edits: [{}], conflicts: [{}, {}] }],
         }),
       ).body,
       stderr: new Response("").body,
@@ -86,6 +86,6 @@ describe("OpenCode presentation", () => {
     const result = presented(await rename.execute({ path: "a.ts", line: 3, to: "after" }, context([])));
 
     expect(result.title).toBe("Plan before -> after");
-    expect(result.metadata).toEqual({ edits: 2, conflicts: 1, others: 1 });
+    expect(result.metadata).toEqual({ edits: 3, conflicts: 3, others: 1 });
   });
 });
