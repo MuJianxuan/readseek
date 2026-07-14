@@ -16,6 +16,13 @@ type RenamePlan = {
   files: Set<string>;
 };
 
+type PresentationKind = "read" | "map" | "search" | "def" | "refs" | "hover" | "rename" | "check";
+
+type Presentation = {
+  title: string;
+  metadata: Record<string, number>;
+};
+
 class SessionAnchors {
   #pathsBySession = new Map<string, Set<string>>();
   #renamePlans = new Map<string, RenamePlan>();
@@ -173,16 +180,119 @@ function identifiedName(value: unknown): string | undefined {
   return typeof text === "string" ? text : undefined;
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function items(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function initialTitle(kind: PresentationKind, args: any): string {
+  switch (kind) {
+    case "read":
+      return `Read ${args.path}`;
+    case "map":
+      return `Map ${args.path}`;
+    case "search":
+      return `Search ${args.pattern}`;
+    case "def":
+      return `Find definition ${args.name}`;
+    case "refs":
+      return `Find references to ${args.name}`;
+    case "hover":
+      return `Identify ${args.path}:${args.line}`;
+    case "rename":
+      return `Rename ${args.path}:${args.line} to ${args.to}`;
+    case "check":
+      return `Check ${args.path}`;
+  }
+}
+
+function resultPresentation(kind: PresentationKind, args: any, value: unknown): Presentation {
+  const output = record(value);
+  switch (kind) {
+    case "read": {
+      const startLine = output.start_line;
+      const endLine = output.end_line;
+      if (typeof startLine === "number" && typeof endLine === "number") {
+        return {
+          title: `Read ${args.path}:${startLine}-${endLine}`,
+          metadata: { start_line: startLine, end_line: endLine, line_count: endLine - startLine + 1 },
+        };
+      }
+      const width = output.width;
+      const height = output.height;
+      if (typeof width === "number" && typeof height === "number") {
+        return { title: `Read ${args.path} (${width}x${height})`, metadata: { width, height } };
+      }
+      break;
+    }
+    case "map": {
+      const symbols = items(output.symbols).length;
+      return { title: `Mapped ${args.path} (${symbols} symbols)`, metadata: { symbols } };
+    }
+    case "search": {
+      const results = items(output.results);
+      const matches = results.reduce<number>((total, result) => total + items(record(result).matches).length, 0);
+      return { title: `Found ${matches} matches`, metadata: { results: results.length, matches } };
+    }
+    case "def": {
+      const locations = items(output.locations).length;
+      return { title: `Found ${locations} definitions`, metadata: { locations } };
+    }
+    case "refs": {
+      const references = items(output.references).length;
+      return { title: `Found ${references} references`, metadata: { references } };
+    }
+    case "hover": {
+      const identifier = record(output.identifier).text;
+      const line = output.line;
+      const column = output.column;
+      const metadata: Record<string, number> = {};
+      if (typeof line === "number") metadata.line = line;
+      if (typeof column === "number") metadata.column = column;
+      return { title: typeof identifier === "string" ? `Identified ${identifier}` : initialTitle(kind, args), metadata };
+    }
+    case "rename": {
+      const oldName = output.old_name;
+      const newName = output.new_name;
+      const edits = items(output.edits).length;
+      const conflicts = items(output.conflicts).length;
+      const others = items(output.others).length;
+      const title =
+        typeof oldName === "string" && typeof newName === "string"
+          ? `Plan ${oldName} -> ${newName}`
+          : initialTitle(kind, args);
+      return { title, metadata: { edits, conflicts, others } };
+    }
+    case "check": {
+      const errors = typeof output.error_count === "number" ? output.error_count : 0;
+      const missing = typeof output.missing_count === "number" ? output.missing_count : 0;
+      return {
+        title: `Checked ${args.path} (${errors} errors, ${missing} missing)`,
+        metadata: { error_count: errors, missing_count: missing },
+      };
+    }
+  }
+  return { title: initialTitle(kind, args), metadata: {} };
+}
+
 function readseekTool(
   description: string,
   args: Record<string, any>,
+  kind: PresentationKind,
   execute: (args: any, context: ToolContext) => Promise<unknown>,
 ) {
   return tool({
     description,
     args,
     async execute(args, context) {
-      return render(await execute(args, context));
+      const title = initialTitle(kind, args);
+      context.metadata({ title });
+      const result = await execute(args, context);
+      const presentation = resultPresentation(kind, args, result);
+      return { title: presentation.title, output: render(result), metadata: presentation.metadata };
     },
   });
 }
@@ -209,6 +319,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
           limit: tool.schema.number().int().positive().optional().describe("Maximum number of lines"),
         },
+        "read",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
@@ -220,6 +331,7 @@ export const ReadSeekPlugin: Plugin = async () => {
       readseek_map: readseekTool(
         "Build a structural symbol map for a source file.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
+        "map",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
@@ -236,6 +348,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
+        "search",
         async (input, context) => {
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
           const args = ["search", target, input.pattern as string];
@@ -256,6 +369,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
+        "def",
         async (input, context) => {
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
           const args = ["def", target, "--format", "plain", input.name as string];
@@ -278,6 +392,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
+        "refs",
         async (input, context) => {
           if (input.scope && input.line === undefined) throw new Error("scope requires line");
           if (!input.scope && (input.line !== undefined || input.column !== undefined)) {
@@ -302,6 +417,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           column: tool.schema.number().int().positive().optional().describe("One-based cursor byte column"),
           language: tool.schema.string().optional(),
         },
+        "hover",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
@@ -320,6 +436,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           to: tool.schema.string().min(1).describe("New binding name"),
           workspace: tool.schema.boolean().optional().describe("Include project-wide occurrences"),
         },
+        "rename",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
@@ -339,6 +456,7 @@ export const ReadSeekPlugin: Plugin = async () => {
       readseek_check: readseekTool(
         "Check a source file for parser errors and missing syntax.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
+        "check",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
