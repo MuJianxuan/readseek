@@ -309,10 +309,15 @@ fn apply_all(
         if edits.is_empty() {
             continue;
         }
-        let current =
+        let raw_text =
             fs::read_to_string(path).with_context(|| format!("re-read {}", path.display()))?;
-        let current =
-            source_from_text(path, current, request.language, ContentCategory::Text, None);
+        let current = source_from_text(
+            path,
+            raw_text.clone(),
+            request.language,
+            ContentCategory::Text,
+            None,
+        );
         for edit in edits {
             let line = current.line(edit.line).with_context(|| {
                 format!("line {} no longer exists in {}", edit.line, path.display())
@@ -325,8 +330,8 @@ fn apply_all(
                 );
             }
         }
-        let new_text = rewrite(&current.text, edits, old_name, &request.to)?;
-        writes.push((path, current.text, new_text));
+        let new_text = rewrite(&raw_text, edits, old_name, &request.to)?;
+        writes.push((path, raw_text, new_text));
     }
 
     // All files verified: write them, restoring on any failure.
@@ -348,21 +353,55 @@ fn apply_all(
 /// byte offsets stay valid. Refuses unless every span still holds `old_name`.
 fn rewrite(source: &str, edits: &[RenameEdit], old_name: &str, new_name: &str) -> Result<String> {
     let mut text = source.to_owned();
-    let mut ordered: Vec<&RenameEdit> = edits.iter().collect();
-    ordered.sort_by_key(|edit| std::cmp::Reverse(edit.start_byte));
-    for edit in ordered {
-        if edit.end_byte > text.len()
-            || !text.is_char_boundary(edit.start_byte)
-            || !text.is_char_boundary(edit.end_byte)
-        {
+    let line_starts = raw_line_starts(source);
+    let mut ordered = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let line_start = *line_starts
+            .get(
+                edit.line
+                    .checked_sub(1)
+                    .context("edit line is out of range")?,
+            )
+            .context("edit line is out of range")?;
+        let start = line_start
+            .checked_add(edit.start_column - 1)
+            .context("edit span is out of range")?;
+        let end = line_start
+            .checked_add(edit.end_column - 1)
+            .context("edit span is out of range")?;
+        ordered.push((edit, start, end));
+    }
+    ordered.sort_by_key(|(_, start, _)| std::cmp::Reverse(*start));
+    for (_, start, end) in ordered {
+        if end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
             bail!("refusing to apply: edit span is out of range");
         }
-        if &text[edit.start_byte..edit.end_byte] != old_name {
+        if &text[start..end] != old_name {
             bail!("refusing to apply: a target span no longer holds `{old_name}`");
         }
-        text.replace_range(edit.start_byte..edit.end_byte, new_name);
+        text.replace_range(start..end, new_name);
     }
     Ok(text)
+}
+
+fn raw_line_starts(text: &str) -> Vec<usize> {
+    let bytes = text.as_bytes();
+    let mut offset = usize::from(text.starts_with('\u{feff}')) * '\u{feff}'.len_utf8();
+    let mut starts = vec![offset];
+    while offset < bytes.len() {
+        match bytes[offset] {
+            b'\r' if bytes.get(offset + 1) == Some(&b'\n') => {
+                offset += 2;
+                starts.push(offset);
+            }
+            b'\r' | b'\n' => {
+                offset += 1;
+                starts.push(offset);
+            }
+            _ => offset += 1,
+        }
+    }
+    starts
 }
 
 fn is_plain_identifier(name: &str) -> bool {
@@ -375,9 +414,12 @@ fn is_plain_identifier(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::build_other;
+    use super::{Request, build_other, output};
+    use crate::engine::flags::GitFlags;
     use crate::engine::lang::Language;
     use crate::engine::source::{ContentCategory, source_from_text};
 
@@ -411,5 +453,40 @@ mod tests {
 
         assert_eq!(plan.edits.len(), 1);
         assert_eq!(plan.edits[0].line, 1);
+    }
+
+    #[test]
+    fn apply_preserves_bom_and_crlf() {
+        let path = std::env::temp_dir().join(format!(
+            "readseek-rename-{}-{}.txt",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::write(&path, "\u{feff}value\r\nvalue\r\n").unwrap();
+        let request = Request {
+            target: path.clone(),
+            line: 1,
+            column: Some(1),
+            to: "renamed".to_owned(),
+            workspace: None,
+            apply: true,
+            language: None,
+            flags: GitFlags {
+                cached: false,
+                others: false,
+                ignored: false,
+            },
+        };
+
+        output(&request).unwrap();
+
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            "\u{feff}renamed\r\nrenamed\r\n".as_bytes()
+        );
+        fs::remove_file(path).unwrap();
     }
 }
