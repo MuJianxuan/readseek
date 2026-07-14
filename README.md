@@ -18,6 +18,9 @@ Or install the npm wrapper:
 npm install -g @jarkkojs/readseek
 ```
 
+Prebuilt binaries are available for macOS ARM64, Linux ARM64 and x64, and
+Windows x64. The Linux binaries are statically linked with musl.
+
 ## Pi extension
 
 The bundled [pi-readseek extension](packages/pi-readseek/README.md) exposes

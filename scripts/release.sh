@@ -31,6 +31,7 @@ release_files=(
 	package.json
 	package-lock.json
 	npm/darwin-arm64/package.json
+	npm/linux-arm64/package.json
 	npm/linux-x64/package.json
 	npm/win32-x64/package.json
 	man/man1/readseek.1
@@ -105,6 +106,7 @@ const [nextVersion] = process.argv.slice(2);
 const corePackagePaths = [
   'package.json',
   'npm/darwin-arm64/package.json',
+  'npm/linux-arm64/package.json',
   'npm/linux-x64/package.json',
   'npm/win32-x64/package.json',
 ];

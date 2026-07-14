@@ -219,6 +219,7 @@ function readSeekPackageDir(): string {
 
 const READSEEK_PLATFORM_PACKAGES: Record<string, string> = {
 	"darwin-arm64": "@jarkkojs/readseek-darwin-arm64",
+	"linux-arm64": "@jarkkojs/readseek-linux-arm64",
 	"linux-x64": "@jarkkojs/readseek-linux-x64",
 	"win32-x64": "@jarkkojs/readseek-win32-x64",
 };

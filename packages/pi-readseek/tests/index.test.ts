@@ -137,7 +137,7 @@ describe("pi-readseek extension", () => {
 	});
 
 	it("leaves the active tools alone when readseek ships no binary for the platform", () => {
-		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-arm64" };
+		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-riscv64" };
 		replacedTools.value = ["read"];
 		const ctx = createPi(["read", "bash"]);
 
@@ -145,7 +145,7 @@ describe("pi-readseek extension", () => {
 		ctx.runSessionStart();
 
 		expect(ctx.notify).toHaveBeenCalledWith(
-			"readseek tools are inactive: @jarkkojs/readseek ships no binary for linux-arm64",
+			"readseek tools are inactive: @jarkkojs/readseek ships no binary for linux-riscv64",
 			"warning",
 		);
 		expect(ctx.pi.setActiveTools).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe("pi-readseek extension", () => {
 	});
 
 	it("does not override a built-in with readSeek when the binary is unavailable", () => {
-		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-arm64" };
+		availability.value = { available: false, reason: "@jarkkojs/readseek ships no binary for linux-riscv64" };
 		replacedTools.value = ["edit"];
 		const ctx = createPi(["edit", "bash"]);
 

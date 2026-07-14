@@ -77,6 +77,7 @@ jobs:
               'Cargo.toml',
               'package.json',
               'npm/darwin-arm64/package.json',
+              'npm/linux-arm64/package.json',
               'npm/linux-x64/package.json',
               'npm/win32-x64/package.json',
               'packages/pi-readseek/package.json',
@@ -123,6 +124,7 @@ jobs:
           const packageFiles = [
             'package.json',
             'npm/darwin-arm64/package.json',
+            'npm/linux-arm64/package.json',
             'npm/linux-x64/package.json',
             'npm/win32-x64/package.json',
             'packages/pi-readseek/package.json',
@@ -163,6 +165,7 @@ jobs:
 
           const packageDirs = [
             'npm/darwin-arm64',
+            'npm/linux-arm64',
             'npm/linux-x64',
             'npm/win32-x64',
           ];
@@ -229,6 +232,12 @@ jobs:
             runner: ubuntu-latest
             package_dir: npm/linux-x64
             binary: readseek
+            rust_target: x86_64-unknown-linux-musl
+          - package: linux-arm64
+            runner: ubuntu-24.04-arm
+            package_dir: npm/linux-arm64
+            binary: readseek
+            rust_target: aarch64-unknown-linux-musl
           - package: win32-x64
             runner: windows-2025
             package_dir: npm/win32-x64
@@ -253,13 +262,16 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y musl-tools
-          rustup target add x86_64-unknown-linux-musl
+          rustup target add "${{ matrix.rust_target }}"
 
       - name: Build (Linux static-musl)
         if: runner.os == 'Linux'
         env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
           CC_x86_64_unknown_linux_musl: musl-gcc
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: cargo build --release --target "${{ matrix.rust_target }}"
 
       - name: Build (macOS / Windows)
         if: runner.os != 'Linux'
@@ -270,7 +282,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            bin_path="target/x86_64-unknown-linux-musl/release/readseek"
+            bin_path="target/${{ matrix.rust_target }}/release/readseek"
           else
             bin_path="target/release/readseek"
           fi
@@ -335,6 +347,12 @@ jobs:
           name: linux-x64
           path: artifacts/linux-x64
 
+      - name: Download linux-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64
+          path: artifacts/linux-arm64
+
       - name: Download win32-x64 binary
         uses: actions/download-artifact@v4
         with:
@@ -345,11 +363,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p npm/darwin-arm64/bin npm/linux-x64/bin npm/win32-x64/bin
+          mkdir -p npm/darwin-arm64/bin npm/linux-arm64/bin npm/linux-x64/bin npm/win32-x64/bin
           tar -xzf artifacts/darwin-arm64/darwin-arm64.tar.gz -C npm/darwin-arm64/bin
+          tar -xzf artifacts/linux-arm64/linux-arm64.tar.gz -C npm/linux-arm64/bin
           tar -xzf artifacts/linux-x64/linux-x64.tar.gz -C npm/linux-x64/bin
           tar -xzf artifacts/win32-x64/win32-x64.tar.gz -C npm/win32-x64/bin
           chmod 755 npm/darwin-arm64/bin/readseek
+          chmod 755 npm/linux-arm64/bin/readseek
           chmod 755 npm/linux-x64/bin/readseek
           test -f npm/win32-x64/bin/readseek.exe
 
@@ -368,6 +388,7 @@ jobs:
             npm publish "./${package_dir}" --access public --provenance
           }
           publish_if_missing npm/darwin-arm64
+          publish_if_missing npm/linux-arm64
           publish_if_missing npm/linux-x64
           publish_if_missing npm/win32-x64
           publish_if_missing .
@@ -432,6 +453,12 @@ jobs:
           name: linux-x64
           path: artifacts/linux-x64
 
+      - name: Download linux-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm64
+          path: artifacts/linux-arm64
+
       - name: Download win32-x64 binary
         uses: actions/download-artifact@v4
         with:
@@ -448,6 +475,8 @@ jobs:
             "assets/readseek-${ver}-darwin-arm64.tar.gz"
           mv artifacts/linux-x64/linux-x64.tar.gz \
             "assets/readseek-${ver}-linux-x64.tar.gz"
+          mv artifacts/linux-arm64/linux-arm64.tar.gz \
+            "assets/readseek-${ver}-linux-arm64.tar.gz"
           mv artifacts/win32-x64/win32-x64.tar.gz \
             "assets/readseek-${ver}-win32-x64.tar.gz"
 

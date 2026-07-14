@@ -1,0 +1,28 @@
+{
+  "name": "@jarkkojs/readseek-linux-arm64",
+  "version": "0.5.19",
+  "description": "Linux arm64 binary for readseek",
+  "license": "Apache-2.0 AND LGPL-2.1-or-later",
+  "homepage": "https://github.com/jarkkojs/readseek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jarkkojs/readseek.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "readseek": "bin/readseek"
+  },
+  "files": [
+    "bin/readseek",
+    "LICENSE-APACHE-2.0",
+    "LICENSE-LGPL-2.1"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

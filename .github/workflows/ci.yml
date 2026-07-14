@@ -47,6 +47,48 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
+  linux-arm64:
+    name: Test Linux arm64 package
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build static binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --target aarch64-unknown-linux-musl
+
+      - name: Test npm wrapper
+        run: |
+          mkdir -p npm/linux-arm64/bin
+          cp target/aarch64-unknown-linux-musl/release/readseek npm/linux-arm64/bin/readseek
+          chmod 755 npm/linux-arm64/bin/readseek
+          npm install --package-lock=false --ignore-scripts --no-save ./npm/linux-arm64
+          node bin/readseek.js --version
+
+      - name: Test Pi extension
+        run: |
+          npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts --no-save ./ ./npm/linux-arm64
+          npm --prefix packages/pi-readseek test
+
   pi-readseek:
     name: Test pi-readseek
     runs-on: ubuntu-latest
