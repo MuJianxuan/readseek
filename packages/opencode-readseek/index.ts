@@ -194,6 +194,7 @@ function readseekTool(
 export const ReadSeekPlugin: Plugin = async () => {
   const anchors = new SessionAnchors();
   const withSearchFlags = (args: string[], input: { cached?: boolean; others?: boolean; ignored?: boolean }) => {
+    if (input.ignored && !input.others) throw new Error("ignored requires others");
     optionalFlag(args, input.cached, "--cached");
     optionalFlag(args, input.others, "--others");
     optionalFlag(args, input.ignored, "--ignored");
@@ -237,10 +238,10 @@ export const ReadSeekPlugin: Plugin = async () => {
         },
         async (input, context) => {
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
-          await authorizeSearch(context, target, input.pattern as string);
           const args = ["search", target, input.pattern as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
+          await authorizeSearch(context, target, input.pattern as string);
           const result = await runReadSeek(context, args);
           return result;
         },
@@ -257,10 +258,10 @@ export const ReadSeekPlugin: Plugin = async () => {
         },
         async (input, context) => {
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
-          await authorizeSearch(context, target, input.name as string);
           const args = ["def", target, "--format", "plain", input.name as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
+          await authorizeSearch(context, target, input.name as string);
           return runReadSeek(context, args);
         },
       ),
@@ -278,14 +279,18 @@ export const ReadSeekPlugin: Plugin = async () => {
           ignored: tool.schema.boolean().optional(),
         },
         async (input, context) => {
+          if (input.scope && input.line === undefined) throw new Error("scope requires line");
+          if (!input.scope && (input.line !== undefined || input.column !== undefined)) {
+            throw new Error("line and column require scope");
+          }
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
-          await authorizeSearch(context, target, input.name as string);
           const args = ["refs", target, input.name as string];
           optionalFlag(args, input.scope as boolean | undefined, "--scope");
           if (input.line) args.push("--line", String(input.line));
           if (input.column) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
+          await authorizeSearch(context, target, input.name as string);
           return runReadSeek(context, args);
         },
       ),
