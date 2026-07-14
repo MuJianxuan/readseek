@@ -183,7 +183,7 @@ export const ReadSeekPlugin: Plugin = async () => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
-          if (input.limit !== undefined) args.push("--end", String((input.offset as number) + (input.limit as number) - 1));
+          if (input.limit !== undefined) args.push("--end", String((input.offset ?? 1) + input.limit - 1));
           return runReadSeek(context.directory, args);
         },
       ),
