@@ -26,6 +26,7 @@ pub(crate) fn merge(xs: &Tensor, r: usize, class_token: bool) -> Result<Tensor> 
     } else {
         (None, xs.clone())
     };
+    let body = body.contiguous()?;
     let body_tokens = body.dim(1)?;
     let r = r.min(body_tokens / 2);
     if r == 0 {
@@ -135,6 +136,21 @@ mod tests {
         assert_eq!(out.dims(), &[1, 4, 2]);
         let v = out.to_vec3::<f32>().unwrap();
         assert_eq!(v[0][0], [9., 9.]);
+    }
+
+    #[test]
+    fn class_token_is_protected_for_multiple_batches() {
+        let xs = tensor(
+            &[
+                9., 9., 1., 0., 0., 1., 0., 1., 1., 0., 8., 8., 1., 0., 0., 1., 0., 1., 1., 0.,
+            ],
+            &[2, 5, 2],
+        );
+        let out = merge(&xs, 1, true).unwrap();
+        assert_eq!(out.dims(), &[2, 4, 2]);
+        let v = out.to_vec3::<f32>().unwrap();
+        assert_eq!(v[0][0], [9., 9.]);
+        assert_eq!(v[1][0], [8., 8.]);
     }
 
     #[test]
