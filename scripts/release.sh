@@ -98,6 +98,7 @@ npm install --prefix packages/opencode-readseek --package-lock=false --ignore-sc
 npm --prefix packages/pi-readseek run typecheck
 npm --prefix packages/pi-readseek test
 npm --prefix packages/opencode-readseek run typecheck
+bun test packages/opencode-readseek/tests
 
 node - "$next_ver" <<'NODE'
 const fs = require('node:fs');

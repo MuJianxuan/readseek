@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Jarkko Sakkinen 2026
 
+import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { tool, type Plugin } from "@opencode-ai/plugin";
+import { tool, type Plugin, type ToolContext } from "@opencode-ai/plugin";
 
 const require = createRequire(import.meta.url);
 const readseekScript = require.resolve("@jarkkojs/readseek/bin/readseek.js");
@@ -53,6 +54,47 @@ function resolvePath(directory: string, filePath: string): string {
   return path.resolve(directory, filePath);
 }
 
+function containsPath(directory: string, filePath: string): boolean {
+  const relative = path.relative(directory, filePath);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+async function authorizeExternal(context: ToolContext, filePath: string): Promise<void> {
+  if (containsPath(context.directory, filePath) || (context.worktree !== "/" && containsPath(context.worktree, filePath))) {
+    return;
+  }
+
+  const info = await stat(filePath).catch(() => undefined);
+  const parentDir = info?.isDirectory() ? filePath : path.dirname(filePath);
+  const pattern = path.join(parentDir, "*").replaceAll("\\", "/");
+  await context.ask({
+    permission: "external_directory",
+    patterns: [pattern],
+    always: [pattern],
+    metadata: { filepath: filePath, parentDir },
+  });
+}
+
+async function authorizeRead(context: ToolContext, filePath: string): Promise<void> {
+  await authorizeExternal(context, filePath);
+  await context.ask({
+    permission: "read",
+    patterns: [path.relative(context.worktree, filePath).replaceAll("\\", "/")],
+    always: ["*"],
+    metadata: {},
+  });
+}
+
+async function authorizeSearch(context: ToolContext, filePath: string, pattern: string): Promise<void> {
+  await context.ask({
+    permission: "grep",
+    patterns: [pattern],
+    always: ["*"],
+    metadata: { pattern, path: filePath },
+  });
+  await authorizeExternal(context, filePath);
+}
+
 function optionalFlag(args: string[], enabled: boolean | undefined, flag: string): void {
   if (enabled) args.push(flag);
 }
@@ -94,16 +136,24 @@ function collectFiles(value: unknown, files: Set<string>): void {
   }
 }
 
+function identifiedName(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const identifier = (value as Record<string, unknown>).identifier;
+  if (!identifier || typeof identifier !== "object") return undefined;
+  const text = (identifier as Record<string, unknown>).text;
+  return typeof text === "string" ? text : undefined;
+}
+
 function readseekTool(
   description: string,
   args: Record<string, any>,
-  execute: (args: any, directory: string) => Promise<unknown>,
+  execute: (args: any, context: ToolContext) => Promise<unknown>,
 ) {
   return tool({
     description,
     args,
     async execute(args, context) {
-      return render(await execute(args, context.directory));
+      return render(await execute(args, context));
     },
   });
 }
@@ -129,17 +179,22 @@ export const ReadSeekPlugin: Plugin = async () => {
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
           limit: tool.schema.number().int().positive().optional().describe("Maximum number of lines"),
         },
-        async (input, directory) => {
-          const filePath = resolvePath(directory, input.path as string);
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
           if (input.limit !== undefined) args.push("--end", String((input.offset as number) + (input.limit as number) - 1));
-          return runReadSeek(directory, args);
+          return runReadSeek(context.directory, args);
         },
       ),
       readseek_map: readseekTool(
         "Build a structural symbol map for a source file.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
-        async (input, directory) => runReadSeek(directory, ["map", resolvePath(directory, input.path as string)]),
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          return runReadSeek(context.directory, ["map", filePath]);
+        },
       ),
       readseek_search: readseekTool(
         "Search source code using an ast-grep structural pattern. Results include LINE:HASH anchors.",
@@ -151,12 +206,13 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
-        async (input, directory) => {
-          const target = resolvePath(directory, (input.path as string | undefined) ?? ".");
+        async (input, context) => {
+          const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
+          await authorizeSearch(context, target, input.pattern as string);
           const args = ["search", target, input.pattern as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          const result = await runReadSeek(directory, args);
+          const result = await runReadSeek(context.directory, args);
           return result;
         },
       ),
@@ -170,11 +226,13 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
-        async (input, directory) => {
-          const args = ["def", resolvePath(directory, (input.path as string | undefined) ?? "."), "--format", "plain", input.name as string];
+        async (input, context) => {
+          const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
+          await authorizeSearch(context, target, input.name as string);
+          const args = ["def", target, "--format", "plain", input.name as string];
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          return runReadSeek(directory, args);
+          return runReadSeek(context.directory, args);
         },
       ),
       readseek_refs: readseekTool(
@@ -190,14 +248,16 @@ export const ReadSeekPlugin: Plugin = async () => {
           others: tool.schema.boolean().optional(),
           ignored: tool.schema.boolean().optional(),
         },
-        async (input, directory) => {
-          const args = ["refs", resolvePath(directory, (input.path as string | undefined) ?? "."), input.name as string];
+        async (input, context) => {
+          const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
+          await authorizeSearch(context, target, input.name as string);
+          const args = ["refs", target, input.name as string];
           optionalFlag(args, input.scope as boolean | undefined, "--scope");
           if (input.line) args.push("--line", String(input.line));
           if (input.column) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
-          return runReadSeek(directory, args);
+          return runReadSeek(context.directory, args);
         },
       ),
       readseek_hover: readseekTool(
@@ -208,11 +268,13 @@ export const ReadSeekPlugin: Plugin = async () => {
           column: tool.schema.number().int().positive().optional().describe("One-based cursor byte column"),
           language: tool.schema.string().optional(),
         },
-        async (input, directory) => {
-          const args = ["identify", `${resolvePath(directory, input.path as string)}:${input.line}`];
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          const args = ["identify", `${filePath}:${input.line}`];
           if (input.column) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
-          return runReadSeek(directory, args);
+          return runReadSeek(context.directory, args);
         },
       ),
       readseek_rename: readseekTool(
@@ -224,17 +286,30 @@ export const ReadSeekPlugin: Plugin = async () => {
           to: tool.schema.string().min(1).describe("New binding name"),
           workspace: tool.schema.boolean().optional().describe("Include project-wide occurrences"),
         },
-        async (input, directory) => {
-          const args = ["rename", resolvePath(directory, input.path as string), "--line", String(input.line), "--to", input.to as string];
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          if (input.workspace) {
+            const identifyArgs = ["identify", `${filePath}:${input.line}`];
+            if (input.column) identifyArgs.push("--column", String(input.column));
+            const name = identifiedName(await runReadSeek(context.directory, identifyArgs));
+            if (!name) throw new Error("readseek could not identify a binding at the rename cursor");
+            await authorizeSearch(context, context.directory, name);
+          }
+          const args = ["rename", filePath, "--line", String(input.line), "--to", input.to as string];
           if (input.column) args.push("--column", String(input.column));
-          if (input.workspace) args.push("--workspace", directory);
-          return runReadSeek(directory, args);
+          if (input.workspace) args.push("--workspace", context.directory);
+          return runReadSeek(context.directory, args);
         },
       ),
       readseek_check: readseekTool(
         "Check a source file for parser errors and missing syntax.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
-        async (input, directory) => runReadSeek(directory, ["check", resolvePath(directory, input.path as string)]),
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          return runReadSeek(context.directory, ["check", filePath]);
+        },
       ),
     },
     event: async ({ event }) => {

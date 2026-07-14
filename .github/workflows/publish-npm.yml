@@ -330,6 +330,9 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Verify npm authentication
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -417,6 +420,7 @@ jobs:
         run: |
           npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts --no-save ./
           npm --prefix packages/opencode-readseek run typecheck
+          bun test packages/opencode-readseek/tests
 
       - name: Publish opencode-readseek
         env:

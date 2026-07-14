@@ -149,6 +149,9 @@ jobs:
           cache: npm
           cache-dependency-path: packages/opencode-readseek/package-lock.json
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -168,3 +171,6 @@ jobs:
 
       - name: Type check
         run: npm run typecheck
+
+      - name: Test
+        run: bun test
