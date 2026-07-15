@@ -724,7 +724,7 @@ static SWIFT_TABLE: BindingTable = BindingTable {
     declared_idents: swift::declared_idents,
     resolution: Resolution::Lexical,
     is_reference: swift::is_reference,
-    escapes_scope: never_escapes,
+    escapes_scope: swift::escapes_scope,
     binds_past: never_binds_past,
     unifies_declarations: never_unifies_declarations,
 };

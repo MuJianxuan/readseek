@@ -15,6 +15,11 @@ pub(super) fn declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node
                 collect_pattern_idents(name, &mut out);
             }
         }
+        "function_declaration" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                collect_pattern_idents(name, &mut out);
+            }
+        }
         "parameter" => {
             if let Some(name) = node.child_by_field_name("name") {
                 collect_pattern_idents(name, &mut out);
@@ -45,4 +50,11 @@ fn collect_pattern_idents<'tree>(node: Node<'tree>, out: &mut Vec<Node<'tree>>) 
 pub(super) fn is_reference(node: Node<'_>) -> bool {
     node.parent()
         .is_none_or(|parent| parent.kind() != "navigation_suffix")
+}
+
+/// Function declarations bind in their enclosing scope, not their function body.
+pub(super) fn escapes_scope(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "function_declaration" && parent.child_by_field_name("name") == Some(node)
+    })
 }
