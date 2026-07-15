@@ -537,3 +537,5 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
     },
   };
 };
+
+export default { id: "opencode-readseek", server: ReadSeekPlugin };

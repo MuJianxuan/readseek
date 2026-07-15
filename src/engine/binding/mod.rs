@@ -19,8 +19,10 @@ use tree_sitter::{Node, Parser, Tree};
 mod cpp;
 mod csharp;
 mod go;
+mod java;
 mod python;
 mod rust;
+mod swift;
 mod typescript;
 mod vimscript;
 
@@ -546,10 +548,12 @@ fn binding_table(language: Language) -> Option<&'static BindingTable> {
         Language::C | Language::Cpp => Some(&CPP_TABLE),
         Language::Python => Some(&PYTHON_TABLE),
         Language::Go => Some(&GO_TABLE),
+        Language::Java => Some(&JAVA_TABLE),
         Language::TypeScript | Language::Tsx | Language::JavaScript | Language::Jsx => {
             Some(&TYPESCRIPT_TABLE)
         }
         Language::CSharp => Some(&CSHARP_TABLE),
+        Language::Swift => Some(&SWIFT_TABLE),
         Language::Vimscript => Some(&VIMSCRIPT_TABLE),
         _ => None,
     }
@@ -684,6 +688,45 @@ static GO_TABLE: BindingTable = BindingTable {
     declared_idents: go::declared_idents,
     resolution: Resolution::Lexical,
     is_reference: go::is_reference,
+    escapes_scope: never_escapes,
+    binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
+};
+
+static JAVA_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "block",
+        "method_declaration",
+        "constructor_declaration",
+        "lambda_expression",
+        "for_statement",
+        "enhanced_for_statement",
+        "catch_clause",
+    ],
+    class_scope_kinds: &[],
+    identifier_kinds: &["identifier"],
+    declared_idents: java::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: java::is_reference,
+    escapes_scope: never_escapes,
+    binds_past: never_binds_past,
+    unifies_declarations: never_unifies_declarations,
+};
+
+static SWIFT_TABLE: BindingTable = BindingTable {
+    scope_kinds: &[
+        "function_declaration",
+        "init_declaration",
+        "function_body",
+        "lambda_literal",
+        "for_statement",
+        "statements",
+    ],
+    class_scope_kinds: &[],
+    identifier_kinds: &["simple_identifier"],
+    declared_idents: swift::declared_idents,
+    resolution: Resolution::Lexical,
+    is_reference: swift::is_reference,
     escapes_scope: never_escapes,
     binds_past: never_binds_past,
     unifies_declarations: never_unifies_declarations,

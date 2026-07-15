@@ -3,6 +3,7 @@
   "version": "0.6.1",
   "description": "OpenCode plugin for readseek-backed structural code navigation",
   "type": "module",
+  "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
     "./server": "./index.ts"
