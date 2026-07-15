@@ -41,7 +41,9 @@ describe("readseek_read", () => {
     await read.execute({ path: "file.ts", offset: 3 }, context);
     await read.execute({ path: "file.ts", offset: 3, limit: 5 }, context);
 
-    const args = spawn.mock.calls.map((call) => (call[0] as string[]).slice(2));
+    const commands = spawn.mock.calls.map((call) => call[0] as string[]);
+    for (const command of commands) expect(command[0]).toMatch(/readseek(?:\.exe)?$/);
+    const args = commands.map((command) => command.slice(1));
     expect(args).toEqual([
       ["detect", "/repo/file.ts"],
       ["read", "/repo/file.ts"],
@@ -68,7 +70,7 @@ describe("readseek_read", () => {
 
     await read.execute({ path: "figure.png", image: "none" }, createContext());
 
-    expect((spawn.mock.calls[0]?.[0] as string[]).slice(2)).toEqual([
+    expect((spawn.mock.calls[0]?.[0] as string[]).slice(1)).toEqual([
       "read", "/repo/figure.png", "--image", "none",
     ]);
   });

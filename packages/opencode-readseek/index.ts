@@ -8,8 +8,13 @@ import path from "node:path";
 import { tool, type Plugin, type PluginOptions, type ToolContext } from "@opencode-ai/plugin";
 
 const require = createRequire(import.meta.url);
-const readseekScript = require.resolve("@jarkkojs/readseek/bin/readseek.js");
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+const READSEEK_PLATFORM_PACKAGES: Record<string, string> = {
+  "darwin-arm64": "@jarkkojs/readseek-darwin-arm64",
+  "linux-arm64": "@jarkkojs/readseek-linux-arm64",
+  "linux-x64": "@jarkkojs/readseek-linux-x64",
+  "win32-x64": "@jarkkojs/readseek-win32-x64",
+};
 
 type RenamePlan = {
   summary: string;
@@ -146,9 +151,21 @@ function optionalFlag(args: string[], enabled: boolean | undefined, flag: string
   if (enabled) args.push(flag);
 }
 
+function readSeekBinaryPath(): string {
+  const platform = `${process.platform}-${process.arch}`;
+  const platformPackage = READSEEK_PLATFORM_PACKAGES[platform];
+  if (!platformPackage) {
+    throw new Error(`@jarkkojs/readseek ships no binary for ${platform}`);
+  }
+
+  const readseekPackageDir = path.dirname(require.resolve("@jarkkojs/readseek/package.json"));
+  const packageJson = require.resolve(`${platformPackage}/package.json`, { paths: [readseekPackageDir] });
+  return path.join(path.dirname(packageJson), "bin", process.platform === "win32" ? "readseek.exe" : "readseek");
+}
+
 async function runReadSeek(context: ToolContext, args: string[]): Promise<unknown> {
   context.abort.throwIfAborted();
-  const child = Bun.spawn([process.execPath, readseekScript, ...args], {
+  const child = Bun.spawn([readSeekBinaryPath(), ...args], {
     cwd: context.directory,
     killSignal: "SIGKILL",
     maxBuffer: MAX_OUTPUT_BYTES,
