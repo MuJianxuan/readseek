@@ -105,10 +105,16 @@ pub(crate) fn read(
             } else {
                 analyze(&png, request)
             };
-            let prepared = (mode == ImageMode::None)
+            let prepared = match (mode == ImageMode::None)
                 .then(|| crate::engine::image::preprocess(&png))
                 .transpose()
-                .with_context(|| format!("prepare image on PDF page {page}"))?;
+            {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    log::warn!("PDF page {page} image skipped: {error}");
+                    continue;
+                }
+            };
             let (mime, encoding, data) = if let Some(prepared) = prepared {
                 (prepared.mime, Some("base64"), Some(prepared.data))
             } else {

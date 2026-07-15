@@ -285,7 +285,7 @@ fn load_document(path: &Path, bytes: Vec<u8>) -> Result<LoadedDocument> {
         (ContentCategory::Text, text, None)
     } else if let Some(image) = crate::engine::image::probe(&bytes) {
         (ContentCategory::Image(image), String::new(), Some(bytes))
-    } else if mime.as_deref() == Some("application/pdf") {
+    } else if mime.as_deref() == Some("application/pdf") || bytes.starts_with(b"%PDF-") {
         let pdf = crate::engine::pdf::probe(&bytes)?;
         (ContentCategory::Pdf(pdf), String::new(), Some(bytes))
     } else {

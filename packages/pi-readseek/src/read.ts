@@ -193,8 +193,16 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		try {
 			detection = await readSeekDetect(absolutePath, { signal });
 		} catch {
+			return buildToolErrorResult("read", "read-error", `Visual file detection failed for ${absolutePath}.`, {
+				path: rawParams.path,
+			});
 		}
-		if (detection?.kind === "image" || detection?.type === "application/pdf") {
+		if (!detection) {
+			return buildToolErrorResult("read", "read-error", `Visual file detection returned no data for ${absolutePath}.`, {
+				path: rawParams.path,
+			});
+		}
+		if (detection.kind === "image" || detection.type === "application/pdf") {
 			const imageMode = resolveReadSeekImageMode();
 			if (imageMode === "off" || p.image === undefined) {
 				return skippedVisualFile(rawParams.path);
@@ -247,7 +255,8 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				return buildToolErrorResult("read", "read-error", `Image analysis unavailable: ${message}`, {
+				const label = detection.kind === "pdf" ? "PDF" : "Image";
+				return buildToolErrorResult("read", "read-error", `${label} analysis unavailable: ${message}`, {
 					path: rawParams.path,
 				});
 			}
