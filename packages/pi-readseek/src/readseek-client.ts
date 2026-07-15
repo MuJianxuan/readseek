@@ -480,6 +480,29 @@ async function runReadSeek(args: string[], options: RunReadSeekOptions = {}): Pr
 	return JSON.parse(stdout) as unknown;
 }
 
+let visionInvocationTail = Promise.resolve();
+
+/**
+ * Serialize local vision-model processes. Concurrent processes each consume all
+ * available CPU cores, which makes every invocation exceed its own timeout.
+ */
+async function runReadSeekVision(args: string[], options: RunReadSeekOptions = {}): Promise<unknown> {
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const predecessor = visionInvocationTail;
+	visionInvocationTail = predecessor.then(() => gate);
+
+	await predecessor;
+	try {
+		options.signal?.throwIfAborted();
+		return await runReadSeek(args, options);
+	} finally {
+		release();
+	}
+}
+
 function requireNumber(value: unknown, field: string): number {
 	if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`invalid readseek ${field}: expected safe integer`);
 	return value;
@@ -830,7 +853,7 @@ export async function readSeekImage(
 ): Promise<ReadSeekDetection> {
 	const results = await Promise.allSettled(
 		modes.map(async (mode) =>
-			parseDetectOutput(await runReadSeek(["read", "--image", mode, filePath], { signal: options.signal })),
+			parseDetectOutput(await runReadSeekVision(["read", "--image", mode, filePath], { signal: options.signal })),
 		),
 	);
 
@@ -903,7 +926,8 @@ export async function readSeekPdf(
 	mode: "none" | ReadSeekImageMode,
 	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekPdfOutput> {
-	return parsePdfOutput(await runReadSeek(["read", "--image", mode, filePath], { signal: options.signal }));
+	const run = mode === "none" ? runReadSeek : runReadSeekVision;
+	return parsePdfOutput(await run(["read", "--image", mode, filePath], { signal: options.signal }));
 }
 
 // --- Rename ---

@@ -158,6 +158,31 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
+	it("reports an empty image analysis as a valid result", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			const filePath = await writeImage(cwd);
+			mockImageDetection(filePath);
+			readSeekImageMock.mockResolvedValueOnce({
+				...imageDetectionFor(filePath),
+				objects: [],
+			});
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "image.png", image: "objects" },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+			});
+
+			expect((result as { isError?: boolean }).isError).not.toBe(true);
+			expect((result.content[0] as { text: string }).text).toBe("No objects detected in image.");
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("skips images when imageMode is off", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {

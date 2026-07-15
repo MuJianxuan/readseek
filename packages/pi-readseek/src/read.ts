@@ -66,7 +66,7 @@ function hasReadAnchors(result: AgentToolResult<any>): boolean {
 	return Array.isArray(lines) && lines.length > 0;
 }
 
-function formatImageAnalysis(detection: ReadSeekDetection): string | undefined {
+function formatImageAnalysis(detection: ReadSeekDetection, mode: "ocr" | "caption" | "objects"): string | undefined {
 	if (detection.kind !== "image") return undefined;
 	const sections: string[] = [];
 	const ocr = detection.ocr?.trim();
@@ -77,7 +77,10 @@ function formatImageAnalysis(detection: ReadSeekDetection): string | undefined {
 		const lines = detection.objects.map((object) => `- ${object.label} [${object.bbox.join(", ")}]`);
 		sections.push(`Detected objects:\n${lines.join("\n")}`);
 	}
-	return sections.length > 0 ? sections.join("\n\n") : undefined;
+	if (sections.length > 0) return sections.join("\n\n");
+	if (mode === "ocr") return "No OCR text detected in image.";
+	if (mode === "objects") return "No objects detected in image.";
+	return "Image caption returned no text.";
 }
 
 function formatPdfAnalysis(pdf: ReadSeekPdfOutput): string {
@@ -246,7 +249,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 					});
 				}
 				const analysis = await readSeekImage(absolutePath, [p.image], { signal });
-				const imageAnalysis = formatImageAnalysis(analysis);
+				const imageAnalysis = formatImageAnalysis(analysis, p.image);
 				if (imageAnalysis) {
 					return succeed({
 						content: [{ type: "text" as const, text: imageAnalysis }],

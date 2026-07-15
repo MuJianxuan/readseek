@@ -54,6 +54,25 @@ function spawnResult(stdout: string) {
 	return child;
 }
 
+function controlledSpawnResult() {
+	const child = new EventEmitter() as EventEmitter & {
+		stdout: PassThrough;
+		stderr: PassThrough;
+		kill: ReturnType<typeof vi.fn>;
+	};
+	child.stdout = new PassThrough();
+	child.stderr = new PassThrough();
+	child.kill = vi.fn();
+	return {
+		child,
+		complete(stdout: string): void {
+			child.stdout.end(stdout);
+			child.stderr.end();
+			child.emit("close", 0);
+		},
+	};
+}
+
 function spawnSignalCrash(signal: NodeJS.Signals) {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: PassThrough;
@@ -354,6 +373,34 @@ describe("readseek client parsing", () => {
 			expect(detection.caption).toBe("A tiny test image.");
 			expect(detection.objects).toEqual([{ label: "dot", bbox: [1, 2, 3, 4] }]);
 		}
+	});
+
+	it("serializes concurrent image analysis processes", async () => {
+		const first = controlledSpawnResult();
+		mockImageModes();
+		spawnMock.mockImplementationOnce(() => spawnResult(""));
+		spawnMock.mockImplementationOnce(() => first.child);
+
+		const firstRead = readSeekImage("/tmp/first.png", ["caption"]);
+		await vi.waitFor(() => expect(imageCallArgs()).toHaveLength(1));
+		const secondRead = readSeekImage("/tmp/second.png", ["caption"]);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(imageCallArgs()).toHaveLength(1);
+
+		first.complete(JSON.stringify({
+			file: "/tmp/first.png",
+			type: "image/png",
+			mime: "image/png",
+			format: "png",
+			width: 10,
+			height: 20,
+			animated: false,
+			caption: "First image.",
+		}));
+		await firstRead;
+		await secondRead;
+
+		expect(imageCallArgs()).toHaveLength(2);
 	});
 
 	it("keeps the image analysis modes that succeed when others fail", async () => {
