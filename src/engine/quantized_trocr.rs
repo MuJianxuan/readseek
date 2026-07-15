@@ -576,12 +576,9 @@ impl TrOCRDecoderLayer {
 
         if let Some(encoder_hidden_states) = &encoder_hidden_states {
             let residual = xs.clone();
-            let encoder_attention_mask = attention_mask.clone(); // TODO
-            xs = self.encoder_attn.forward(
-                &xs,
-                Some(encoder_hidden_states),
-                Some(&encoder_attention_mask),
-            )?;
+            xs = self
+                .encoder_attn
+                .forward(&xs, Some(encoder_hidden_states), None)?;
             xs = (xs + residual)?;
             xs = self.encoder_attn_layer_norm.forward(&xs)?
         }

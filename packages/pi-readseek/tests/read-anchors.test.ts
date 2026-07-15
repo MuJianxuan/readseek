@@ -4,11 +4,12 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, readSeekPreparedImageMock, imageMode } = vi.hoisted(() => ({
+const { readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, readSeekPdfMock, readSeekPreparedImageMock, imageMode } = vi.hoisted(() => ({
 	readSeekMapMock: vi.fn(),
 	readSeekReadMock: vi.fn(),
 	readSeekDetectMock: vi.fn(),
 	readSeekImageMock: vi.fn(),
+	readSeekPdfMock: vi.fn(),
 	readSeekPreparedImageMock: vi.fn(),
 	imageMode: { value: "auto" as "on" | "off" | "auto" },
 }));
@@ -29,6 +30,7 @@ vi.mock("../src/readseek-client.js", () => ({
 	readSeekRead: readSeekReadMock,
 	readSeekDetect: readSeekDetectMock,
 	readSeekImage: readSeekImageMock,
+	readSeekPdf: readSeekPdfMock,
 	readSeekPreparedImage: readSeekPreparedImageMock,
 }));
 
@@ -200,6 +202,45 @@ describe("executeRead anchor tracking", () => {
 
 			expect(result.content).toEqual([{ type: "image", mimeType: "image/jpeg", data: "prepared-image" }]);
 			expect(readSeekImageMock).not.toHaveBeenCalled();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("returns PDF markdown and page-associated prepared images", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			const filePath = path.join(cwd, "paper.pdf");
+			await writeFile(filePath, Buffer.from("%PDF-1.4\n"));
+			readSeekDetectMock.mockResolvedValue({
+				kind: "pdf",
+				type: "application/pdf",
+				file: filePath,
+				mime: "application/pdf",
+				format: "pdf",
+				pages: 1,
+			});
+			readSeekPdfMock.mockResolvedValue({
+				format: "pdf",
+				pages: 1,
+				markdown: "<!-- readseek:page 1 -->\nHello\n",
+				images: [{ page: 1, width: 1, height: 1, mime: "image/png", mode: "none", encoding: "base64", data: "pixel" }],
+			});
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "paper.pdf", image: "none" },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+			});
+
+			expect(result.content).toEqual([
+				{ type: "text", text: "<!-- readseek:page 1 -->\nHello\n" },
+				{ type: "text", text: "[PDF page 1 image]" },
+				{ type: "image", data: "pixel", mimeType: "image/png" },
+			]);
+			expect(readSeekPdfMock).toHaveBeenCalledWith(filePath, "none", { signal: undefined });
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

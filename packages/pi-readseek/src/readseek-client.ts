@@ -124,6 +124,26 @@ export interface ReadSeekPreparedImage {
 	data: string;
 }
 
+export interface ReadSeekPdfImage {
+	page: number;
+	width: number;
+	height: number;
+	mime: string;
+	mode: "none" | ReadSeekImageMode;
+	encoding?: "base64";
+	data?: string;
+	ocr?: ReadSeekOcrText;
+	caption?: string;
+	objects?: ReadSeekDetectedObject[];
+}
+
+export interface ReadSeekPdfOutput {
+	format: "pdf";
+	pages: number;
+	markdown: string;
+	images: ReadSeekPdfImage[];
+}
+
 export type ReadSeekDetection =
 	| {
 			kind: "source";
@@ -155,6 +175,14 @@ export type ReadSeekDetection =
 			type: string;
 			file: string;
 			mime?: string;
+		}
+	| {
+			kind: "pdf";
+			type: "application/pdf";
+			file: string;
+			mime?: string;
+			format: "pdf";
+			pages: number;
 		};
 
 type ReadSeekImageDetection = Extract<ReadSeekDetection, { kind: "image" }>;
@@ -734,7 +762,18 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 	// carry `format`/`width`/`height`/`animated`; source detections carry
 	// `language`. Text and binary are byte-identical on the wire and collapse
 	// to the text variant.
-	if (output.format !== undefined || output.width !== undefined || output.height !== undefined) {
+	if (type === "application/pdf") {
+		if (output.format !== "pdf") throw new Error("invalid readseek PDF format");
+		return {
+			kind: "pdf",
+			type,
+			file,
+			mime,
+			format: output.format,
+			pages: requireNumber(output.pages, "pages"),
+		};
+	}
+	if (output.width !== undefined || output.height !== undefined) {
 		return {
 			kind: "image",
 			type,
@@ -824,6 +863,47 @@ export async function readSeekPreparedImage(
 		throw new Error(`readseek returned no prepared image for ${filePath}`);
 	}
 	return { mime: output.mime, encoding: output.encoding, data: output.data };
+}
+
+function parsePdfImage(value: unknown): ReadSeekPdfImage {
+	if (!value || typeof value !== "object") throw new Error("invalid readseek PDF image");
+	const image = value as Record<string, unknown>;
+	const mode = requireString(image.mode, "PDF image.mode");
+	if (mode !== "none" && mode !== "ocr" && mode !== "caption" && mode !== "objects") {
+		throw new Error("invalid readseek PDF image.mode");
+	}
+	return {
+		page: requireNumber(image.page, "PDF image.page"),
+		width: requireNumber(image.width, "PDF image.width"),
+		height: requireNumber(image.height, "PDF image.height"),
+		mime: requireString(image.mime, "PDF image.mime"),
+		mode,
+		encoding: image.encoding === undefined ? undefined : parseImageEncoding(image.encoding),
+		data: optionalString(image.data, "PDF image.data"),
+		ocr: parseOcrText(image.ocr),
+		caption: optionalString(image.caption, "PDF image.caption"),
+		objects: parseDetectedObjects(image.objects),
+	};
+}
+
+function parsePdfOutput(value: unknown): ReadSeekPdfOutput {
+	if (!value || typeof value !== "object") throw new Error("invalid readseek PDF output");
+	const output = value as Record<string, unknown>;
+	if (output.format !== "pdf" || !Array.isArray(output.images)) throw new Error("invalid readseek PDF output");
+	return {
+		format: output.format,
+		pages: requireNumber(output.pages, "PDF pages"),
+		markdown: requireString(output.markdown, "PDF markdown"),
+		images: output.images.map(parsePdfImage),
+	};
+}
+
+export async function readSeekPdf(
+	filePath: string,
+	mode: "none" | ReadSeekImageMode,
+	options: { signal?: AbortSignal } = {},
+): Promise<ReadSeekPdfOutput> {
+	return parsePdfOutput(await runReadSeek(["read", "--image", mode, filePath], { signal: options.signal }));
 }
 
 // --- Rename ---

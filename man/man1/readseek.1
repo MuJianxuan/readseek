@@ -1,4 +1,4 @@
-.TH READSEEK 1 "2026-07-14" "readseek 0.5.19" "User Commands"
+.TH READSEEK 1 "2026-07-15" "readseek 0.5.19" "User Commands"
 .SH NAME
 readseek \- structural source-code reader with stable line hashing
 .SH SYNOPSIS
@@ -138,7 +138,8 @@ Print detection metadata for the input as a JSON object. The \fBtype\fR field
 contains the exact MIME type detected by inspecting the file content, or
 \fBtext/plain\fR as a fallback. Source files include the detected language, parser
 engine, support flag, optional MIME type, and optional syntax name. Image files
-also include format, width, height, and animation status.
+also include format, width, height, and animation status. PDF files include
+their page count.
 .TP
 .B read
 Print line numbers, hashes, and text for a range of lines. Without any range
@@ -146,12 +147,14 @@ options the entire file is returned. Use a line or hash suffix on the target
 path to set the first line.
 Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
-For image files, \fBread\fR runs vision analysis instead of printing lines.
-The default mode is \fIcaption\fR; pass \fB--image caption|objects|ocr\fR to
-select a caption (BLIP), object labels and bounding boxes (YOLOv8-nano), or
-printed text (TrOCR). \fB--end\fR, \fB--limit\fR, \fB--language\fR, and a
-line or hash suffix are not valid with images. The models are downloaded to
-the user cache directory on first use (see \fBCACHE\fR).
+For image files, \fBread\fR returns a bounded base64 image by default. Pass
+\fB--image none|caption|objects|ocr\fR to select preprocessing without local
+analysis, a caption (BLIP), object labels and bounding boxes (YOLOv8-nano), or
+printed text (TrOCR). PDF files return page-tagged Markdown and page-associated
+embedded images using the same image mode. \fB--end\fR, \fB--limit\fR,
+\fB--language\fR, and a line or hash suffix are not valid with images or PDFs.
+The models are downloaded to the user cache directory on first use (see
+\fBCACHE\fR).
 .TP
 .B map
 Print the structural source map: each top-level symbol's kind, name, qualified
@@ -258,9 +261,10 @@ created; other commands read and refresh their source-map cache there.
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
 \fB--image\fR \fImode\fR
-For \fBread\fR on an image, select the analysis mode: \fIcaption\fR (default,
-BLIP), \fIobjects\fR (YOLOv8-nano labels and bounding boxes), or \fIocr\fR
-(TrOCR printed text). Silently ignored for non-image input.
+For \fBread\fR on an image or PDF, select the mode: \fInone\fR (default,
+bounded base64 without local analysis), \fIcaption\fR (BLIP), \fIobjects\fR
+(YOLOv8-nano labels and bounding boxes), or \fIocr\fR (TrOCR printed text).
+Silently ignored for non-visual input.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for

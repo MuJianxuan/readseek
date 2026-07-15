@@ -188,7 +188,7 @@ impl cli::ReadCommand {
                 bail!("--end, --limit, and --language do not apply to images");
             }
             let mode = self.image.unwrap_or_default();
-            let Some(bytes) = source.image_bytes.as_deref() else {
+            let Some(bytes) = source.document_bytes.as_deref() else {
                 bail!("missing image bytes for {}", source.path.display());
             };
             let request = crate::engine::vision::Request {
@@ -203,6 +203,24 @@ impl cli::ReadCommand {
             let image_output = output::read_image_output(&source, mode, analysis, prepared)?;
             let output = output::ReadOutput::Image(image_output);
             return Ok(serde_json::to_string(&output)?);
+        }
+
+        if matches!(
+            source.detection.category,
+            crate::engine::source::ContentCategory::Pdf(_)
+        ) {
+            if target.address.is_some() {
+                bail!("PDF targets do not support a line or hash suffix");
+            }
+            if self.end.is_some() || self.limit.is_some() || self.language.is_some() {
+                bail!("--end, --limit, and --language do not apply to PDFs");
+            }
+            let mode = self.image.unwrap_or_default();
+            let Some(bytes) = source.document_bytes.as_deref() else {
+                bail!("missing PDF bytes for {}", source.path.display());
+            };
+            let pdf = crate::engine::pdf::read(bytes, mode, run_vision)?;
+            return Ok(serde_json::to_string(&output::ReadOutput::Pdf(pdf))?);
         }
 
         source.require_text()?;

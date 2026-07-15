@@ -23,7 +23,7 @@ vi.mock("node:os", async (importOriginal) => {
 	};
 });
 
-const { readSeekRead, readSeekSearch, readSeekDetect, readSeekImage, readSeekBinaryAvailability } = await import(
+const { readSeekRead, readSeekSearch, readSeekDetect, readSeekImage, readSeekPdf, readSeekBinaryAvailability } = await import(
 	"../src/readseek-client.js"
 );
 
@@ -304,6 +304,36 @@ describe("readseek client parsing", () => {
 		expect(detection.kind).toBe("image");
 		expect(detection.type).toBe("image/png");
 		if (detection.kind === "image") expect(detection.ocr).toBeUndefined();
+	});
+
+	it("parses PDF detection and page-associated read output", async () => {
+		const detectionOutput = JSON.stringify({
+			type: "application/pdf",
+			file: "/tmp/paper.pdf",
+			mime: "application/pdf",
+			format: "pdf",
+			pages: 2,
+		});
+		const readOutput = JSON.stringify({
+			format: "pdf",
+			pages: 2,
+			markdown: "<!-- readseek:page 1 -->\nHello\n\n<!-- readseek:page 2 -->\nWorld\n",
+			images: [
+				{ page: 2, width: 10, height: 20, mime: "image/jpeg", mode: "none", encoding: "base64", data: "image" },
+			],
+		});
+		spawnMock
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => spawnResult(detectionOutput))
+			.mockImplementationOnce(() => spawnResult(""))
+			.mockImplementationOnce(() => spawnResult(readOutput));
+
+		const detection = await readSeekDetect("/tmp/paper.pdf");
+		const pdf = await readSeekPdf("/tmp/paper.pdf", "none");
+
+		expect(detection.kind).toBe("pdf");
+		if (detection.kind === "pdf") expect(detection.pages).toBe(2);
+		expect(pdf.images[0]).toMatchObject({ page: 2, encoding: "base64", data: "image" });
 	});
 
 	it("merges every requested image analysis mode into one detection", async () => {

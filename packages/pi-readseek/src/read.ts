@@ -25,7 +25,7 @@ import { buildReadOutput } from "./read-output.js";
 
 import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { readSeekRead, readSeekDetect, readSeekImage, readSeekPreparedImage, type ReadSeekDetection } from "./readseek-client.js";
+import { readSeekRead, readSeekDetect, readSeekImage, readSeekPdf, readSeekPreparedImage, type ReadSeekDetection, type ReadSeekPdfOutput } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { resolveReadSeekImageMode } from "./readseek-settings.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidthCached } from "./tui-render-utils.js";
@@ -78,6 +78,23 @@ function formatImageAnalysis(detection: ReadSeekDetection): string | undefined {
 		sections.push(`Detected objects:\n${lines.join("\n")}`);
 	}
 	return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
+function formatPdfAnalysis(pdf: ReadSeekPdfOutput): string {
+	const sections = [pdf.markdown.trimEnd()];
+	for (const image of pdf.images) {
+		const details: string[] = [];
+		const ocr = image.ocr?.trim();
+		if (ocr) details.push(`OCR text:\n${ocr}`);
+		const caption = image.caption?.trim();
+		if (caption) details.push(`Caption:\n${caption}`);
+		if (image.objects?.length) {
+			const lines = image.objects.map((object) => `- ${object.label} [${object.bbox.join(", ")}]`);
+			details.push(`Detected objects:\n${lines.join("\n")}`);
+		}
+		if (details.length > 0) sections.push(`PDF page ${image.page} image:\n${details.join("\n\n")}`);
+	}
+	return sections.filter(Boolean).join("\n\n");
 }
 
 function skippedVisualFile(path: string): AgentToolResult<any> {
@@ -170,7 +187,8 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 	}
 
 	const hasBinaryContent = looksLikeBinary(rawBuffer);
-	if (hasBinaryContent) {
+	const hasPdfHeader = rawBuffer.subarray(0, 1024).includes(Buffer.from("%PDF-"));
+	if (hasBinaryContent || ext === "pdf" || hasPdfHeader) {
 		let detection: ReadSeekDetection | undefined;
 		try {
 			detection = await readSeekDetect(absolutePath, { signal });
@@ -188,6 +206,16 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			}
 			if (p.image === "none") {
 				try {
+					if (detection.kind === "pdf") {
+						const pdf = await readSeekPdf(absolutePath, p.image, { signal });
+						const content: AgentToolResult<any>["content"] = [{ type: "text", text: pdf.markdown }];
+						for (const image of pdf.images) {
+							if (image.encoding !== "base64" || image.data === undefined) continue;
+							content.push({ type: "text", text: `[PDF page ${image.page} image]` });
+							content.push({ type: "image", data: image.data, mimeType: image.mime });
+						}
+						return succeed({ content, details: {} });
+					}
 					const image = await readSeekPreparedImage(absolutePath, { signal });
 					return succeed({
 						content: [{ type: "image" as const, data: image.data, mimeType: image.mime }],
@@ -202,6 +230,13 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			}
 
 			try {
+				if (detection.kind === "pdf") {
+					const pdf = await readSeekPdf(absolutePath, p.image, { signal });
+					return succeed({
+						content: [{ type: "text" as const, text: formatPdfAnalysis(pdf) }],
+						details: {},
+					});
+				}
 				const analysis = await readSeekImage(absolutePath, [p.image], { signal });
 				const imageAnalysis = formatImageAnalysis(analysis);
 				if (imageAnalysis) {

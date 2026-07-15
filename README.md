@@ -60,18 +60,22 @@ for language detection and a cursor address:
 printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 ```
 
-## Images
+## Images and PDFs
 
 `detect` reports format, dimensions, and animation status for images. `read`
-runs vision analysis on images, defaulting to a caption; pass `--image` to choose
-the task (BLIP, YOLOv8-nano, TrOCR):
+preprocesses images for a vision-capable caller by default; pass `--image` to
+choose local analysis (BLIP, YOLOv8-nano, TrOCR):
 
 ```sh
-readseek read photo.jpg                  # default: caption
+readseek read photo.jpg                   # default: bounded base64 image
 readseek read photo.jpg --image caption   # detailed natural-language caption
 readseek read photo.jpg --image objects   # object labels + bounding boxes
 readseek read photo.jpg --image ocr       # extracted text
 ```
+
+PDF reads return page-tagged Markdown and page-associated embedded images. The
+same image modes apply to every extracted image; without `--image`, images are
+bounded and returned as base64 without local vision analysis.
 
 Each invocation selects one mode; the requested model loads once. The model files
 (~258 MB BLIP GGUF + ~6 MB YOLOv8-nano + ~1.24 GB TrOCR) are downloaded lazily

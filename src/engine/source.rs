@@ -8,6 +8,7 @@ use crate::engine::lang::{
     normalize_source_text,
 };
 use crate::engine::paths::bytes_contain_identifier;
+use crate::engine::pdf::PdfInfo;
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 pub(crate) enum ContentCategory {
     Text,
     Image(ImageInfo),
+    Pdf(PdfInfo),
     Binary,
 }
 
@@ -62,7 +64,7 @@ pub(crate) struct SourceFile {
     pub(crate) lines: Vec<SourceLine>,
     pub(crate) line_starts: Vec<usize>,
     pub(crate) file_hash: String,
-    pub(crate) image_bytes: Option<Vec<u8>>,
+    pub(crate) document_bytes: Option<Vec<u8>>,
 }
 
 impl SourceFile {
@@ -119,7 +121,7 @@ struct LoadedDocument {
     text: String,
     category: ContentCategory,
     mime: Option<String>,
-    image_bytes: Option<Vec<u8>>,
+    document_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -167,7 +169,7 @@ pub(crate) fn load_source_from_bytes(
         document.category,
         document.mime,
     );
-    source.image_bytes = document.image_bytes;
+    source.document_bytes = document.document_bytes;
     Ok(source)
 }
 
@@ -270,19 +272,22 @@ pub(crate) fn source_from_text(
         lines,
         line_starts,
         file_hash,
-        image_bytes: None,
+        document_bytes: None,
     }
 }
 
 fn load_document(path: &Path, bytes: Vec<u8>) -> Result<LoadedDocument> {
     let mime = infer::get(&bytes).map(|kind| kind.mime_type().to_owned());
 
-    let (category, text, image_bytes) = if is_plaintext(&bytes, mime.as_deref()) {
+    let (category, text, document_bytes) = if is_plaintext(&bytes, mime.as_deref()) {
         let text = String::from_utf8(bytes)
             .with_context(|| format!("{} is not UTF-8 text", path.display()))?;
         (ContentCategory::Text, text, None)
     } else if let Some(image) = crate::engine::image::probe(&bytes) {
         (ContentCategory::Image(image), String::new(), Some(bytes))
+    } else if mime.as_deref() == Some("application/pdf") {
+        let pdf = crate::engine::pdf::probe(&bytes)?;
+        (ContentCategory::Pdf(pdf), String::new(), Some(bytes))
     } else {
         (ContentCategory::Binary, String::new(), None)
     };
@@ -291,7 +296,7 @@ fn load_document(path: &Path, bytes: Vec<u8>) -> Result<LoadedDocument> {
         text,
         category,
         mime,
-        image_bytes,
+        document_bytes,
     })
 }
 

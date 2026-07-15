@@ -38,6 +38,7 @@ impl argh::FromArgValue for Format {
 pub(crate) enum DetectOutput {
     Source(DetectSourceOutput),
     Image(DetectImageOutput),
+    Pdf(DetectPdfOutput),
     Binary(DetectBinaryOutput),
     Text(DetectTextOutput),
 }
@@ -61,6 +62,13 @@ impl DetectOutput {
             ContentCategory::Image(image) => {
                 Self::Image(DetectImageOutput::new(file, mime, detect_mime, image))
             }
+            ContentCategory::Pdf(pdf) => Self::Pdf(DetectPdfOutput {
+                type_: mime,
+                file,
+                mime: detect_mime,
+                format: "pdf",
+                pages: pdf.pages,
+            }),
             ContentCategory::Binary => Self::Binary(DetectBinaryOutput {
                 file,
                 type_: mime,
@@ -136,6 +144,17 @@ pub(crate) struct DetectBinaryOutput {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct DetectPdfOutput {
+    #[serde(rename = "type")]
+    type_: String,
+    file: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<String>,
+    format: &'static str,
+    pages: usize,
+}
+
+#[derive(Debug, Serialize)]
 pub(crate) struct DetectTextOutput {
     #[serde(rename = "type")]
     type_: String,
@@ -195,6 +214,7 @@ impl Serialize for ImageMode {
 pub(crate) enum ReadOutput {
     Text(ReadTextOutput),
     Image(ReadImageOutput),
+    Pdf(crate::engine::pdf::ReadPdfOutput),
 }
 
 #[derive(Debug, Serialize)]
