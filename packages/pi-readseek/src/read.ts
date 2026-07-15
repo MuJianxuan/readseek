@@ -26,7 +26,7 @@ import { buildReadOutput } from "./read-output.js";
 
 import { buildLocalBundle } from "./read-local-bundle.js";
 import { coerceObviousBase10Int } from "./coerce-obvious-int.js";
-import { readSeekRead, readSeekDetect, readSeekImage, type ReadSeekDetection } from "./readseek-client.js";
+import { readSeekRead, readSeekDetect, readSeekImage, readSeekPreparedImage, type ReadSeekDetection } from "./readseek-client.js";
 import { formatReadCallText, formatReadResultText } from "./read-render-helpers.js";
 import { resolveReadSeekImageMode } from "./readseek-settings.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, renderToolLabel, resolveRenderResultContext, summaryLine, wrapReadHashlinesForWidthCached } from "./tui-render-utils.js";
@@ -172,9 +172,21 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		} catch {
 		}
 		if (detection?.kind === "image") {
+			const imageMode = resolveReadSeekImageMode();
+			if (imageMode === "auto" && opts.modelSupportsImages) {
+				try {
+					const image = await readSeekPreparedImage(absolutePath, { signal });
+					return succeed({
+						content: [{ type: "image" as const, data: image.data, mimeType: image.mime }],
+						details: {},
+					});
+				} catch {
+					// Retain Pi's native image reader when preprocessing is unavailable.
+				}
+			}
+
 			const builtinRead = createReadTool(cwd);
 			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
-			const imageMode = resolveReadSeekImageMode();
 			const shouldRunVision = imageMode === "force" || (imageMode === "auto" && !opts.modelSupportsImages);
 			if (!shouldRunVision) return succeed(builtinResult);
 

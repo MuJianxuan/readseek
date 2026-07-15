@@ -118,6 +118,12 @@ export interface ReadSeekDetectedObject {
 
 export type ReadSeekImageMode = "ocr" | "caption" | "objects";
 
+export interface ReadSeekPreparedImage {
+	mime: string;
+	encoding: "base64";
+	data: string;
+}
+
 export type ReadSeekDetection =
 	| {
 			kind: "source";
@@ -138,6 +144,8 @@ export type ReadSeekDetection =
 			width: number;
 			height: number;
 			animated: boolean;
+			encoding?: "base64";
+			data?: string;
 			ocr?: ReadSeekOcrText;
 			caption?: string;
 			objects?: ReadSeekDetectedObject[];
@@ -736,6 +744,8 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 			width: requireNumber(output.width, "width"),
 			height: requireNumber(output.height, "height"),
 			animated: requireBoolean(output.animated, "animated"),
+			encoding: output.encoding === undefined ? undefined : parseImageEncoding(output.encoding),
+			data: output.data === undefined ? undefined : requireString(output.data, "data"),
 			ocr: parseOcrText(output.ocr),
 			caption: optionalString(output.caption, "caption"),
 			objects: parseDetectedObjects(output.objects),
@@ -754,6 +764,11 @@ function parseDetectOutput(value: unknown): ReadSeekDetection {
 		};
 	}
 	return { kind: "text", type, file, mime };
+}
+
+function parseImageEncoding(value: unknown): "base64" {
+	if (value === "base64") return value;
+	throw new Error("invalid image encoding");
 }
 
 export async function readSeekDetect(
@@ -798,6 +813,17 @@ export async function readSeekImage(
 	const failure = results.find((result) => result.status === "rejected");
 	if (failure?.status === "rejected") throw failure.reason;
 	throw new Error(`readseek returned no image analysis for ${filePath}`);
+}
+
+export async function readSeekPreparedImage(
+	filePath: string,
+	options: { signal?: AbortSignal } = {},
+): Promise<ReadSeekPreparedImage> {
+	const output = parseDetectOutput(await runReadSeek(["read", "--image", "none", filePath], { signal: options.signal }));
+	if (output.kind !== "image" || output.encoding !== "base64" || output.data === undefined || output.mime === undefined) {
+		throw new Error(`readseek returned no prepared image for ${filePath}`);
+	}
+	return { mime: output.mime, encoding: output.encoding, data: output.data };
 }
 
 // --- Rename ---

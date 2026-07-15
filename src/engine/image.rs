@@ -4,7 +4,17 @@
 //! Image detection and metadata. Text/vision analysis lives in
 //! [`crate::engine::vision`].
 
+use std::io::Cursor;
+
+use anyhow::{Context, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use image::{
+    DynamicImage, ImageFormat as RasterFormat, codecs::jpeg::JpegEncoder, imageops::FilterType,
+};
 use serde::Serialize;
+
+const MAX_LONG_EDGE: u32 = 1568;
+const JPEG_QUALITY: u8 = 80;
 
 /// A recognized image format.
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -46,6 +56,40 @@ pub(crate) struct ImageInfo {
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) animated: bool,
+}
+
+/// A model-ready, bounded raster image.
+#[derive(Debug)]
+pub(crate) struct PreparedImage {
+    pub(crate) mime: &'static str,
+    pub(crate) data: String,
+}
+
+/// Decode, bound, and encode an image for a model image-content block.
+pub(crate) fn preprocess(bytes: &[u8]) -> Result<PreparedImage> {
+    let image = image::load_from_memory(bytes).context("decode image")?;
+    let image = image.resize(MAX_LONG_EDGE, MAX_LONG_EDGE, FilterType::Lanczos3);
+    let (mime, bytes) = encode_image(&image)?;
+    Ok(PreparedImage {
+        mime,
+        data: STANDARD.encode(bytes),
+    })
+}
+
+fn encode_image(image: &DynamicImage) -> Result<(&'static str, Vec<u8>)> {
+    let mut bytes = Vec::new();
+    if image.color().has_alpha() {
+        let mut cursor = Cursor::new(&mut bytes);
+        image
+            .write_to(&mut cursor, RasterFormat::Png)
+            .context("encode PNG")?;
+        Ok(("image/png", bytes))
+    } else {
+        JpegEncoder::new_with_quality(&mut bytes, JPEG_QUALITY)
+            .encode_image(image)
+            .context("encode JPEG")?;
+        Ok(("image/jpeg", bytes))
+    }
 }
 
 /// Identify `bytes` as an image, reporting its format, pixel dimensions, and a

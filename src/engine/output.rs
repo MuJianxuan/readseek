@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::hash::LineHash;
-use crate::engine::image::ImageInfo;
+use crate::engine::image::{ImageInfo, PreparedImage};
 use crate::engine::lang::{AnalysisEngine, Language, serialize_engine};
 use crate::engine::source::{
     ContentCategory, Detection, HashLine, SourceFile, Symbol, find_symbol, load_source,
@@ -170,6 +170,7 @@ impl From<&SourceFile> for SourceHeader {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ImageMode {
     #[default]
+    None,
     Caption,
     Objects,
     Ocr,
@@ -181,6 +182,7 @@ impl Serialize for ImageMode {
         S: serde::Serializer,
     {
         serializer.serialize_str(match self {
+            Self::None => "none",
             Self::Caption => "caption",
             Self::Objects => "objects",
             Self::Ocr => "ocr",
@@ -220,6 +222,10 @@ pub(crate) struct ReadImageOutput {
     objects: Option<Vec<DetectedObject>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ocr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encoding: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -517,18 +523,33 @@ pub(crate) fn read_image_output(
     source: &SourceFile,
     mode: ImageMode,
     analysis: Analysis,
+    prepared: Option<PreparedImage>,
 ) -> Result<ReadImageOutput> {
     let mime = source.detection.mime.clone();
-    let type_ = mime
-        .clone()
-        .unwrap_or_else(|| "application/octet-stream".to_string());
     let ContentCategory::Image(image) = source.detection.category else {
         bail!("not an image");
     };
     let (caption, objects, ocr) = match mode {
+        ImageMode::None => (None, None, None),
         ImageMode::Caption => (analysis.caption, None, None),
         ImageMode::Objects => (None, analysis.objects, None),
         ImageMode::Ocr => (None, None, analysis.ocr),
+    };
+    let (type_, mime, encoding, data) = if let Some(prepared) = prepared {
+        (
+            prepared.mime.to_owned(),
+            Some(prepared.mime.to_owned()),
+            Some("base64"),
+            Some(prepared.data),
+        )
+    } else {
+        (
+            mime.clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string()),
+            mime,
+            None,
+            None,
+        )
     };
     Ok(ReadImageOutput {
         file: source.path.clone(),
@@ -539,6 +560,8 @@ pub(crate) fn read_image_output(
         caption,
         objects,
         ocr,
+        encoding,
+        data,
     })
 }
 

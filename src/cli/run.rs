@@ -188,16 +188,19 @@ impl cli::ReadCommand {
                 bail!("--end, --limit, and --language do not apply to images");
             }
             let mode = self.image.unwrap_or_default();
+            let Some(bytes) = source.image_bytes.as_deref() else {
+                bail!("missing image bytes for {}", source.path.display());
+            };
             let request = crate::engine::vision::Request {
                 caption: mode == cli::ImageMode::Caption,
                 objects: mode == cli::ImageMode::Objects,
                 ocr: mode == cli::ImageMode::Ocr,
             };
-            let Some(bytes) = source.image_bytes.as_deref() else {
-                bail!("missing image bytes for {}", source.path.display());
-            };
             let analysis = run_vision(bytes, request);
-            let image_output = output::read_image_output(&source, mode, analysis)?;
+            let prepared = (mode == cli::ImageMode::None)
+                .then(|| crate::engine::image::preprocess(bytes))
+                .transpose()?;
+            let image_output = output::read_image_output(&source, mode, analysis, prepared)?;
             let output = output::ReadOutput::Image(image_output);
             return Ok(serde_json::to_string(&output)?);
         }

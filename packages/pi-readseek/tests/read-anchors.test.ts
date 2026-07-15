@@ -4,12 +4,13 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, imageMode } = vi.hoisted(() => ({
+const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, readSeekPreparedImageMock, imageMode } = vi.hoisted(() => ({
 	createReadToolExecuteMock: vi.fn(),
 	readSeekMapMock: vi.fn(),
 	readSeekReadMock: vi.fn(),
 	readSeekDetectMock: vi.fn(),
 	readSeekImageMock: vi.fn(),
+	readSeekPreparedImageMock: vi.fn(),
 	imageMode: { value: "force" as "force" | "off" | "auto" },
 }));
 
@@ -30,6 +31,7 @@ vi.mock("../src/readseek-client.js", () => ({
 	readSeekRead: readSeekReadMock,
 	readSeekDetect: readSeekDetectMock,
 	readSeekImage: readSeekImageMock,
+	readSeekPreparedImage: readSeekPreparedImageMock,
 }));
 
 const { executeRead } = await import("../src/read.js");
@@ -196,14 +198,16 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
-	it("skips image analysis for image-capable models when imageMode is auto", async () => {
+	it("preprocesses images for image-capable models when imageMode is auto", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			imageMode.value = "auto";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
-			createReadToolExecuteMock.mockResolvedValueOnce({
-				content: [{ type: "text", text: "image attachment" }],
+			readSeekPreparedImageMock.mockResolvedValueOnce({
+				mime: "image/jpeg",
+				encoding: "base64",
+				data: "prepared-image",
 			});
 
 			const result = await executeRead({
@@ -215,9 +219,9 @@ describe("executeRead anchor tracking", () => {
 				modelSupportsImages: true,
 			});
 
-			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
-			expect(text).toBe("image attachment");
+			expect(result.content).toEqual([{ type: "image", mimeType: "image/jpeg", data: "prepared-image" }]);
 			expect(readSeekImageMock).not.toHaveBeenCalled();
+			expect(createReadToolExecuteMock).not.toHaveBeenCalled();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

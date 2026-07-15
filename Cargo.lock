@@ -2260,6 +2260,7 @@ dependencies = [
  "anyhow",
  "arborium-meson",
  "argh",
+ "base64 0.22.1",
  "blake3",
  "candle-core",
  "candle-nn",
