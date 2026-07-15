@@ -261,10 +261,10 @@ fn collect_free_occurrences(
                 out.excluded.push(node.start_byte());
             }
         }
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
         }
     }
 }
@@ -356,10 +356,10 @@ fn collect_declarations<'tree>(
                 });
             }
         }
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
         }
     }
 }
@@ -392,27 +392,24 @@ fn resolve_node(
         let hidden_class =
             left_innermost_scope && table.class_scope_kinds.contains(&current.kind());
         if !hidden_class {
-            let scoped: Vec<_> = declarations
-                .iter()
-                .filter(|declaration| declaration.name == name && declaration.scope == current.id())
-                .collect();
+            let scoped = || {
+                declarations.iter().filter(|declaration| {
+                    declaration.name == name && declaration.scope == current.id()
+                })
+            };
             let resolved = match table.resolution {
                 Resolution::Lexical
-                    if scoped
-                        .iter()
+                    if scoped()
                         .any(|declaration| (table.unifies_declarations)(declaration.ident)) =>
                 {
-                    scoped
-                        .into_iter()
-                        .min_by_key(|declaration| declaration.ident.start_byte())
+                    scoped().min_by_key(|declaration| declaration.ident.start_byte())
                 }
-                Resolution::Lexical => scoped
-                    .into_iter()
+                Resolution::Lexical => scoped()
                     .filter(|declaration| declaration.ident.start_byte() <= use_start)
                     .max_by_key(|declaration| declaration.ident.start_byte()),
-                Resolution::Hoisted => scoped
-                    .into_iter()
-                    .min_by_key(|declaration| declaration.ident.start_byte()),
+                Resolution::Hoisted => {
+                    scoped().min_by_key(|declaration| declaration.ident.start_byte())
+                }
             };
             if let Some(declaration) = resolved {
                 return Some(declaration.ident.start_byte());
@@ -459,10 +456,10 @@ fn collect_occurrences(
                 kind,
             });
         }
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
         }
     }
 }

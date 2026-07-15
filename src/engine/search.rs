@@ -215,46 +215,42 @@ fn nodes_match<'a>(
         return false;
     }
 
-    let pattern_children = named_children(pattern_node);
-    let source_children = named_children(source_node);
-    if pattern_children.is_empty() {
+    if pattern_node.named_child_count() == 0 {
         return pattern_node.utf8_text(pattern.text.as_bytes()).ok()
             == source_node.utf8_text(source.text.as_bytes()).ok();
     }
 
-    child_nodes_match(
-        source,
-        pattern,
-        &pattern_children,
-        &source_children,
-        0,
-        0,
-        captures,
-    )
+    child_nodes_match(source, pattern, pattern_node, source_node, 0, 0, captures)
 }
 
 fn child_nodes_match<'a>(
     source: &'a SourceFile,
     pattern: &'a SearchPattern,
-    pattern_children: &[Node<'_>],
-    source_children: &[Node<'_>],
+    pattern_node: Node<'_>,
+    source_node: Node<'_>,
     pattern_index: usize,
     source_index: usize,
     captures: &mut Vec<SearchCaptureRange<'a>>,
 ) -> bool {
-    if pattern_index == pattern_children.len() {
-        return source_index == source_children.len();
+    if pattern_index == pattern_node.named_child_count() {
+        return source_index == source_node.named_child_count();
     }
 
-    let pattern_child = pattern_children[pattern_index];
+    let Some(pattern_child) = pattern_node.named_child(pattern_index) else {
+        return false;
+    };
     if let Some(meta) = pattern_meta(pattern, pattern_child)
         && meta.kind == PatternMetaKind::Variadic
     {
-        for count in 0..=source_children.len().saturating_sub(source_index) {
+        for count in 0..=source_node.named_child_count().saturating_sub(source_index) {
             let snapshot = captures.len();
             if count > 0 {
-                let start_node = source_children[source_index];
-                let end_node = source_children[source_index + count - 1];
+                let Some(start_node) = source_node.named_child(source_index) else {
+                    return false;
+                };
+                let Some(end_node) = source_node.named_child(source_index + count - 1) else {
+                    return false;
+                };
                 let (start_line, _) = symbols::node_line_range(start_node);
                 let (_, end_line) = symbols::node_line_range(end_node);
                 let Some(text) = source
@@ -270,8 +266,8 @@ fn child_nodes_match<'a>(
             if child_nodes_match(
                 source,
                 pattern,
-                pattern_children,
-                source_children,
+                pattern_node,
+                source_node,
                 pattern_index + 1,
                 source_index + count,
                 captures,
@@ -283,25 +279,22 @@ fn child_nodes_match<'a>(
         return false;
     }
 
-    if source_index >= source_children.len() {
+    if source_index >= source_node.named_child_count() {
         return false;
     }
+    let Some(source_child) = source_node.named_child(source_index) else {
+        return false;
+    };
 
     let snapshot = captures.len();
-    if !nodes_match(
-        source,
-        pattern,
-        pattern_child,
-        source_children[source_index],
-        captures,
-    ) {
+    if !nodes_match(source, pattern, pattern_child, source_child, captures) {
         return false;
     }
     if child_nodes_match(
         source,
         pattern,
-        pattern_children,
-        source_children,
+        pattern_node,
+        source_node,
         pattern_index + 1,
         source_index + 1,
         captures,
@@ -333,11 +326,6 @@ fn bind_capture<'a>(
         end_line,
     });
     true
-}
-
-fn named_children(node: Node<'_>) -> Vec<Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).collect()
 }
 
 fn pattern_meta<'a>(pattern: &'a SearchPattern, node: Node<'_>) -> Option<&'a PatternMeta> {

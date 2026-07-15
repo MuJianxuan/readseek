@@ -380,7 +380,13 @@ pub(crate) fn store_map(
     let sym_count = u32::try_from(source_map.symbols.len())
         .with_context(|| format!("too many symbols: {}", source_map.symbols.len()))?;
 
-    let mut strtab = Vec::new();
+    let string_bytes = source_map.symbols.iter().fold(0usize, |total, symbol| {
+        total
+            .saturating_add(symbol.kind.len())
+            .saturating_add(symbol.name.len())
+            .saturating_add(symbol.qualified_name.len())
+    });
+    let mut strtab = Vec::with_capacity(string_bytes);
     let mut entries = Vec::with_capacity(source_map.symbols.len());
 
     for symbol in &source_map.symbols {
@@ -587,23 +593,20 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     };
     let paths = crate::engine::paths::command_paths(&project_root, flags)?;
 
-    let results: Vec<_> = paths
+    let results = paths
         .par_iter()
         .map(|path| process_update_path(&readseek_dir, path))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
-    let mut active_hashes = HashSet::new();
-    let mut index_entries = Vec::new();
+    let mut active_hashes = HashSet::with_capacity(results.len());
+    let mut index_entries = Vec::with_capacity(results.len());
     let mut stats = UpdateStats {
         created: 0,
         removed: 0,
         unchanged: 0,
     };
 
-    for result in results {
+    for result in results.into_iter().flatten() {
         active_hashes.insert(result.file_hash);
         index_entries.extend(result.entries);
         if result.created {

@@ -313,7 +313,7 @@ fn apply_all(
             fs::read_to_string(path).with_context(|| format!("re-read {}", path.display()))?;
         let current = source_from_text(
             path,
-            raw_text.clone(),
+            raw_text,
             request.language,
             ContentCategory::Text,
             None,
@@ -330,8 +330,8 @@ fn apply_all(
                 );
             }
         }
-        let new_text = rewrite(&raw_text, edits, old_name, &request.to)?;
-        writes.push((path, raw_text, new_text));
+        let new_text = rewrite(&current.text, edits, old_name, &request.to)?;
+        writes.push((path, current.text, new_text));
     }
 
     // All files verified: write them, restoring on any failure.
@@ -349,10 +349,9 @@ fn apply_all(
     Ok(())
 }
 
-/// Replace each edit span with `new_name`, applying back-to-front so earlier
-/// byte offsets stay valid. Refuses unless every span still holds `old_name`.
+/// Replace each edit span with `new_name` in one forward copy. Refuses unless
+/// every span still holds `old_name`.
 fn rewrite(source: &str, edits: &[RenameEdit], old_name: &str, new_name: &str) -> Result<String> {
-    let mut text = source.to_owned();
     let line_starts = raw_line_starts(source);
     let mut ordered = Vec::with_capacity(edits.len());
     for edit in edits {
@@ -371,23 +370,37 @@ fn rewrite(source: &str, edits: &[RenameEdit], old_name: &str, new_name: &str) -
             .context("edit span is out of range")?;
         ordered.push((edit, start, end));
     }
-    ordered.sort_by_key(|(_, start, _)| std::cmp::Reverse(*start));
+    ordered.sort_by_key(|(_, start, _)| *start);
+    let extra = new_name
+        .len()
+        .saturating_sub(old_name.len())
+        .saturating_mul(ordered.len());
+    let mut text = String::with_capacity(source.len().saturating_add(extra));
+    let mut previous_end = 0;
     for (_, start, end) in ordered {
-        if end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
+        if start < previous_end
+            || end > source.len()
+            || !source.is_char_boundary(start)
+            || !source.is_char_boundary(end)
+        {
             bail!("refusing to apply: edit span is out of range");
         }
-        if &text[start..end] != old_name {
+        if &source[start..end] != old_name {
             bail!("refusing to apply: a target span no longer holds `{old_name}`");
         }
-        text.replace_range(start..end, new_name);
+        text.push_str(&source[previous_end..start]);
+        text.push_str(new_name);
+        previous_end = end;
     }
+    text.push_str(&source[previous_end..]);
     Ok(text)
 }
 
 fn raw_line_starts(text: &str) -> Vec<usize> {
     let bytes = text.as_bytes();
     let mut offset = usize::from(text.starts_with('\u{feff}')) * '\u{feff}'.len_utf8();
-    let mut starts = vec![offset];
+    let mut starts = Vec::with_capacity(memchr::memchr_iter(b'\n', bytes).count() + 1);
+    starts.push(offset);
     while offset < bytes.len() {
         match bytes[offset] {
             b'\r' if bytes.get(offset + 1) == Some(&b'\n') => {

@@ -7,8 +7,8 @@ use crate::engine::lang::{AnalysisEngine, Language};
 use crate::engine::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
 use crate::engine::source::{
-    ContentCategory, SourceFile, Symbol, find_symbol, read_source_containing, source_from_text,
-    source_map_with_dir,
+    ContentCategory, SourceFile, Symbol, find_symbol, read_source_containing_with_buffer,
+    source_from_text, source_map_with_dir,
 };
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
@@ -48,17 +48,22 @@ pub(crate) fn output(request: &Request) -> Result<RefsOutput> {
 
     let references: Vec<RefLocation> = paths
         .par_iter()
-        .map_init(Parser::new, |parser, path| {
-            let Some(source) = read_source_containing(path, name, request.language) else {
-                return vec![];
-            };
-            let needs_parser = matches!(
-                source.detection.language,
-                crate::engine::lang::Language::C | crate::engine::lang::Language::Cpp
-            );
-            let parser = needs_parser.then_some(&mut *parser);
-            scan_source(&source, name, parser, readseek_dir.as_deref())
-        })
+        .map_init(
+            || (Parser::new(), Vec::new()),
+            |(parser, bytes), path| {
+                let Some(source) =
+                    read_source_containing_with_buffer(path, name, request.language, bytes)
+                else {
+                    return vec![];
+                };
+                let needs_parser = matches!(
+                    source.detection.language,
+                    crate::engine::lang::Language::C | crate::engine::lang::Language::Cpp
+                );
+                let parser = needs_parser.then_some(&mut *parser);
+                scan_source(&source, name, parser, readseek_dir.as_deref())
+            },
+        )
         .flatten_iter()
         .collect();
 
@@ -165,15 +170,22 @@ fn scan_source(
     let name_bytes = name.as_bytes();
 
     let mut compact: Vec<(usize, usize)> = Vec::new();
+    let mut line_idx = 0;
+    let mut ignored_idx = 0;
     for byte_index in identifier_spans(text_bytes, name_bytes) {
-        let line_idx = line_starts
-            .partition_point(|&start| start <= byte_index)
-            .saturating_sub(1);
+        while line_idx + 1 < line_starts.len() && line_starts[line_idx + 1] <= byte_index {
+            line_idx += 1;
+        }
         let Some(line) = source.lines.get(line_idx) else {
             continue;
         };
-        let index = ignored_ranges.partition_point(|&(start, _)| start <= byte_index);
-        if index > 0 && byte_index < ignored_ranges[index - 1].1 {
+        while ignored_idx < ignored_ranges.len() && ignored_ranges[ignored_idx].1 <= byte_index {
+            ignored_idx += 1;
+        }
+        if ignored_ranges
+            .get(ignored_idx)
+            .is_some_and(|&(start, end)| start <= byte_index && byte_index < end)
+        {
             continue;
         }
         compact.push((line.number, byte_index - line_starts[line_idx] + 1));

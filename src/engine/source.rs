@@ -12,7 +12,8 @@ use crate::engine::pdf::PdfInfo;
 use crate::engine::symbols;
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -184,11 +185,21 @@ pub(crate) fn read_source_containing(
     name: &str,
     language: Option<Language>,
 ) -> Option<SourceFile> {
-    let bytes = fs::read(path).ok()?;
-    if !bytes_contain_identifier(&bytes, name.as_bytes()) {
+    read_source_containing_with_buffer(path, name, language, &mut Vec::new())
+}
+
+pub(crate) fn read_source_containing_with_buffer(
+    path: &Path,
+    name: &str,
+    language: Option<Language>,
+    bytes: &mut Vec<u8>,
+) -> Option<SourceFile> {
+    bytes.clear();
+    File::open(path).ok()?.read_to_end(bytes).ok()?;
+    if !bytes_contain_identifier(bytes, name.as_bytes()) {
         return None;
     }
-    let text = String::from_utf8(bytes).ok()?;
+    let text = String::from_utf8(std::mem::take(bytes)).ok()?;
     Some(source_from_text(
         path,
         text,
@@ -244,8 +255,9 @@ pub(crate) fn source_from_text(
         DocumentKind::Source
     };
     let file_hash = hash_text(&text);
-    let mut line_starts = Vec::new();
-    let mut lines = Vec::new();
+    let line_count = memchr::memchr_iter(b'\n', text.as_bytes()).count() + 1;
+    let mut line_starts = Vec::with_capacity(line_count);
+    let mut lines = Vec::with_capacity(line_count);
     let mut offset = 0;
     for (index, part) in text.split_terminator('\n').enumerate() {
         line_starts.push(offset);

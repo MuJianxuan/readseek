@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
+use std::rc::Rc;
+
 use crate::engine::hash::LineHash;
 use crate::engine::lang::{AnalysisEngine, DocumentKind, Language, language_spec};
 use crate::engine::output::{Diagnostic, DiagnosticKind};
@@ -101,11 +103,11 @@ fn collect_diagnostics(root: Node<'_>, diagnostics: &mut Vec<Diagnostic>) {
             });
         }
 
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
         // Push in reverse to preserve DFS order.
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
         }
     }
 }
@@ -167,22 +169,22 @@ fn collect_symbols(
     // Iterative DFS using an explicit stack to avoid stack overflow on
     // deep ASTs (the tree-sitter CST for a single C file can be thousands
     // of nodes deep in debug builds where each stack frame is large).
-    let mut stack: Vec<(Node<'_>, Option<String>)> = vec![(root, parent.map(ToOwned::to_owned))];
+    let mut stack: Vec<(Node<'_>, Option<Rc<str>>)> = vec![(root, parent.map(Rc::from))];
     while let Some((node, current_parent)) = stack.pop() {
         let symbol = symbol_for_node(node, source, language, current_parent.as_deref(), lines);
         let next_parent = symbol
             .as_ref()
-            .map(|symbol| symbol.qualified_name.clone())
+            .map(|symbol| Rc::from(symbol.qualified_name.as_str()))
             .or(current_parent);
         if let Some(symbol) = symbol {
             symbols.push(symbol);
         }
 
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.children(&mut cursor).collect();
         // Push in reverse to preserve DFS order.
-        for child in children.into_iter().rev() {
-            stack.push((child, next_parent.clone()));
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push((child, next_parent.clone()));
+            }
         }
     }
 }
@@ -506,10 +508,10 @@ fn descendant_of_kind<'tree>(root: Node<'tree>, kind: &str) -> Option<Node<'tree
             return Some(node);
         }
 
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.named_children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
+        for index in (0..node.named_child_count()).rev() {
+            if let Some(child) = node.named_child(index) {
+                stack.push(child);
+            }
         }
     }
 
@@ -541,10 +543,10 @@ fn declarator_identifier(node: Node<'_>, source: &str) -> Option<String> {
             .map(ToOwned::to_owned);
     }
 
-    let mut cursor = node.walk();
-    let children = node.named_children(&mut cursor).collect::<Vec<_>>();
-    for child in children.into_iter().rev() {
-        if let Some(name) = declarator_identifier(child, source) {
+    for index in (0..node.named_child_count()).rev() {
+        if let Some(child) = node.named_child(index)
+            && let Some(name) = declarator_identifier(child, source)
+        {
             return Some(name);
         }
     }
