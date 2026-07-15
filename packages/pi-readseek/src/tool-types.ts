@@ -7,3 +7,6 @@ export type FileAnchoredCallback = (absolutePath: string) => void;
  * Predicate used by mutating tools to check whether a file has session-fresh anchors.
  */
 export type FreshAnchorsPredicate = (absolutePath: string) => boolean;
+
+/** Callback used after a tool persists a file mutation. */
+export type FileMutatedCallback = (absolutePath: string) => void;

@@ -530,12 +530,14 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 	const tool = registerReadSeekTool(pi, {
 		name,
 		label: "Read",
-		description: promptMetadata.description,
+		description: imageMode === "off"
+			? 'Read anchored text by range, map, or symbol; image and PDF files are skipped because imageMode is "off".'
+			: promptMetadata.description,
 		promptSnippet: promptMetadata.promptSnippet,
 		promptGuidelines: [
 			...promptMetadata.promptGuidelines,
 			imageMode === "off"
-				? "Image and PDF reads are disabled."
+				? "The image parameter is unavailable; image and PDF files are always skipped."
 				: `For an image or PDF, explicitly choose image: ${imageModes.join(", ")}; omitting image skips the file.`,
 		],
 		parameters: Type.Object({

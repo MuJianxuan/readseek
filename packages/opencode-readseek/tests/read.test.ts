@@ -46,11 +46,11 @@ describe("readseek_read", () => {
     const args = commands.map((command) => command.slice(1));
     expect(args).toEqual([
       ["detect", "/repo/file.ts"],
-      ["read", "/repo/file.ts"],
+      ["read", "/repo/file.ts", "--end", "2000"],
       ["detect", "/repo/file.ts"],
       ["read", "/repo/file.ts", "--end", "5"],
       ["detect", "/repo/file.ts"],
-      ["read", "/repo/file.ts:3"],
+      ["read", "/repo/file.ts:3", "--end", "2002"],
       ["detect", "/repo/file.ts"],
       ["read", "/repo/file.ts:3", "--end", "7"],
     ]);

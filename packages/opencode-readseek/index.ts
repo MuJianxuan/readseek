@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Jarkko Sakkinen 2026
 
-import { stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ import { tool, type Plugin, type PluginOptions, type ToolContext } from "@openco
 
 const require = createRequire(import.meta.url);
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+const DEFAULT_READ_LIMIT = 2000;
 const READSEEK_PLATFORM_PACKAGES: Record<string, string> = {
   "darwin-arm64": "@jarkkojs/readseek-darwin-arm64",
   "linux-arm64": "@jarkkojs/readseek-linux-arm64",
@@ -21,7 +22,7 @@ type RenamePlan = {
   files: Set<string>;
 };
 
-type PresentationKind = "read" | "map" | "search" | "def" | "refs" | "hover" | "rename" | "check";
+type PresentationKind = "read" | "map" | "search" | "grep" | "def" | "refs" | "hover" | "rename" | "edit" | "write" | "check";
 
 type Presentation = {
   title: string;
@@ -73,6 +74,10 @@ class SessionAnchors {
   planRename(sessionID: string, output: unknown): void {
     if (!output || typeof output !== "object") return;
     const record = output as Record<string, unknown>;
+    if (record.applied === true) {
+      this.#renamePlans.delete(sessionID);
+      return;
+    }
     const { file, old_name: oldName, new_name: newName, others } = record;
     if (typeof file !== "string" || typeof oldName !== "string" || typeof newName !== "string") return;
 
@@ -111,13 +116,34 @@ function containsPath(directory: string, filePath: string): boolean {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
+async function canonicalPath(filePath: string): Promise<string> {
+  const missing: string[] = [];
+  let existing = filePath;
+  while (true) {
+    try {
+      return path.join(await realpath(existing), ...missing.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(existing);
+      if (parent === existing) throw error;
+      missing.push(path.basename(existing));
+      existing = parent;
+    }
+  }
+}
+
 async function authorizeExternal(context: ToolContext, filePath: string): Promise<void> {
-  if (containsPath(context.directory, filePath) || (context.worktree !== "/" && containsPath(context.worktree, filePath))) {
+  const [accessPath, directory, worktree] = await Promise.all([
+    canonicalPath(filePath),
+    canonicalPath(context.directory),
+    context.worktree === "/" ? Promise.resolve("/") : canonicalPath(context.worktree),
+  ]);
+  if (containsPath(directory, accessPath) || (worktree !== "/" && containsPath(worktree, accessPath))) {
     return;
   }
 
-  const info = await stat(filePath).catch(() => undefined);
-  const parentDir = info?.isDirectory() ? filePath : path.dirname(filePath);
+  const info = await stat(accessPath).catch(() => undefined);
+  const parentDir = info?.isDirectory() ? accessPath : path.dirname(accessPath);
   const pattern = path.join(parentDir, "*").replaceAll("\\", "/");
   await context.ask({
     permission: "external_directory",
@@ -125,6 +151,14 @@ async function authorizeExternal(context: ToolContext, filePath: string): Promis
     always: [pattern],
     metadata: { filepath: filePath, parentDir },
   });
+}
+
+async function rejectSymlinkMutation(filePath: string): Promise<void> {
+  const info = await lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (info?.isSymbolicLink()) throw new Error(`refusing to modify symbolic link: ${filePath}`);
 }
 
 async function authorizeRead(context: ToolContext, filePath: string): Promise<void> {
@@ -145,6 +179,24 @@ async function authorizeSearch(context: ToolContext, filePath: string, pattern: 
     metadata: { pattern, path: filePath },
   });
   await authorizeExternal(context, filePath);
+}
+
+async function authorizeEdit(
+  context: ToolContext,
+  filePaths: string[],
+  diff = "",
+  authorizeExternalPaths = true,
+): Promise<void> {
+  if (authorizeExternalPaths) {
+    for (const filePath of filePaths) await authorizeExternal(context, filePath);
+  }
+  const patterns = filePaths.map((filePath) => path.relative(context.worktree, filePath).replaceAll("\\", "/"));
+  await context.ask({
+    permission: "edit",
+    patterns,
+    always: ["*"],
+    metadata: { filepath: filePaths.join(", "), diff },
+  });
 }
 
 function optionalFlag(args: string[], enabled: boolean | undefined, flag: string): void {
@@ -192,17 +244,115 @@ function render(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function collectFiles(value: unknown, files: Set<string>): void {
+function collectAnchoredFiles(value: unknown, files: Set<string>): void {
   if (Array.isArray(value)) {
-    for (const item of value) collectFiles(item, files);
+    for (const item of value) collectAnchoredFiles(item, files);
     return;
   }
   if (!value || typeof value !== "object") return;
 
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "file" && typeof item === "string") files.add(item);
-    else collectFiles(item, files);
+  const output = value as Record<string, unknown>;
+  const hashlines = output.hashlines;
+  if (
+    typeof output.file === "string" &&
+    Array.isArray(hashlines) &&
+    hashlines.some((line) => typeof record(line).line === "number" && typeof record(line).hash === "string")
+  ) files.add(output.file);
+  for (const item of Object.values(output)) collectAnchoredFiles(item, files);
+}
+
+type AnchorEdit =
+  | { set_line: { anchor: string; new_text: string } }
+  | { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
+  | { insert_after: { anchor: string; new_text: string } };
+
+function parseAnchor(anchor: string): { line: number; hash: string } {
+  const match = /^(\d+):([0-9a-fA-F]{3})$/.exec(anchor.trim());
+  if (!match) throw new Error(`invalid LINE:HASH anchor: ${anchor}`);
+  return { line: Number(match[1]), hash: match[2].toLowerCase() };
+}
+
+function anchorRefs(edit: AnchorEdit): { line: number; hash: string }[] {
+  if ("set_line" in edit) return [parseAnchor(edit.set_line.anchor)];
+  if ("insert_after" in edit) return [parseAnchor(edit.insert_after.anchor)];
+  return [parseAnchor(edit.replace_lines.start_anchor), parseAnchor(edit.replace_lines.end_anchor)];
+}
+
+async function verifyAnchors(context: ToolContext, filePath: string, edits: AnchorEdit[]): Promise<void> {
+  const refs = new Map<number, string>();
+  for (const edit of edits) {
+    for (const ref of anchorRefs(edit)) {
+      const previous = refs.get(ref.line);
+      if (previous !== undefined && previous !== ref.hash) throw new Error(`conflicting hashes for line ${ref.line}`);
+      refs.set(ref.line, ref.hash);
+    }
   }
+  for (const [line, expected] of refs) {
+    const output = record(await runReadSeek(context, ["read", `${filePath}:${line}`, "--end", String(line)]));
+    const hashline = items(output.hashlines).map(record)[0];
+    const actual = hashline?.hash;
+    if (typeof actual !== "string" || actual !== expected) {
+      throw new Error(`stale anchor ${line}:${expected}; current hash is ${typeof actual === "string" ? actual : "unavailable"}`);
+    }
+  }
+}
+
+function applyAnchorEdits(content: string, edits: AnchorEdit[]): string {
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const trailingNewline = content.endsWith("\n");
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  if (trailingNewline) lines.pop();
+  const planned = edits.map((edit) => {
+    if ("set_line" in edit) {
+      const { line } = parseAnchor(edit.set_line.anchor);
+      return { start: line - 1, deleteCount: 1, text: edit.set_line.new_text };
+    }
+    if ("insert_after" in edit) {
+      const { line } = parseAnchor(edit.insert_after.anchor);
+      return { start: line, deleteCount: 0, text: edit.insert_after.new_text };
+    }
+    const start = parseAnchor(edit.replace_lines.start_anchor).line;
+    const end = parseAnchor(edit.replace_lines.end_anchor).line;
+    if (end < start) throw new Error("replace_lines end anchor precedes start anchor");
+    return { start: start - 1, deleteCount: end - start + 1, text: edit.replace_lines.new_text };
+  });
+  const ascending = [...planned].sort((left, right) => left.start - right.start || left.deleteCount - right.deleteCount);
+  for (let index = 1; index < ascending.length; index++) {
+    const previous = ascending[index - 1];
+    const current = ascending[index];
+    const previousEnd = previous.start + Math.max(previous.deleteCount, 1);
+    if (current.start < previousEnd) throw new Error("anchored edits overlap or target the same location");
+  }
+  planned.sort((left, right) => right.start - left.start);
+  for (const edit of planned) {
+    if (edit.start < 0 || edit.start > lines.length || edit.start + edit.deleteCount > lines.length) {
+      throw new Error("anchor line is outside the file");
+    }
+    const replacement = edit.text === "" ? [] : edit.text.replace(/\r\n/g, "\n").split("\n");
+    lines.splice(edit.start, edit.deleteCount, ...replacement);
+  }
+  return lines.join(newline) + (trailingNewline ? newline : "");
+}
+
+async function writeText(filePath: string, content: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, content, "utf8");
+}
+
+function renameFiles(value: unknown): string[] {
+  const output = record(value);
+  const files: string[] = [];
+  if (typeof output.file === "string" && items(output.edits).length > 0) files.push(path.resolve(output.file));
+  for (const other of items(output.others)) {
+    const item = record(other);
+    if (typeof item.file === "string" && items(item.edits).length > 0) files.push(path.resolve(item.file));
+  }
+  return files;
+}
+
+function simpleDiff(filePath: string, before: string, after: string): string {
+  if (before === after) return "";
+  return `--- ${filePath}\n+++ ${filePath}\n@@ full file @@\n-${before}\n+${after}`;
 }
 
 function identifiedName(value: unknown): string | undefined {
@@ -229,6 +379,8 @@ function initialTitle(kind: PresentationKind, args: any): string {
       return `Map ${args.path}`;
     case "search":
       return `Search ${args.pattern}`;
+    case "grep":
+      return `Grep ${args.pattern}`;
     case "def":
       return `Find definition ${args.name}`;
     case "refs":
@@ -237,6 +389,10 @@ function initialTitle(kind: PresentationKind, args: any): string {
       return `Identify ${args.path}:${args.line}`;
     case "rename":
       return `Rename ${args.path}:${args.line} to ${args.to}`;
+    case "edit":
+      return `Edit ${args.path}`;
+    case "write":
+      return `Write ${args.path}`;
     case "check":
       return `Check ${args.path}`;
   }
@@ -270,6 +426,11 @@ function resultPresentation(kind: PresentationKind, args: any, value: unknown): 
       const matches = results.reduce<number>((total, result) => total + items(record(result).matches).length, 0);
       return { title: `Found ${matches} matches`, metadata: { results: results.length, matches } };
     }
+    case "grep": {
+      const results = items(output.results);
+      const matches = results.reduce<number>((total, result) => total + items(record(result).matches).length, 0);
+      return { title: `Found ${matches} matches`, metadata: { results: results.length, matches } };
+    }
     case "def": {
       const locations = items(output.locations).length;
       return { title: `Found ${locations} definitions`, metadata: { locations } };
@@ -299,10 +460,13 @@ function resultPresentation(kind: PresentationKind, args: any, value: unknown): 
       const others = otherOutputs.length;
       const title =
         typeof oldName === "string" && typeof newName === "string"
-          ? `Plan ${oldName} -> ${newName}`
+          ? `${output.applied === true ? "Renamed" : "Plan"} ${oldName} -> ${newName}`
           : initialTitle(kind, args);
       return { title, metadata: { edits, conflicts, others } };
     }
+    case "edit":
+    case "write":
+      return { title: `${kind === "edit" ? "Edited" : "Wrote"} ${args.path}`, metadata: {} };
     case "check": {
       const errors = typeof output.error_count === "number" ? output.error_count : 0;
       const missing = typeof output.missing_count === "number" ? output.missing_count : 0;
@@ -360,7 +524,8 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
-          limit: tool.schema.number().int().positive().optional().describe("Maximum number of lines"),
+          limit: tool.schema.number().int().positive().optional().describe(`Maximum number of lines; defaults to ${DEFAULT_READ_LIMIT}`),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
           ...(imagePolicy === "off"
             ? {}
             : {
@@ -382,19 +547,89 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
             }
           }
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
-          if (input.limit !== undefined) args.push("--end", String((input.offset ?? 1) + input.limit - 1));
+          if (image === undefined) {
+            args.push("--end", String((input.offset ?? 1) + ((input.limit as number | undefined) ?? DEFAULT_READ_LIMIT) - 1));
+          }
+          if (input.language) args.push("--language", input.language as string);
           if (image !== undefined) args.push("--image", image);
           return runReadSeek(context, args);
         },
       ),
       readseek_map: readseekTool(
         "List symbols and ranges in a source file. Use to inspect structure without reading the full file.",
-        { path: tool.schema.string().describe("Path relative to the project directory") },
+        {
+          path: tool.schema.string().describe("Path relative to the project directory"),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
+        },
         "map",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
-          return runReadSeek(context, ["map", filePath]);
+          const args = ["map", filePath];
+          if (input.language) args.push("--language", input.language as string);
+          return runReadSeek(context, args);
+        },
+      ),
+      readseek_grep: readseekTool(
+        "Search text or regular expressions and return matching LINE:HASH anchors. Use literal for exact text.",
+        {
+          pattern: tool.schema.string().describe("Text or regular expression to search for"),
+          path: tool.schema.string().optional().describe("File or directory, defaulting to the project directory"),
+          glob: tool.schema.string().optional().describe("File-name glob, such as **/*.ts"),
+          literal: tool.schema.boolean().optional().describe("Treat pattern as literal text"),
+          ignoreCase: tool.schema.boolean().optional().describe("Ignore case"),
+          context: tool.schema.number().int().nonnegative().optional().describe("Surrounding lines to return"),
+          limit: tool.schema.number().int().positive().optional().describe("Maximum matching lines; defaults to 100"),
+        },
+        "grep",
+        async (input, context) => {
+          const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
+          const pattern = input.pattern as string;
+          await authorizeSearch(context, target, pattern);
+          let expression: RegExp;
+          try {
+            const source = input.literal ? pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : pattern;
+            expression = new RegExp(source, input.ignoreCase ? "i" : "");
+          } catch (error) {
+            throw new Error(`invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
+          }
+
+          const info = await stat(target);
+          const files: string[] = [];
+          if (info.isFile()) files.push(target);
+          else if (info.isDirectory()) {
+            const glob = new Bun.Glob((input.glob as string | undefined) ?? "**/*");
+            for await (const filePath of glob.scan({ cwd: target, absolute: true, onlyFiles: true, followSymlinks: false })) {
+              files.push(filePath);
+            }
+          } else throw new Error(`grep target is not a file or directory: ${target}`);
+
+          const maxMatches = (input.limit as number | undefined) ?? 100;
+          const contextLines = (input.context as number | undefined) ?? 0;
+          const results: { file: string; matches: unknown[]; hashlines: unknown[] }[] = [];
+          let totalMatches = 0;
+          for (const filePath of files.sort()) {
+            context.abort.throwIfAborted();
+            if (totalMatches >= maxMatches) break;
+            const buffer = await readFile(filePath);
+            if (buffer.includes(0)) continue;
+            const lines = buffer.toString("utf8").replace(/\r\n/g, "\n").split("\n");
+            const ranges: [number, number][] = [];
+            for (let index = 0; index < lines.length && totalMatches < maxMatches; index++) {
+              expression.lastIndex = 0;
+              if (!expression.test(lines[index] ?? "")) continue;
+              ranges.push([Math.max(1, index + 1 - contextLines), Math.min(lines.length, index + 1 + contextLines)]);
+              totalMatches++;
+            }
+            if (ranges.length === 0) continue;
+            const matches: unknown[] = [];
+            for (const [start, end] of ranges) {
+              const output = record(await runReadSeek(context, ["read", `${filePath}:${start}`, "--end", String(end)]));
+              matches.push(...items(output.hashlines));
+            }
+            results.push({ file: filePath, matches, hashlines: matches });
+          }
+          return { results, truncated: totalMatches >= maxMatches };
         },
       ),
       readseek_search: readseekTool(
@@ -487,13 +722,14 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_rename: readseekTool(
-        "Plan a symbol rename without changing same-named bindings. Never writes files; apply the returned edits with OpenCode's edit tools.",
+        "Rename a symbol without changing same-named bindings. Applies verified edits atomically by default; set apply false for a dry-run plan.",
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           line: tool.schema.number().int().positive().describe("One-based line of the symbol to rename"),
           column: tool.schema.number().int().positive().optional().describe("One-based byte column for disambiguation"),
           to: tool.schema.string().min(1).describe("New symbol name"),
           workspace: tool.schema.boolean().optional().describe("Include project-wide occurrences"),
+          apply: tool.schema.boolean().optional().describe("Apply verified edits atomically; defaults to true"),
         },
         "rename",
         async (input, context) => {
@@ -509,17 +745,81 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           const args = ["rename", filePath, "--line", String(input.line), "--to", input.to as string];
           if (input.column) args.push("--column", String(input.column));
           if (input.workspace) args.push("--workspace", context.directory);
-          return runReadSeek(context, args);
+          const plan = await runReadSeek(context, args);
+          if (input.apply === false) return plan;
+          const files = renameFiles(plan);
+          if (input.workspace) {
+            await context.ask({
+              permission: "edit",
+              patterns: ["**"],
+              always: ["**"],
+              metadata: { filepath: files.join(", "), diff: "" },
+            });
+          } else {
+            await authorizeEdit(context, files);
+          }
+          return runReadSeek(context, [...args, "--apply"]);
+        },
+      ),
+      readseek_edit: readseekTool(
+        "Edit an existing text file using LINE:HASH anchors. Stale hashes are rejected before writing.",
+        {
+          path: tool.schema.string().describe("Path relative to the project directory"),
+          edits: tool.schema.array(tool.schema.union([
+            tool.schema.object({ set_line: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
+            tool.schema.object({ replace_lines: tool.schema.object({ start_anchor: tool.schema.string(), end_anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
+            tool.schema.object({ insert_after: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
+          ])).min(1).describe("Anchored edits to apply"),
+        },
+        "edit",
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          await rejectSymlinkMutation(filePath);
+          const edits = input.edits as AnchorEdit[];
+          const before = await readFile(filePath, "utf8");
+          await verifyAnchors(context, filePath, edits);
+          const after = applyAnchorEdits(before, edits);
+          await authorizeEdit(context, [filePath], simpleDiff(filePath, before, after), false);
+          if (await readFile(filePath, "utf8") !== before) throw new Error(`refusing to edit changed file: ${filePath}`);
+          if (before !== after) await writeText(filePath, after);
+          return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)]);
+        },
+      ),
+      readseek_write: readseekTool(
+        "Create or replace a whole text file and return LINE:HASH anchors.",
+        {
+          path: tool.schema.string().describe("Path relative to the project directory"),
+          content: tool.schema.string().describe("Complete text file content"),
+        },
+        "write",
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeExternal(context, filePath);
+          await rejectSymlinkMutation(filePath);
+          const before = await readFile(filePath, "utf8").catch(() => "");
+          const content = input.content as string;
+          if (content.includes("\0")) throw new Error("write content must be text");
+          await authorizeEdit(context, [filePath], simpleDiff(filePath, before, content), false);
+          const current = await readFile(filePath, "utf8").catch(() => "");
+          if (current !== before) throw new Error(`refusing to overwrite changed file: ${filePath}`);
+          if (before !== content) await writeText(filePath, content);
+          return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)]);
         },
       ),
       readseek_check: readseekTool(
         "Check a source file for parser errors and missing syntax. Use after edits for quick syntax validation, not as a compiler or linter.",
-        { path: tool.schema.string().describe("Path relative to the project directory") },
+        {
+          path: tool.schema.string().describe("Path relative to the project directory"),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
+        },
         "check",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
-          return runReadSeek(context, ["check", filePath]);
+          const args = ["check", filePath];
+          if (input.language) args.push("--language", input.language as string);
+          return runReadSeek(context, args);
         },
       ),
     },
@@ -530,19 +830,19 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
       }
       if (event.type === "session.deleted") anchors.deleteSession(event.properties.info.id);
     },
-    "tool.execute.before": async (input, output) => {
-      if (input.tool === "readseek_rename" && output.args.apply === true) {
-        throw new Error("readseek_rename only creates plans; apply its edits with OpenCode's edit tools");
-      }
-    },
     "tool.execute.after": async (input, output) => {
       if (!input.tool.startsWith("readseek_")) return;
       try {
         const result = JSON.parse(output.output) as unknown;
-        if (input.tool === "readseek_rename") anchors.planRename(input.sessionID, result);
+        if (input.tool === "readseek_rename") {
+          anchors.planRename(input.sessionID, result);
+          if (record(result).applied === true) {
+            for (const filePath of renameFiles(result)) anchors.forget(filePath);
+          }
+        }
 
         const files = new Set<string>();
-        collectFiles(result, files);
+        collectAnchoredFiles(result, files);
         for (const filePath of files) anchors.mark(input.sessionID, path.resolve(filePath));
       } catch {
         // A failed tool result has no valid anchors to retain.

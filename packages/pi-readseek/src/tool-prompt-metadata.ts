@@ -38,7 +38,7 @@ const COMPACT_GUIDELINES: Record<string, string[]> = {
   "write.md": [
     "Use anchored edits rather than readSeek_write for small changes or appends to existing files.",
   ],
-  "sg.md": [
+  "search.md": [
     "Use readSeek_search for syntax-aware code shapes; use readSeek_grep for plain text.",
   ],
   "refs.md": [

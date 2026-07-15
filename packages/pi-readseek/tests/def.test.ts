@@ -41,4 +41,18 @@ describe("executeDef", () => {
 		});
 		expect(readSeekDefMock).not.toHaveBeenCalled();
 	});
+
+	it("requires others when ignored is enabled", async () => {
+		const result = await executeDef({
+			params: { name: "main", ignored: true },
+			signal: undefined,
+			cwd: process.cwd(),
+		});
+
+		expect(result.details.readSeekValue.error).toEqual({
+			code: "invalid-parameter",
+			message: "def parameter 'ignored' requires 'others'",
+		});
+		expect(readSeekDefMock).not.toHaveBeenCalled();
+	});
 });

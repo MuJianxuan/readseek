@@ -8,31 +8,31 @@ import { buildReadSeekLineWithHash, buildToolErrorResult, type ReadSeekLine } fr
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
 import { classifyReadSeekFailure, readSeekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
-import { buildSgOutput } from "./sg-output.js";
+import { buildSearchOutput } from "./search-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { langParam, readSeekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
 
-type SgParams = { pattern: string; lang?: string; path?: string; cached?: boolean; others?: boolean; ignored?: boolean };
+type SearchParams = { pattern: string; lang?: string; path?: string; cached?: boolean; others?: boolean; ignored?: boolean };
 
-export interface SgRange {
+export interface SearchRange {
   startLine: number;
   endLine: number;
 }
 
-export interface SgEnclosingSymbol {
+export interface SearchEnclosingSymbol {
   name: string;
   kind: string;
 }
 
-export function mergeRanges(ranges: SgRange[]): SgRange[] {
+export function mergeRanges(ranges: SearchRange[]): SearchRange[] {
   if (ranges.length === 0) return [];
   if (ranges.length === 1) return [{ ...ranges[0] }];
 
   const sorted = [...ranges].sort((a, b) => a.startLine - b.startLine);
-  const merged: SgRange[] = [{ ...sorted[0] }];
+  const merged: SearchRange[] = [{ ...sorted[0] }];
 
   for (let i = 1; i < sorted.length; i++) {
     const current = sorted[i];
@@ -47,19 +47,19 @@ export function mergeRanges(ranges: SgRange[]): SgRange[] {
   return merged;
 }
 
-const SG_PROMPT_METADATA = defineToolPromptMetadata({
-  promptUrl: new URL("../prompts/sg.md", import.meta.url),
+const SEARCH_PROMPT_METADATA = defineToolPromptMetadata({
+  promptUrl: new URL("../prompts/search.md", import.meta.url),
   promptSnippet: "Search syntax-aware code shapes with AST patterns",
 });
 
-interface SgToolOptions {
+interface SearchToolOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
 /**
  * Inputs for executing the structural search tool without registering it.
  */
-export interface ExecuteSgOptions {
+export interface ExecuteSearchOptions {
   params: unknown;
   signal: AbortSignal | undefined;
   cwd: string;
@@ -70,7 +70,7 @@ function readSeekLineFromSearch(line: ReadSeekHashline): ReadSeekLine {
   return buildReadSeekLineWithHash(line.line, line.hash, line.text);
 }
 
-function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SgRange[]): ReadSeekLine[] {
+function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SearchRange[]): ReadSeekLine[] {
   const lineMap = new Map<number, ReadSeekLine>();
   for (const match of result.matches) {
     for (const line of match.hashlines) {
@@ -100,9 +100,9 @@ function readSeekLanguageForPath(language: string | undefined, searchPath: strin
 /**
  * Executes structural search and returns readseek-anchored matches.
  */
-export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
+export async function executeSearch(opts: ExecuteSearchOptions): Promise<any> {
   const { params, signal, cwd, onFileAnchored } = opts;
-  const p = params as SgParams;
+  const p = params as SearchParams;
   const ignoredError = validateIgnoredRequiresOthers("search", p);
   if (ignoredError) return ignoredError;
   const searchPath = resolveToCwd(p.path ?? ".", cwd);
@@ -121,7 +121,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       signal,
     });
     if (results.length === 0) {
-      const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [] });
+      const emptyOutput = buildSearchOutput({ pattern: p.pattern, files: [] });
       return {
         content: [{ type: "text", text: emptyOutput.text }],
         details: {
@@ -133,9 +133,9 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
     const readSeekFiles: Array<{
       displayPath: string;
       path: string;
-      ranges: SgRange[];
+      ranges: SearchRange[];
       lines: ReadSeekLine[];
-      symbols?: SgEnclosingSymbol[];
+      symbols?: SearchEnclosingSymbol[];
     }> = [];
 
     for (const result of results) {
@@ -154,7 +154,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
     }
 
     if (readSeekFiles.length === 0) {
-      const emptyOutput = buildSgOutput({ pattern: p.pattern, files: [] });
+      const emptyOutput = buildSearchOutput({ pattern: p.pattern, files: [] });
       return {
         content: [{ type: "text", text: emptyOutput.text }],
         details: {
@@ -163,7 +163,7 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
       };
     }
 
-    const builtOutput = buildSgOutput({
+    const builtOutput = buildSearchOutput({
       pattern: p.pattern,
       files: readSeekFiles,
     });
@@ -182,13 +182,13 @@ export async function executeSg(opts: ExecuteSgOptions): Promise<any> {
   }
 }
 
-export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
+export function registerSearchTool(pi: ExtensionAPI, options: SearchToolOptions = {}) {
   const tool = registerReadSeekTool(pi, {
     name: "readSeek_search",
     label: "Structural Search",
-    description: SG_PROMPT_METADATA.description,
-    promptSnippet: SG_PROMPT_METADATA.promptSnippet,
-    promptGuidelines: SG_PROMPT_METADATA.promptGuidelines,
+    description: SEARCH_PROMPT_METADATA.description,
+    promptSnippet: SEARCH_PROMPT_METADATA.promptSnippet,
+    promptGuidelines: SEARCH_PROMPT_METADATA.promptGuidelines,
     parameters: Type.Object({
       pattern: Type.String({ description: "ast-grep pattern, such as console.log($$$ARGS)" }),
       lang: langParam(),
@@ -196,7 +196,7 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
       ...readSeekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return executeSg({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
+      return executeSearch({ params, signal, cwd: ctx.cwd, onFileAnchored: options.onFileAnchored });
     },
     renderCall(args: any, theme: any, ...rest: any[]) {
       return renderReadSeekSearchCall(args, theme, rest, {

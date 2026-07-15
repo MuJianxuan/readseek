@@ -1,4 +1,4 @@
-Identify the token and enclosing symbol at a cursor. Use before rename or definition lookup, or to identify a line's enclosing symbol; unsaved editor content is included.
+Identify the token and enclosing symbol at a cursor. Use before rename or definition lookup, or to identify a line's enclosing symbol. The file is read from disk.
 
 ## Parameters
 

@@ -27,13 +27,13 @@ async function compact(hooks: Awaited<ReturnType<typeof plugin>>, sessionID: str
 describe("session state", () => {
   test("file edits clear anchors and affected rename plans across sessions", async () => {
     const hooks = await plugin();
-    await recordResult(hooks, "first", "readseek_read", { file: "/repo/a.ts", hash: "1234" });
+    await recordResult(hooks, "first", "readseek_read", { file: "/repo/a.ts", hashlines: [{ line: 1, hash: "123" }] });
     await recordResult(hooks, "first", "readseek_rename", {
       file: "/repo/a.ts",
       old_name: "before",
       new_name: "after",
     });
-    await recordResult(hooks, "second", "readseek_read", { file: "/repo/a.ts", hash: "1234" });
+    await recordResult(hooks, "second", "readseek_read", { file: "/repo/a.ts", hashlines: [{ line: 1, hash: "123" }] });
 
     await hooks.event?.({ event: { type: "file.edited", properties: { file: "/repo/a.ts" } } });
 
@@ -72,8 +72,8 @@ describe("session state", () => {
 
   test("session deletion releases only that session's state", async () => {
     const hooks = await plugin();
-    await recordResult(hooks, "deleted", "readseek_read", { file: "/repo/deleted.ts", hash: "1234" });
-    await recordResult(hooks, "surviving", "readseek_read", { file: "/repo/surviving.ts", hash: "5678" });
+    await recordResult(hooks, "deleted", "readseek_read", { file: "/repo/deleted.ts", hashlines: [{ line: 1, hash: "123" }] });
+    await recordResult(hooks, "surviving", "readseek_read", { file: "/repo/surviving.ts", hashlines: [{ line: 1, hash: "567" }] });
 
     await hooks.event?.({
       event: { type: "session.deleted", properties: { info: { id: "deleted" } } } as never,
@@ -81,5 +81,31 @@ describe("session state", () => {
 
     expect(await compact(hooks, "deleted")).toBe("");
     expect(await compact(hooks, "surviving")).toContain("/repo/surviving.ts");
+  });
+
+  test("does not mark files fresh without actual hashlines", async () => {
+    const hooks = await plugin();
+    await recordResult(hooks, "session", "readseek_map", { file: "/repo/a.ts", symbols: [] });
+    await recordResult(hooks, "session", "readseek_read", { file: "/repo/b.ts", hashlines: [] });
+
+    expect(await compact(hooks, "session")).toBe("");
+  });
+
+  test("applied renames immediately invalidate changed files", async () => {
+    const hooks = await plugin();
+    await recordResult(hooks, "session", "readseek_read", {
+      file: "/repo/a.ts",
+      hashlines: [{ line: 1, hash: "123" }],
+    });
+    await recordResult(hooks, "session", "readseek_rename", {
+      file: "/repo/a.ts",
+      old_name: "before",
+      new_name: "after",
+      edits: [{ line: 1 }],
+      others: [],
+      applied: true,
+    });
+
+    expect(await compact(hooks, "session")).toBe("");
   });
 });

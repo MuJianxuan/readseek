@@ -8,6 +8,7 @@ import { buildToolErrorResult } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { classifyReadSeekFailure, readSeekRename, type RenameOutput } from "./readseek-client.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
+import type { FileMutatedCallback } from "./tool-types.js";
 
 import { clampLineToWidth, clampLinesToWidth, linkedPathLine, linkToolPath, renderErrorResult, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 
@@ -18,8 +19,8 @@ const RENAME_PROMPT_METADATA = defineToolPromptMetadata({
 
 const renameSchema = Type.Object({
 	path: filePathParam(),
-	line: Type.Number({ description: "One-based line of the symbol to rename" }),
-	column: Type.Optional(Type.Number({ description: "One-based byte column for disambiguation" })),
+	line: Type.Integer({ minimum: 1, description: "One-based line of the symbol to rename" }),
+	column: Type.Optional(Type.Integer({ minimum: 1, description: "One-based byte column for disambiguation" })),
 	to: Type.String({ description: "New symbol name" }),
 	workspace: Type.Optional(Type.Boolean({ description: "Rename across the project" })),
 	apply: Type.Optional(Type.Boolean({ description: "Apply the verified edits; default true" })),
@@ -38,10 +39,11 @@ export interface ExecuteRenameOptions {
 	params: unknown;
 	signal: AbortSignal | undefined;
 	cwd: string;
+	onFileMutated?: FileMutatedCallback;
 }
 
 export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
-	const { params, signal, cwd } = opts;
+	const { params, signal, cwd, onFileMutated } = opts;
 	const p = params as RenameParams;
 
 	if (!p.to.trim()) {
@@ -49,6 +51,9 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 	}
 	if (!Number.isSafeInteger(p.line) || p.line < 1) {
 		return buildToolErrorResult("rename", "invalid-parameter", "rename parameter 'line' must be a positive integer");
+	}
+	if (p.column !== undefined && (!Number.isSafeInteger(p.column) || p.column < 1)) {
+		return buildToolErrorResult("rename", "invalid-parameter", "rename parameter 'column' must be a positive integer");
 	}
 
 	const filePath = resolveToCwd(p.path, cwd);
@@ -62,6 +67,13 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 			apply: p.apply ?? true,
 			signal,
 		});
+		if (output.applied) {
+			for (const file of [output, ...output.others]) {
+				if (file.edits.length === 0) continue;
+				const absoluteFile = path.isAbsolute(file.file) ? file.file : path.resolve(cwd, file.file);
+				onFileMutated?.(absoluteFile);
+			}
+		}
 
 		const files: string[] = [output.file];
 		for (const other of output.others) {
@@ -106,7 +118,7 @@ export async function executeRename(opts: ExecuteRenameOptions): Promise<any> {
 	}
 }
 
-export function registerRenameTool(pi: ExtensionAPI) {
+export function registerRenameTool(pi: ExtensionAPI, options: { onFileMutated?: FileMutatedCallback } = {}) {
 	registerReadSeekTool(pi, {
 		name: "readSeek_rename",
 		label: "Rename",
@@ -115,7 +127,7 @@ export function registerRenameTool(pi: ExtensionAPI) {
 		promptGuidelines: RENAME_PROMPT_METADATA.promptGuidelines,
 		parameters: renameSchema,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return executeRename({ params, signal, cwd: ctx.cwd });
+			return executeRename({ params, signal, cwd: ctx.cwd, onFileMutated: options.onFileMutated });
 		},
 		renderCall(args: any, theme: any, ...rest: any[]) {
 			const context = rest[0] ?? {};

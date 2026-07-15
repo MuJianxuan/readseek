@@ -1,6 +1,6 @@
 import { formatAnchoredFileBlocks, type ReadSeekLine, type ReadSeekRange } from "./readseek-value.js";
 
-export interface SgOutputFile {
+export interface SearchOutputFile {
   displayPath: string;
   path: string;
   ranges: ReadSeekRange[];
@@ -8,12 +8,12 @@ export interface SgOutputFile {
   symbols?: Array<{ name: string; kind?: string }>;
 }
 
-export interface BuildSgOutputInput {
+export interface BuildSearchOutputInput {
   pattern: string;
-  files: SgOutputFile[];
+  files: SearchOutputFile[];
 }
 
-export interface SgOutputResult {
+export interface SearchOutputResult {
   text: string;
   readSeekValue: {
     tool: "search";
@@ -25,7 +25,7 @@ export interface SgOutputResult {
   };
 }
 
-export function buildSgOutput(input: BuildSgOutputInput): SgOutputResult {
+export function buildSearchOutput(input: BuildSearchOutputInput): SearchOutputResult {
   if (input.files.length === 0) {
     return {
       text: `No matches found for pattern: ${input.pattern}`,

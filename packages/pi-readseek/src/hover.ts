@@ -20,8 +20,8 @@ const HOVER_PROMPT_METADATA = defineToolPromptMetadata({
 
 const hoverSchema = Type.Object({
 	path: filePathParam(),
-	line: Type.Number({ description: "One-based cursor line" }),
-	column: Type.Optional(Type.Number({ description: "One-based cursor byte column" })),
+	line: Type.Integer({ minimum: 1, description: "One-based cursor line" }),
+	column: Type.Optional(Type.Integer({ minimum: 1, description: "One-based cursor byte column" })),
 });
 
 interface HoverParams {
@@ -42,6 +42,9 @@ export async function executeHover(opts: ExecuteHoverOptions): Promise<any> {
 
 	if (!Number.isSafeInteger(p.line) || p.line < 1) {
 		return buildToolErrorResult("hover", "invalid-parameter", "hover parameter 'line' must be a positive integer");
+	}
+	if (p.column !== undefined && (!Number.isSafeInteger(p.column) || p.column < 1)) {
+		return buildToolErrorResult("hover", "invalid-parameter", "hover parameter 'column' must be a positive integer");
 	}
 
 	const filePath = resolveToCwd(p.path, cwd);

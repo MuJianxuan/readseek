@@ -67,7 +67,7 @@ describe("OpenCode presentation", () => {
   });
 
   test("summarizes rename plans and conflicts", async () => {
-    spyOn(Bun, "spawn").mockReturnValue({
+    spyOn(Bun, "spawn").mockImplementation(() => ({
       stdout: new Response(
         JSON.stringify({
           file: "/repo/a.ts",
@@ -80,7 +80,7 @@ describe("OpenCode presentation", () => {
       ).body,
       stderr: new Response("").body,
       exited: Promise.resolve(0),
-    } as never);
+    }) as never);
     const rename = (await ReadSeekPlugin({} as never)).tool?.readseek_rename;
     if (!rename) throw new Error("plugin did not register readseek_rename");
 

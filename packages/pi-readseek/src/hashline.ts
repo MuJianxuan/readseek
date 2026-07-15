@@ -15,7 +15,8 @@ export type HashlineEditItem =
 	| { set_line: { anchor: string; new_text: string } }
 	| { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
 	| { insert_after: { anchor: string; new_text: string } }
-	| { replace: { old_text: string; new_text: string; all?: boolean } };
+	| { replace: { old_text: string; new_text: string; all?: boolean; fuzzy?: boolean } }
+	| { replace_symbol: { symbol: string; new_body: string } };
 
 interface HashMismatch {
 	line: number;

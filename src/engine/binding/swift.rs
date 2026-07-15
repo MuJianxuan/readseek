@@ -15,12 +15,7 @@ pub(super) fn declared_idents<'tree>(node: Node<'tree>, _src: &[u8]) -> Vec<Node
                 collect_pattern_idents(name, &mut out);
             }
         }
-        "function_declaration" => {
-            if let Some(name) = node.child_by_field_name("name") {
-                collect_pattern_idents(name, &mut out);
-            }
-        }
-        "parameter" => {
+        "function_declaration" | "parameter" => {
             if let Some(name) = node.child_by_field_name("name") {
                 collect_pattern_idents(name, &mut out);
             }

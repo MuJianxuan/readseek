@@ -7,7 +7,7 @@ import { buildReadSeekLineWithHash, buildToolErrorResult } from "./readseek-valu
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
 import { classifyReadSeekFailure, readSeekDef } from "./readseek-client.js";
-import { searchPathParam, langParam, readSeekGitSearchParams } from "./readseek-params.js";
+import { searchPathParam, langParam, readSeekGitSearchParams, validateIgnoredRequiresOthers } from "./readseek-params.js";
 import { registerReadSeekTool } from "./register-tool.js";
 
 import { renderAnchoredFilesResult, renderReadSeekSearchCall } from "./tui-render-utils.js";
@@ -41,6 +41,8 @@ export interface ExecuteDefOptions {
 export async function executeDef(opts: ExecuteDefOptions): Promise<any> {
 	const { params, signal, cwd, onFileAnchored } = opts;
 	const p = params as DefParams;
+	const ignoredError = validateIgnoredRequiresOthers("def", p);
+	if (ignoredError) return ignoredError;
 
 	if (!p.name || !p.name.trim()) {
 		return buildToolErrorResult("def", "invalid-parameter", "readSeek_def requires 'name'");

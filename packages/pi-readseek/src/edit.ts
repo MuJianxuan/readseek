@@ -26,7 +26,7 @@ import { buildEditPreviewKey, buildPendingEditPreviewData, resolvePendingDiffPre
 import { buildDiffData, type DiffBlockRange } from "./diff-data.js";
 import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult, resolveRenderResultContext, summaryLine } from "./tui-render-utils.js";
 import { upsertDiffComponent, upsertTextComponent } from "./tui-diff-component.js";
-import type { FreshAnchorsPredicate } from "./tool-types.js";
+import type { FileMutatedCallback, FreshAnchorsPredicate } from "./tool-types.js";
 import { filePathParam, registerReadSeekTool } from "./register-tool.js";
 
 const EDIT_PENDING_PREVIEW_STATE_KEY = "hashline-edit-pending-preview";
@@ -40,19 +40,19 @@ function pendingPreviewLines(summary: string, preview: PendingDiffPreviewResult 
 
 
 const hashlineEditItemSchema = Type.Union([
-	Type.Object({ set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: true }),
+	Type.Object({ set_line: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: false }),
 	Type.Object(
 		{ replace_lines: Type.Object({ start_anchor: Type.String(), end_anchor: Type.String(), new_text: Type.String() }) },
-		{ additionalProperties: true },
+		{ additionalProperties: false },
 	),
-	Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: true }),
+	Type.Object({ insert_after: Type.Object({ anchor: Type.String(), new_text: Type.String() }) }, { additionalProperties: false }),
 	Type.Object(
 		{ replace: Type.Object({ old_text: Type.String(), new_text: Type.String(), all: Type.Optional(Type.Boolean()), fuzzy: Type.Optional(Type.Boolean()) }) },
-		{ additionalProperties: true },
+		{ additionalProperties: false },
 	),
 	Type.Object(
 		{ replace_symbol: Type.Object({ symbol: Type.String(), new_body: Type.String() }) },
-		{ additionalProperties: true },
+		{ additionalProperties: false },
 	),
 ]);
 
@@ -107,6 +107,7 @@ function mapEditFileError(err: any, filePath: string, _displayPath: string, _pha
 
 export interface EditToolOptions {
 	wasReadInSession?: FreshAnchorsPredicate;
+	onFileMutated?: FileMutatedCallback;
 	syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
 	name?: string;
 	toolAliases?: Readonly<Record<string, string>>;
@@ -117,11 +118,12 @@ export interface ExecuteEditOptions {
 	signal: AbortSignal | undefined;
 	cwd: string;
 	wasReadInSession?: FreshAnchorsPredicate;
+	onFileMutated?: FileMutatedCallback;
 	syntaxValidate?: SyntaxValidateOptions["syntaxValidate"];
 }
 
 export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
-	const { params, signal, cwd, wasReadInSession, syntaxValidate } = opts;
+	const { params, signal, cwd, wasReadInSession, onFileMutated, syntaxValidate } = opts;
 	await ensureHashInit();
 	const parsed = params as HashlineParams;
 	const input = params as Record<string, unknown>;
@@ -469,6 +471,7 @@ export async function executeEdit(opts: ExecuteEditOptions): Promise<any> {
 	} catch (err: any) {
 		return mapEditFileError(err, absolutePath, path, "write");
 	}
+	onFileMutated?.(absolutePath);
 
 	if (input.postEditVerify === true) {
 		let verifiedContent: string;
@@ -585,6 +588,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 				signal,
 				cwd: ctx.cwd,
 				wasReadInSession: options.wasReadInSession,
+				onFileMutated: options.onFileMutated,
 				syntaxValidate: options.syntaxValidate,
 			});
 		},

@@ -2,12 +2,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerReadTool } from "./src/read.js";
 import { registerEditTool } from "./src/edit.js";
 import { registerGrepTool } from "./src/grep.js";
-import { registerSgTool } from "./src/sg.js";
+import { registerSearchTool } from "./src/search.js";
 import { registerRefsTool } from "./src/refs.js";
 import { registerRenameTool } from "./src/rename.js";
 import { registerHoverTool } from "./src/hover.js";
 import { registerWriteTool } from "./src/write.js";
 import { registerDefTool } from "./src/def.js";
+import { registerCheckTool } from "./src/check.js";
 import { SessionAnchors } from "./src/session-anchors.js";
 import { readSeekBinaryAvailability } from "./src/readseek-client.js";
 import { resolveReadSeekJsonSettings, type ReadSeekSettingsWarning } from "./src/readseek-settings.js";
@@ -37,6 +38,7 @@ const READSEEK_TOOL_ENTRIES: ReadonlyArray<{ builtIn: ReplacedBuiltIn | null; re
 	{ builtIn: null, readSeekName: "readSeek_hover" },
 	{ builtIn: "write", readSeekName: "readSeek_write" },
 	{ builtIn: null, readSeekName: "readSeek_def" },
+	{ builtIn: null, readSeekName: "readSeek_check" },
 ];
 
 function formatSettingsWarning(warning: ReadSeekSettingsWarning): string {
@@ -47,6 +49,7 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const sessionAnchors = new SessionAnchors();
 	const markAnchored = (absolutePath: string) => sessionAnchors.markAnchored(absolutePath);
 	const hasFreshAnchors = (absolutePath: string) => sessionAnchors.hasFreshAnchors(absolutePath);
+	const forgetAnchors = (absolutePath: string) => sessionAnchors.forget(absolutePath);
 
 	// Resolve replacedTools at load time so the readSeek implementation is
 	// registered under the built-in name (e.g. "edit") when replaced. Extension
@@ -76,16 +79,18 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	};
 
 	registerReadTool(pi, { onSuccessfulRead: markAnchored, name: readName });
-	registerEditTool(pi, { wasReadInSession: hasFreshAnchors, name: editName, toolAliases });
+	registerEditTool(pi, { wasReadInSession: hasFreshAnchors, onFileMutated: forgetAnchors, name: editName, toolAliases });
 	registerGrepTool(pi, { onFileAnchored: markAnchored, name: grepName });
-	registerSgTool(pi, { onFileAnchored: markAnchored });
+	registerSearchTool(pi, { onFileAnchored: markAnchored });
 	registerRefsTool(pi, { onFileAnchored: markAnchored });
-	registerRenameTool(pi);
+	registerRenameTool(pi, { onFileMutated: forgetAnchors });
 	registerHoverTool(pi);
 	registerDefTool(pi, { onFileAnchored: markAnchored });
+	registerCheckTool(pi);
 	registerWriteTool(pi, { onFileAnchored: markAnchored, name: writeName });
 
 	pi.on("session_start", (_event, ctx) => {
+		sessionAnchors.clear();
 		const { warnings } = resolveReadSeekJsonSettings();
 		const problems = warnings.map(formatSettingsWarning);
 

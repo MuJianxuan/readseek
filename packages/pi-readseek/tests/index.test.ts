@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Value } from "@sinclair/typebox/value";
 
 const { replacedTools, settingsWarnings, availability, imageMode } = vi.hoisted(() => ({
 	replacedTools: { value: [] as string[] },
@@ -34,6 +35,7 @@ const READSEEK_TOOLS = [
 	"readSeek_hover",
 	"readSeek_write",
 	"readSeek_def",
+	"readSeek_check",
 ];
 
 function createPi(activeToolNames: string[]) {
@@ -94,7 +96,8 @@ describe("pi-readseek extension", () => {
 		const off = createPi([]);
 		piReadSeekExtension(off.pi);
 		const offRead = off.toolDefinitions.get("readSeek_read") as any;
-		expect(offRead.promptGuidelines.at(-1)).toBe("Image and PDF reads are disabled.");
+		expect(offRead.promptGuidelines.at(-1)).toContain("always skipped");
+		expect(offRead.description).toContain("skipped");
 		expect(offRead.parameters.properties.image).toBeUndefined();
 	});
 
@@ -118,6 +121,7 @@ describe("pi-readseek extension", () => {
 			readSeek_hover: "Identify the token and enclosing symbol at a cursor",
 			readSeek_write: "Create or replace a complete file with edit anchors",
 			readSeek_def: "Find where a symbol is defined",
+			readSeek_check: "Check a source file for parser errors and missing syntax",
 		});
 	});
 
@@ -137,6 +141,7 @@ describe("pi-readseek extension", () => {
 			"readSeek_rename",
 			"readSeek_hover",
 			"readSeek_def",
+			"readSeek_check",
 		]));
 		// The built-in name stays active (now readSeek-backed); the readSeek_*
 		// variants are dropped.
@@ -151,6 +156,7 @@ describe("pi-readseek extension", () => {
 			"readSeek_rename",
 			"readSeek_hover",
 			"readSeek_def",
+			"readSeek_check",
 		]);
 		expect(ctx.toolDefinitions.get("read")?.promptGuidelines?.[0]).toBe("Use read; it provides LINE:HASH anchors for safe edits.");
 		expect(ctx.toolDefinitions.get("edit")?.promptGuidelines?.[0]).toBe("Use edit; it verifies fresh LINE:HASH anchors.");
@@ -158,6 +164,21 @@ describe("pi-readseek extension", () => {
 		expect(ctx.toolDefinitions.get("write")?.promptGuidelines?.[0]).toBe("Use write; it returns LINE:HASH anchors.");
 		expect(ctx.toolDefinitions.get("edit")?.description).toBe("Edit existing text files safely with fresh `LINE:HASH` anchors; on `file-not-read`, read or search the file first.");
 		expect(ctx.toolDefinitions.get("edit")?.promptSnippet).toBe("Safely edit with fresh LINE:HASH anchors");
+	});
+
+	it("rejects extra edit variant keys while allowing nested replacement options", () => {
+		const ctx = createPi([]);
+		piReadSeekExtension(ctx.pi);
+		const schema = (ctx.toolDefinitions.get("readSeek_edit") as any).parameters;
+
+		expect(Value.Check(schema, {
+			path: "target.ts",
+			edits: [{ replace: { old_text: "old", new_text: "new", all: true, fuzzy: true } }],
+		})).toBe(true);
+		expect(Value.Check(schema, {
+			path: "target.ts",
+			edits: [{ set_line: { anchor: "1:abc", new_text: "new" }, replace: { old_text: "old", new_text: "new" } }],
+		})).toBe(false);
 	});
 
 	it("leaves the active tools alone when readseek ships no binary for the platform", () => {

@@ -12,6 +12,20 @@ export class SessionAnchors {
   }
 
   /**
+   * Forgets anchors after a file mutation that did not return current anchors.
+   */
+  forget(absolutePath: string): void {
+    this.#paths.delete(absolutePath);
+  }
+
+  /**
+   * Forgets every anchor, such as when resetting extension session state.
+   */
+  clear(): void {
+    this.#paths.clear();
+  }
+
+  /**
    * Returns whether a file has fresh anchors in the current session.
    */
   hasFreshAnchors(absolutePath: string): boolean {
