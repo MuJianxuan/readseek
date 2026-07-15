@@ -1,10 +1,11 @@
-Find binding-accurate references to an identifier with readseek. Use it when you need every place a name is used — before renaming, deleting, or changing a symbol — and plain text search would be too broad. Results are grouped by file with edit-ready hashline anchors and the enclosing symbol for each reference.
+Find identifier references before renaming, deleting, or changing a symbol when
+text search is too broad. Results include edit-ready anchors and enclosing symbols.
 
 ## Parameters
 
 - `name` — identifier to find references for.
 - `path` — file or directory, default cwd.
-- `lang` — language hint; set it when syntax is ambiguous, extensionless, or generated.
+- `lang` — language hint for ambiguous, extensionless, or generated code.
 - `scope` — restrict results to the binding under `line`/`column` in a single file. Requires `line`.
 - `line` — one-based cursor line, used with `scope`.
 - `column` — one-based cursor byte column, used with `scope`.
@@ -14,10 +15,13 @@ Find binding-accurate references to an identifier with readseek. Use it when you
 
 ## Scope
 
-Without `scope`, references match by identifier name across the target. With `scope` plus `line` (and optionally `column`), results are limited to the specific binding under that cursor in a single file, so shadowed or unrelated same-named identifiers are excluded.
+Without `scope`, references match by name. With `scope` and `line` (optionally
+`column`), results are limited to the cursor binding in one file and exclude
+shadows.
 
 ## Git selection
 
-When searching a directory inside a Git repository, readseek defaults to tracked/indexed files plus untracked non-ignored files. Use `cached`, `others`, and `ignored` to narrow or expand that selection. `ignored` requires `others`.
+In Git repositories, directory search includes tracked/indexed and untracked
+non-ignored files. `ignored` requires `others`.
 
 Use `readSeek_grep` for plain text, `readSeek_search` for code shape, and `readSeek_refs` for identifier usage.

@@ -1,15 +1,11 @@
-Use `readSeek_hover` to identify the identifier and enclosing symbol at a cursor
-position. Calls `readseek identify` with the file content sent via stdin
-so unsaved editor content is included.
+Identify the identifier and enclosing symbol at a cursor. Unsaved editor content
+is included.
 
 ## Parameters
 
-- `path` (required): File path.
-- `line` (required): One-based cursor line.
-- `column` (optional): One-based cursor byte column.
+- `path`, `line` — required file path and one-based cursor line.
+- `column` — optional one-based cursor byte column.
 
 ## When to use
 
-- Before a `readSeek_rename`, to confirm the identifier under the cursor.
-- Before a go-to-definition, to get the qualified symbol name.
-- To inspect what symbol a specific line belongs to.
+- Before rename or go-to-definition, or to identify a line's enclosing symbol.

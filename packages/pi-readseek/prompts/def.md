@@ -1,17 +1,14 @@
-Find structural symbol definitions. Calls `readseek def` which searches
-for the definition of a named symbol across a file or directory.
+Find structural definitions by qualified or unqualified name across a file or
+directory.
 
 ## Parameters
 
-- `path` (optional): File or directory to search (default: ".").
-- `name`: Qualified or unqualified symbol name.
-- `lang` (optional): Language override.
-- `cached` (optional): Search tracked/indexed files in a Git repository.
-- `others` (optional): Search untracked files.
-- `ignored` (optional): Include ignored untracked files.
+- `path` — file or directory, default `.`.
+- `name` — qualified or unqualified symbol name.
+- `lang` — language override.
+- `cached`, `others`, `ignored` — Git file selection; `ignored` requires `others`.
 
 ## When to use
 
-- After a `readSeek_hover` call, use the qualified symbol name to jump to its definition.
-- When the user asks "where is X defined?".
-- To find a function/class/type definition by its qualified name.
+- After `readSeek_hover`, use its qualified symbol name.
+- When asked where a function, class, or type is defined.

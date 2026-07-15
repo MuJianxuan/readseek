@@ -1,6 +1,6 @@
-Surgically edit existing text files. Prefer hash-verified anchors from fresh `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` output; copy `LINE:HASH` anchors exactly.
-
-`readSeek_edit` requires the target file to have been anchored earlier in the current session. If you get `file-not-read`, run `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` first.
+Edit existing text files with fresh `LINE:HASH` anchors from `readSeek_read`,
+`readSeek_grep`, `readSeek_search`, or `readSeek_write`. The file must have
+been anchored in this session; on `file-not-read`, read or search it first.
 
 ## Variants
 
@@ -9,12 +9,11 @@ Surgically edit existing text files. Prefer hash-verified anchors from fresh `re
 | `set_line` | Replace or delete one line | 1 |
 | `replace_lines` | Replace or delete one contiguous range | 2 |
 | `insert_after` | Insert after an existing line | 1 |
-| `replace_symbol` | Replace one function/class/method/interface/type/enum/etc. | 0 (`symbol`) |
-| `replace` | Exact string replacement escape hatch; one match by default, all with `all: true` | 0 |
+| `replace_symbol` | Replace one mapped symbol | 0 (`symbol`) |
+| `replace` | Exact string replacement; one match unless `all: true` | 0 |
 
-Set `new_text` (or `replace_lines.new_text`) to `""` to delete anchored line(s). For an intentionally blank line, use `"\n"` or whitespace content, not `""`.
-
-Prefer `set_line`, `replace_lines`, and `insert_after`: they verify that the file still matches the anchored content. Use `replace` only when anchors are impractical, such as repeated text across many unrelated lines.
+Set `new_text` to `""` to delete lines; use `"\n"` for a blank line. Prefer
+anchored variants. Use `replace` only when anchors are impractical.
 
 ## Input shape
 
@@ -31,92 +30,41 @@ Prefer `set_line`, `replace_lines`, and `insert_after`: they verify that the fil
 }
 ```
 
-Use only the needed variant(s); the example shows all shapes for reference. Each `edits[]` entry must contain exactly one variant key. `new_text` / `new_body` is plain file content — no hash prefixes or diff markers.
+Use only needed variants. Each `edits[]` entry has exactly one key. `new_text`
+and `new_body` are plain file content, not diffs or hashlines.
 
 ## Exact and fuzzy replacement
 
-`replace` is exact-only by default. Missing `old_text` fails with `text-not-found`.
-
-Wrap string replacements as `{ "replace": { "old_text": "...", "new_text": "..." } }`; a bare top-level `{ old_text, new_text }` inside `edits[]` is rejected with guidance.
-
-`fuzzy: true` is a narrow fallback after exact matching fails. It normalizes whitespace and confusable Unicode such as smart hyphens; it is **not** approximate, Levenshtein, or semantic matching. Fuzzy successes return a warning.
+`replace` is exact by default; missing text fails. `fuzzy: true` only normalizes
+whitespace and confusable Unicode after exact matching fails. Verify warned fuzzy
+matches before continuing.
 
 ## `replace_symbol`
 
-Use `replace_symbol` when you want to replace one whole mapped symbol without line anchors. Query symbols like `readSeek_read({ symbol })`: `Name`, `Class.method`, or `Name@<line>`.
-
-Rules:
-
-- Use an exact name, dotted path, or `@<line>`. If `readSeek_read({ symbol })` returned a fuzzy match, confirm the exact symbol first.
-- Supported for TypeScript, JavaScript, Rust, and Java. For other languages, use anchored edits.
-- `new_body` must not be empty or whitespace-only.
-- Write `new_body` without extra leading indentation; `readSeek_edit` re-indents it to match the original symbol.
-- If `new_body` appears to declare a different symbol name, the edit still applies but returns a `name-mismatch` warning.
-- Do not combine `replace_symbol` with anchored edits that touch the same lines. Duplicate or overlapping `replace_symbol` ranges are rejected.
+Use `replace_symbol` for one whole mapped `Name`, `Class.method`, or
+`Name@<line>` in TypeScript, JavaScript, Rust, or Java. `new_body` must be
+non-empty and unindented. Confirm fuzzy symbol matches first; do not overlap it
+with anchored edits.
 
 ## Stale anchors
 
-If anchors no longer match, `readSeek_edit` fails with `hash-mismatch` and shows nearby current lines. Lines marked `>>>` include updated anchors:
+On `hash-mismatch`, nearby lines marked `>>>` include fresh anchors:
 
 ```text
 >>> 41:b34|  const renamed = 3;
 ```
 
-Copy the updated `LINE:HASH` and retry. If the target moved farther away, re-run `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write` for fresh anchors.
-
-If `readSeek_edit` auto-relocates an anchor, read the warning and verify that the edit landed in the intended place.
+Retry with those anchors, or read/search again. Verify any auto-relocation warning.
 
 ## Validation and warnings
 
-- All edits are checked before writing; if a hard validation fails, nothing is written.
-- Anchored edits are applied bottom-up so line numbers stay stable.
-- `no-op` means the requested edit matched the current file already or produced identical content.
-- Whitespace-only warnings mean formatting changed but behavior probably did not.
-- A `replace`-only success may remind you to prefer anchored edits next time.
-
-Syntax validation runs before writing when supported:
-
-- Supported: Rust, C++, C headers, Java.
-- Default `warn`: write succeeds, but warnings include `syntax-regression: lines X-Y`.
-- `block`: aborts without writing.
-- `off`: skips validation.
-- The `readseek.syntaxValidation` setting can change the default mode.
-
-Existing syntax errors are tolerated; warnings are for newly introduced parser errors.
+All edits validate before writing; hard failures write nothing. Anchored edits run
+bottom-up. `no-op` means no change. Syntax validation for Rust, C++, C headers,
+and Java follows `readseek.syntaxValidation`: `warn` (default), `block`, or `off`.
+It reports only newly introduced parser errors.
 
 ## Optional post-edit verification
 
-`postEditVerify: true` opts into read-back verification for this call. It is off by default. When enabled, `readSeek_edit` writes normally, then reads the file back and compares persisted content to the intended content, including BOM and original line endings. This is not syntax validation.
-
-## Diff data contract
-
-Successful `readSeek_edit` results include:
-
-- `details.diff` and `details.readSeekValue.diff`: compact human-readable hashline diff strings.
-- `details.patch`: standard unified diff with file and hunk headers.
-- `details.diffData` and `details.readSeekValue.diffData`: stable structured diff data.
-
-`diffData` shape:
-
-```ts
-type DiffData = {
-  version: 1;
-  entries: Array<
-    | { kind: "context"; oldLine: number; newLine: number; text: string }
-    | { kind: "add"; newLine: number; text: string }
-    | { kind: "remove"; oldLine: number; text: string }
-    | { kind: "meta"; text: string }
-  >;
-  stats: { added: number; removed: number; context: number };
-  language?: string;
-  blockRanges?: Array<{ kind: "add" | "remove"; startLine: number; endLine: number }>;
-  inlineDiffs?: Array<{
-    removeLineIndex: number;
-    addLineIndex: number;
-    removeSpans: Array<{ kind: "equal" | "remove" | "add"; text: string }>;
-    addSpans: Array<{ kind: "equal" | "remove" | "add"; text: string }>;
-  }>;
-};
-```
-
-For compact one-line hashline diffs, `details.diff` remains compact while `diffData.entries` uses expanded remove/add rows so renderers can show inline word changes without breaking hashline output.
+`postEditVerify: true` reads back the written file and compares the persisted
+content, including BOM and line endings. Results provide a compact hashline diff,
+a unified patch, and structured `details.diffData`.

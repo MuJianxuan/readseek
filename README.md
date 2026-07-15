@@ -62,9 +62,8 @@ printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 
 ## Images and PDFs
 
-`detect` reports format, dimensions, and animation status for images. `read`
-preprocesses images for a vision-capable caller by default; pass `--image` to
-choose local analysis (BLIP, YOLOv8-nano, TrOCR):
+`detect` reports image metadata and PDF page counts. `read` returns bounded
+base64 images by default; use `--image` for one local analysis mode:
 
 ```sh
 readseek read photo.jpg                   # default: bounded base64 image
@@ -74,15 +73,11 @@ readseek read photo.jpg --image ocr       # extracted text
 ```
 
 PDF reads return page-tagged Markdown and page-associated embedded images. The
-same image modes apply to every extracted image; without `--image`, images are
-bounded and returned as base64 without local vision analysis.
+same mode applies to each embedded image. Line/hash suffixes, `--end`, `--limit`,
+and `--language` do not apply to visual files.
 
-Each invocation selects one mode; the requested model loads once. The model files
-(~258 MB BLIP GGUF + ~6 MB YOLOv8-nano + ~1.24 GB TrOCR) are downloaded lazily
-into the user cache directory on first vision use and reused on subsequent runs;
-a progress bar is shown while downloading when stdout is an interactive TTY.
-Inference is CPU-only; object detection and OCR take seconds and captioning up to
-a couple of minutes per image.
+Vision models download lazily into the user cache and run on the CPU. Captioning
+and OCR can take substantial time.
 
 ## Cache
 

@@ -23,8 +23,8 @@ npm install --save-dev @jarkkojs/readseek
 
 ## Tools
 
-- **readSeek_read:** reads text files with `LINE:HASH` anchors; images can
-  include local OCR, captions, and object text.
+- **readSeek_read:** reads text with `LINE:HASH` anchors; images and PDFs can
+  be returned as base64 or analyzed locally.
 - **readSeek_edit:** edits existing text files using fresh `LINE:HASH` anchors.
 - **readSeek_grep:** searches text and returns edit-ready anchors.
 - **readSeek_search:** searches code by structural AST pattern.
@@ -63,10 +63,9 @@ optional (defaults shown):
 - **replacedTools:** built-in tool names to replace with their `readSeek_*` equivalents.
   Valid values are `"read"`, `"edit"`, `"write"`, and `"grep"`. For a
   readseek-only file surface, use `["read", "edit", "write", "grep"]`.
-- **imageMode:** controls which explicit image/PDF modes the model may select.
-  `"auto"` exposes `none`, `ocr`, `caption`, and `objects`; `"on"` exposes
-  `ocr`, `caption`, and `objects`; `"off"` skips image and PDF files. Omitting
-  the tool's `image` parameter also skips the file.
+- **imageMode:** `"auto"` exposes `none`, `ocr`, `caption`, and `objects`;
+  `"on"` omits `none`; `"off"` skips image/PDF files. Omitting `image` also
+  skips visual files.
 - **syntaxValidation:** pre-write syntax-regression check in `readSeek_edit`:
   `"warn"` writes with a warning, `"block"` aborts without writing, `"off"`
   skips the check.

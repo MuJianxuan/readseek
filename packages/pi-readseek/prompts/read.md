@@ -1,22 +1,22 @@
-Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `readSeek_edit`. Image and PDF reads require an explicit `image` mode made available by `readseek.imageMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+Read files through readseek. Text results use `LINE:HASH|content` anchors for `readSeek_edit`. Images and PDFs require an explicit available `image` mode; omitting it skips them. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
 
 ## Choose the right read
 
-- Normal read: inspect a whole small file or a targeted `offset` / `limit` range.
-- `map: true`: append a structural map for navigation before reading more code.
-- `symbol: "Name"`: read one function, class, method, interface, type, enum, or similar symbol.
-- `bundle: "local"`: with `symbol`, include direct same-file local support when readseek can identify it.
+- Normal read: a small file or an `offset` / `limit` range.
+- `map: true`: append a structural map.
+- `symbol: "Name"`: read one mapped symbol.
+- `bundle: "local"`: include direct same-file support for a symbol.
 
 ## Parameters
 
 - `path` — file path.
-- `offset` / `limit` — positive line numbers; `offset` is 1-indexed.
-- `map` — append the full-file structural map; cannot combine with `symbol` or `bundle`.
-- `symbol` — symbol query; supports `Class.method`, package-relative Java names, and `Name@<line>` disambiguation; cannot combine with `offset` / `limit`.
-- `bundle` — only `"local"`; requires `symbol` and cannot combine with `map`.
-- `image` — explicit image/PDF handling mode. Available values are controlled by `readseek.imageMode`; omitting it skips image and PDF files.
+- `offset` / `limit` — positive lines; `offset` is 1-indexed.
+- `map` — full-file map; incompatible with `symbol` or `bundle`.
+- `symbol` — `Name`, `Class.method`, or `Name@<line>`; incompatible with `offset` / `limit`.
+- `bundle` — only `"local"`; requires `symbol` and excludes `map`.
+- `image` — an exposed image/PDF mode.
 
-When a full-file read is truncated, readseek appends a structural map automatically when available. Use map line ranges for follow-up `readSeek_read({ offset, limit })` calls.
+Truncated full-file reads append a map when available. Use its ranges for follow-up reads.
 
 ## Symbol examples
 
@@ -30,13 +30,13 @@ When a full-file read is truncated, readseek appends a structural map automatica
 
 ## Symbol resolution
 
-`@<line>` only applies as a trailing suffix like `Foo.bar@42`; names such as `foo@bar` are ordinary queries. Resolution order: containing range → nearest symbol starting at/after the requested line → nearest symbol above it.
+`@<line>` is only a trailing suffix, as in `Foo.bar@42`; `foo@bar` is an ordinary name. Resolution prefers the containing range, then the nearest symbol at or after the line, then one above it.
 
 Result behavior:
 
-- **Found**: returns only the symbol range with `[Symbol: name (kind), lines X-Y of Z]`.
-- **Ambiguous**: lists candidates and retry hints such as `name@<startLine>`.
-- **Fuzzy**: returns the best camelCase/substring match with a warning; verify before editing from those anchors.
-- **Not found** or **unmappable**: falls back to normal read with a warning and, when available, symbol suggestions.
+- **Found:** the symbol range.
+- **Ambiguous:** candidates and `name@<startLine>` retry hints.
+- **Fuzzy:** a warned best match; verify before editing.
+- **Not found/unmappable:** normal read with a warning and suggestions when available.
 
 Hash anchors from normal, symbol, and bundled reads are valid for `readSeek_edit` until the file changes.

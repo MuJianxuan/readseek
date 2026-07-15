@@ -1,9 +1,11 @@
-Search code with readseek AST patterns. Use it when text search is too broad or brittle and the query depends on syntax: calls, imports, declarations, JSX, object fields, control flow, and similar code shapes. Results are grouped by file with edit-ready hashline anchors.
+Search code with AST patterns when text search is too broad. Use it for calls,
+imports, declarations, JSX, object fields, and control flow. Results include
+edit-ready anchors.
 
 ## Parameters
 
 - `pattern` — ast-grep-style pattern to match.
-- `lang` — language hint; set it when syntax is ambiguous, extensionless, generated, or TSX/JSX-like.
+- `lang` — language hint for ambiguous, extensionless, generated, or JSX-like code.
 - `path` — file or directory, default cwd.
 - `cached` — in a Git repository, search tracked/indexed files.
 - `others` — in a Git repository, search untracked files.
@@ -16,7 +18,8 @@ Search code with readseek AST patterns. Use it when text search is too broad or 
 - `$$$ARGS` matches zero or more sibling nodes. Use it for function args, body statements, object fields, JSX children, etc.
 - Reusing a metavariable name requires every occurrence to match the same source text.
 
-Patterns are parsed as code, not text. Formatting is mostly ignored, but syntax must be valid for the selected language. Include punctuation that the language grammar requires.
+Patterns are code, not text: formatting is mostly ignored, but syntax and required
+punctuation must be valid for the selected language.
 
 ## Examples
 
@@ -27,14 +30,10 @@ Patterns are parsed as code, not text. Formatting is mostly ignored, but syntax 
 - `<$TAG $$$ATTRS>$$$CHILDREN</$TAG>` — JSX/TSX elements.
 - `if ($COND) { $$$BODY }` — control-flow blocks.
 
-## Languages
-
-Useful `lang` values include `assembly`, `bash`, `c`, `cpp`, `csharp`, `css`, `dockerfile`, `gdscript`, `go`, `html`, `java`, `javascript`, `json`, `jsx`, `just`, `kconfig`, `latex`, `lua`, `make`, `markdown`, `meson`, `nix`, `perl`, `php`, `puppet`, `python`, `riscv`, `ruby`, `rust`, `sql`, `swift`, `toml`, `tsx`, `typescript`, `typst`, `xml`, `yaml`, `zig`, and `unknown`.
-
-`unknown` forces text-only handling and is not useful for parser-backed search.
-
 ## Git selection
 
-When searching a directory inside a Git repository, readseek defaults to tracked/indexed files plus untracked non-ignored files. Use `cached`, `others`, and `ignored` to narrow or expand that selection. `ignored` requires `others`.
+In Git repositories, directory search includes tracked/indexed and untracked
+non-ignored files. Use `cached`, `others`, and `ignored` to choose; `ignored`
+requires `others`.
 
 Use `readSeek_grep` for plain text and `readSeek_search` for structure.

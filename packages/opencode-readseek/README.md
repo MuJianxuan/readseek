@@ -19,7 +19,7 @@ binary dependency with Bun at startup.
 
 ## Tools
 
-- `readseek_read`: read text with `LINE:HASH` anchors and explicitly selected image/PDF handling.
+- `readseek_read`: read text with `LINE:HASH` anchors; image/PDF handling is explicit.
 - `readseek_map`: generate a structural symbol map.
 - `readseek_search`: AST-pattern search.
 - `readseek_def`, `readseek_refs`, `readseek_hover`: symbol navigation.
@@ -31,10 +31,9 @@ records anchors from successful ReadSeek tool results, refuses any attempt to
 apply a rename directly, and adds current anchors plus a pending rename plan to
 the OpenCode compaction context.
 
-`imageMode` controls which `readseek_read.image` values the model sees:
-`"auto"` exposes `none`, `ocr`, `caption`, and `objects`; `"on"` exposes
-`ocr`, `caption`, and `objects`; `"off"` skips image and PDF files. Omitting
-`image` also skips visual files. The default is `"auto"`.
+`imageMode` defaults to `"auto"`: it exposes `none`, `ocr`, `caption`, and
+`objects`. `"on"` omits `none`; `"off"` skips image/PDF files. Omitting
+`image` also skips visual files.
 
 ## Licensing
 
