@@ -27,7 +27,7 @@ type RefsParams = {
 
 const REFS_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/refs.md", import.meta.url),
-  promptSnippet: "Find identifier references with enclosing symbols",
+  promptSnippet: "Find usages of an identifier or cursor binding",
 });
 
 interface RefsToolOptions {
@@ -133,9 +133,9 @@ export function registerRefsTool(pi: ExtensionAPI, options: RefsToolOptions = {}
       name: Type.String({ description: "Identifier to find references for" }),
       path: searchPathParam(),
       lang: langParam(),
-      scope: Type.Optional(Type.Boolean({ description: "Restrict to the binding under line/column (single file)" })),
-      line: Type.Optional(Type.Number({ description: "One-based cursor line, used with scope" })),
-      column: Type.Optional(Type.Number({ description: "One-based cursor byte column, used with scope" })),
+      scope: Type.Optional(Type.Boolean({ description: "Restrict results to the binding at the cursor" })),
+      line: Type.Optional(Type.Number({ description: "Cursor line (1-indexed), required with scope" })),
+      column: Type.Optional(Type.Number({ description: "Cursor byte column (1-indexed) for disambiguation" })),
       ...readSeekGitSearchParams(),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {

@@ -1,6 +1,6 @@
-Edit existing text files with fresh `LINE:HASH` anchors from `readSeek_read`,
-`readSeek_grep`, `readSeek_search`, or `readSeek_write`. The file must have
-been anchored in this session; on `file-not-read`, read or search it first.
+Edit existing text files safely with fresh `LINE:HASH` anchors; on `file-not-read`, read or search the file first.
+
+Anchors come from `readSeek_read`, `readSeek_grep`, `readSeek_search`, or `readSeek_write`.
 
 ## Variants
 

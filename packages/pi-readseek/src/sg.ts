@@ -49,7 +49,7 @@ export function mergeRanges(ranges: SgRange[]): SgRange[] {
 
 const SG_PROMPT_METADATA = defineToolPromptMetadata({
   promptUrl: new URL("../prompts/sg.md", import.meta.url),
-  promptSnippet: "Search code by AST pattern with edit-ready anchors",
+  promptSnippet: "Search syntax-aware code shapes with AST patterns",
 });
 
 interface SgToolOptions {
@@ -190,7 +190,7 @@ export function registerSgTool(pi: ExtensionAPI, options: SgToolOptions = {}) {
     promptSnippet: SG_PROMPT_METADATA.promptSnippet,
     promptGuidelines: SG_PROMPT_METADATA.promptGuidelines,
     parameters: Type.Object({
-      pattern: Type.String({ description: "AST pattern" }),
+      pattern: Type.String({ description: "ast-grep pattern, such as console.log($$$ARGS)" }),
       lang: langParam(),
       path: searchPathParam(),
       ...readSeekGitSearchParams(),

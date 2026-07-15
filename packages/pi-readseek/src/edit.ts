@@ -59,7 +59,9 @@ const hashlineEditItemSchema = Type.Union([
 const hashlineEditSchema = Type.Object(
 	{
 		path: filePathParam(),
-		edits: Type.Optional(Type.Array(hashlineEditItemSchema, { description: "Edit operations" })),
+		edits: Type.Optional(Type.Array(hashlineEditItemSchema, {
+			description: "Edits: set_line, replace_lines, insert_after, replace_symbol, or replace",
+		})),
 		postEditVerify: Type.Optional(Type.Boolean({
 			description: "Verify persisted content after write",
 		})),
@@ -565,7 +567,7 @@ export function registerEditTool(pi: ExtensionAPI, options: EditToolOptions = {}
 	const name = options.name ?? "readSeek_edit";
 	const promptMetadata = defineToolPromptMetadata({
 		promptUrl: new URL("../prompts/edit.md", import.meta.url),
-		promptSnippet: "Edit with fresh hash-verified anchors",
+		promptSnippet: "Safely edit with fresh LINE:HASH anchors",
 		registeredName: name,
 		toolAliases: options.toolAliases,
 	});

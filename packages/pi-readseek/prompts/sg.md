@@ -1,6 +1,4 @@
-Search code with AST patterns when text search is too broad. Use it for calls,
-imports, declarations, JSX, object fields, and control flow. Results include
-edit-ready anchors.
+Search syntax-aware code shapes with AST patterns and return edit-ready anchors. Use for calls, imports, declarations, JSX, object fields, or control flow; use `readSeek_grep` for plain text.
 
 ## Parameters
 
@@ -35,5 +33,3 @@ punctuation must be valid for the selected language.
 In Git repositories, directory search includes tracked/indexed and untracked
 non-ignored files. Use `cached`, `others`, and `ignored` to choose; `ignored`
 requires `others`.
-
-Use `readSeek_grep` for plain text and `readSeek_search` for structure.

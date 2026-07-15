@@ -1,9 +1,6 @@
-Create or replace a whole file and return `LINE:HASH` anchors for follow-up edits.
+Create or replace a complete file and return `LINE:HASH` anchors. Use for new or fully generated files; use anchored edits for small changes.
 
 ## Use / avoid
-
-Use it for new, generated, or intentionally replaced files. For small changes or
-appends, read/search first and use `readSeek_edit`.
 
 Existing files are overwritten without confirmation. Binary-looking content gets
 no anchors.

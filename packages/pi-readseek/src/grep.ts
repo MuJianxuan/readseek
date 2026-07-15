@@ -26,20 +26,20 @@ import { searchPathParam } from "./readseek-params.js";
 
 
 const grepSchema = Type.Object({
-	pattern: Type.String({ description: "Pattern to search" }),
+	pattern: Type.String({ description: "Regex pattern; use literal for exact text" }),
 	path: searchPathParam(),
-	glob: Type.Optional(Type.String({ description: "Glob filter" })),
+	glob: Type.Optional(Type.String({ description: "File-name glob, such as *.ts" })),
 	ignoreCase: Type.Optional(Type.Boolean({ description: "Ignore case" })),
 	literal: Type.Optional(Type.Boolean({ description: "Treat pattern literally" })),
-	context: optionalIntOrString("Context lines"),
-	limit: optionalIntOrString("Max matches"),
+	context: optionalIntOrString("Surrounding lines for each match"),
+	limit: optionalIntOrString("Maximum matches to return"),
 	summary: Type.Optional(Type.Boolean({ description: "Return per-file counts" })),
 	scope: Type.Optional(
 		Type.Literal("symbol", {
-			description: "Scope matches to symbols",
+			description: "Group matches by enclosing symbol",
 		}),
 	),
-	scopeContext: optionalIntOrString("Symbol context lines"),
+	scopeContext: optionalIntOrString("Context lines within each symbol"),
 });
 
 interface GrepParams {
@@ -513,7 +513,7 @@ export function registerGrepTool(pi: ExtensionAPI, options: GrepToolOptions = {}
 	const name = options.name ?? "readSeek_grep";
 	const promptMetadata = defineToolPromptMetadata({
 		promptUrl: new URL("../prompts/grep.md", import.meta.url),
-		promptSnippet: "Search file text with edit-ready anchors",
+		promptSnippet: "Search plain text or regex with edit-ready anchors",
 		registeredName: name,
 	});
 	const tool = registerReadSeekTool(pi, {

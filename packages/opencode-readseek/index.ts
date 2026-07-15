@@ -355,8 +355,8 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
     tool: {
       readseek_read: readseekTool(
         imagePolicy === "off"
-          ? "Read text with stable LINE:HASH anchors. Image and PDF files are skipped."
-          : `Read text with stable LINE:HASH anchors. For images and PDFs, explicitly select image: ${imageModes.join(", ")}; omitting image skips the file.`,
+          ? "Read text with LINE:HASH anchors for durable references. Images and PDFs are skipped."
+          : `Read text with LINE:HASH anchors for durable references. For images or PDFs, select a mode (${imageModes.join(", ")}) or omit image to skip.`,
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
@@ -365,7 +365,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
             ? {}
             : {
                 image: tool.schema.enum(imageModes as [ImageMode, ...ImageMode[]]).optional()
-                  .describe(`Image/PDF mode: ${imageModes.join(", ")}. Must be selected explicitly.`),
+                  .describe("Image or PDF processing mode"),
               }),
         },
         "read",
@@ -388,7 +388,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_map: readseekTool(
-        "Build a structural symbol map for a source file.",
+        "List symbols and ranges in a source file. Use to inspect structure without reading the full file.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
         "map",
         async (input, context) => {
@@ -398,14 +398,14 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_search: readseekTool(
-        "Search source code using an ast-grep structural pattern. Results include LINE:HASH anchors.",
+        "Search syntax-aware code shapes with an ast-grep pattern and return LINE:HASH anchors. Use for calls, imports, declarations, JSX, or control flow; use text search for plain text.",
         {
-          pattern: tool.schema.string().describe("AST pattern"),
+          pattern: tool.schema.string().describe("ast-grep pattern, such as console.log($$$ARGS)"),
           path: tool.schema.string().optional().describe("File or directory, defaulting to the project directory"),
-          language: tool.schema.string().optional().describe("ast-grep language"),
-          cached: tool.schema.boolean().optional(),
-          others: tool.schema.boolean().optional(),
-          ignored: tool.schema.boolean().optional(),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
+          cached: tool.schema.boolean().optional().describe("Search tracked or indexed files in a Git repository"),
+          others: tool.schema.boolean().optional().describe("Search untracked files in a Git repository"),
+          ignored: tool.schema.boolean().optional().describe("Include ignored untracked files; requires others"),
         },
         "search",
         async (input, context) => {
@@ -419,14 +419,14 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_def: readseekTool(
-        "Find structural definitions of a symbol. Results include LINE:HASH anchors.",
+        "Find symbol declarations by name and return LINE:HASH anchors. Use instead of text search to locate where a function, class, type, or other symbol is defined.",
         {
           name: tool.schema.string().describe("Symbol name"),
           path: tool.schema.string().optional().describe("File or directory, defaulting to the project directory"),
-          language: tool.schema.string().optional(),
-          cached: tool.schema.boolean().optional(),
-          others: tool.schema.boolean().optional(),
-          ignored: tool.schema.boolean().optional(),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
+          cached: tool.schema.boolean().optional().describe("Search tracked or indexed files in a Git repository"),
+          others: tool.schema.boolean().optional().describe("Search untracked files in a Git repository"),
+          ignored: tool.schema.boolean().optional().describe("Include ignored untracked files; requires others"),
         },
         "def",
         async (input, context) => {
@@ -439,17 +439,17 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_refs: readseekTool(
-        "Find references to an identifier. Use scope with a cursor to identify a specific binding.",
+        "Find identifier usages with enclosing symbols. Use before changing or deleting a symbol; add a cursor scope to exclude same-named bindings.",
         {
           name: tool.schema.string().describe("Identifier name"),
           path: tool.schema.string().optional().describe("File or directory, defaulting to the project directory"),
-          language: tool.schema.string().optional(),
-          scope: tool.schema.boolean().optional(),
-          line: tool.schema.number().int().positive().optional(),
-          column: tool.schema.number().int().positive().optional(),
-          cached: tool.schema.boolean().optional(),
-          others: tool.schema.boolean().optional(),
-          ignored: tool.schema.boolean().optional(),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
+          scope: tool.schema.boolean().optional().describe("Restrict results to the binding at the cursor"),
+          line: tool.schema.number().int().positive().optional().describe("Cursor line, required with scope"),
+          column: tool.schema.number().int().positive().optional().describe("Cursor byte column for disambiguation"),
+          cached: tool.schema.boolean().optional().describe("Search tracked or indexed files in a Git repository"),
+          others: tool.schema.boolean().optional().describe("Search untracked files in a Git repository"),
+          ignored: tool.schema.boolean().optional().describe("Include ignored untracked files; requires others"),
         },
         "refs",
         async (input, context) => {
@@ -469,12 +469,12 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_hover: readseekTool(
-        "Identify the token and enclosing symbol at a source cursor.",
+        "Identify the token and enclosing symbol at a cursor. Use before definition lookup or rename, or to identify a line's enclosing symbol.",
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           line: tool.schema.number().int().positive().describe("One-based cursor line"),
           column: tool.schema.number().int().positive().optional().describe("One-based cursor byte column"),
-          language: tool.schema.string().optional(),
+          language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
         },
         "hover",
         async (input, context) => {
@@ -487,12 +487,12 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_rename: readseekTool(
-        "Plan a binding-aware rename. This tool never writes files; apply the returned plan through OpenCode's normal edit tools.",
+        "Plan a symbol rename without changing same-named bindings. Never writes files; apply the returned edits with OpenCode's edit tools.",
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
-          line: tool.schema.number().int().positive().describe("One-based cursor line of the binding"),
-          column: tool.schema.number().int().positive().optional().describe("One-based cursor byte column"),
-          to: tool.schema.string().min(1).describe("New binding name"),
+          line: tool.schema.number().int().positive().describe("One-based line of the symbol to rename"),
+          column: tool.schema.number().int().positive().optional().describe("One-based byte column for disambiguation"),
+          to: tool.schema.string().min(1).describe("New symbol name"),
           workspace: tool.schema.boolean().optional().describe("Include project-wide occurrences"),
         },
         "rename",
@@ -513,7 +513,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         },
       ),
       readseek_check: readseekTool(
-        "Check a source file for parser errors and missing syntax.",
+        "Check a source file for parser errors and missing syntax. Use after edits for quick syntax validation, not as a compiler or linter.",
         { path: tool.schema.string().describe("Path relative to the project directory") },
         "check",
         async (input, context) => {

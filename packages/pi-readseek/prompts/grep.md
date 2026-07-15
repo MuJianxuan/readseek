@@ -1,4 +1,4 @@
-Search file contents. Non-summary results include edit-ready `LINE:HASH` anchors, so you usually do not need a follow-up `readSeek_read` before `readSeek_edit`.
+Search plain text or regex in files and return edit-ready `LINE:HASH` anchors. Use for identifiers, strings, configuration, errors, comments, or documentation.
 
 ## Modes
 
@@ -18,11 +18,5 @@ Search file contents. Non-summary results include edit-ready `LINE:HASH` anchors
 - `summary` — counts only, no anchors.
 - `scope` — only `"symbol"` is supported.
 - `scopeContext` — non-negative context within symbol scope; requires `scope: "symbol"`.
-
-## Use well
-
-Use `readSeek_grep` for text: identifiers, strings, config keys, error messages, comments, or docs. Use `literal: true` unless you want regex behavior.
-
-For code shape — calls, imports, declarations, JSX, object literals, control flow — prefer `readSeek_search`, which parses AST patterns.
 
 If output says results were truncated at `limit` or by display budget, narrow before editing. Good narrowing order: `summary` → `path`/`glob` → stricter pattern → `scope: "symbol"` or `context`.

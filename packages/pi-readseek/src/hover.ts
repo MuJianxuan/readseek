@@ -15,7 +15,7 @@ import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderErrorResult, r
 
 const HOVER_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/hover.md", import.meta.url),
-	promptSnippet: "Identify a cursor token and enclosing symbol",
+	promptSnippet: "Identify the token and enclosing symbol at a cursor",
 });
 
 const hoverSchema = Type.Object({

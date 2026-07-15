@@ -15,7 +15,7 @@ import type { FileAnchoredCallback } from "./tool-types.js";
 
 const DEF_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/def.md", import.meta.url),
-	promptSnippet: "Find structural definitions for a symbol",
+	promptSnippet: "Find where a symbol is defined",
 });
 
 type DefParams = {

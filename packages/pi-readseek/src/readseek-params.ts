@@ -4,12 +4,12 @@ import { buildToolErrorResult, type ToolErrorResult } from "./readseek-value.js"
 
 /** Optional search path shared by the readseek search tools. */
 export function searchPathParam() {
-  return Type.Optional(Type.String({ description: "Search path" }));
+  return Type.Optional(Type.String({ description: "File or directory to search" }));
 }
 
 /** Optional language hint shared by the readseek search tools. */
 export function langParam() {
-  return Type.Optional(Type.String({ description: "Language hint" }));
+  return Type.Optional(Type.String({ description: "Language override when auto-detection is ambiguous" }));
 }
 
 /**

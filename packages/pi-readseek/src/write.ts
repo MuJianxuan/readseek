@@ -241,7 +241,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
   const name = options.name ?? "readSeek_write";
   const promptMetadata = defineToolPromptMetadata({
     promptUrl: new URL("../prompts/write.md", import.meta.url),
-    promptSnippet: "Create or overwrite a file with edit anchors",
+    promptSnippet: "Create or replace a complete file with edit anchors",
     registeredName: name,
   });
   const tool = registerReadSeekTool(pi, {
@@ -252,7 +252,7 @@ export function registerWriteTool(pi: ExtensionAPI, options: WriteToolOptions = 
     promptGuidelines: promptMetadata.promptGuidelines,
     parameters: Type.Object({
       path: filePathParam(),
-      content: Type.String({ description: "File content" }),
+      content: Type.String({ description: "Complete file content" }),
       map: mapParam(),
     }),
     async execute(_toolCallId: string, params: { path: string; content: string; map?: boolean }, _signal: AbortSignal | undefined, _onUpdate: any, ctx: any): Promise<any> {

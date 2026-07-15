@@ -13,16 +13,16 @@ import { clampLineToWidth, clampLinesToWidth, linkedPathLine, linkToolPath, rend
 
 const RENAME_PROMPT_METADATA = defineToolPromptMetadata({
 	promptUrl: new URL("../prompts/rename.md", import.meta.url),
-	promptSnippet: "Rename a binding accurately from its cursor",
+	promptSnippet: "Rename the symbol at a cursor without touching shadows",
 });
 
 const renameSchema = Type.Object({
 	path: filePathParam(),
-	line: Type.Number({ description: "One-based cursor line of the binding to rename" }),
-	column: Type.Optional(Type.Number({ description: "One-based cursor byte column of the binding to rename" })),
-	to: Type.String({ description: "New name for the binding" }),
-	workspace: Type.Optional(Type.Boolean({ description: "Expand rename across project root (name-based outside cursor file)" })),
-	apply: Type.Optional(Type.Boolean({ description: "Write the planned edits to disk after verifying line hashes" })),
+	line: Type.Number({ description: "One-based line of the symbol to rename" }),
+	column: Type.Optional(Type.Number({ description: "One-based byte column for disambiguation" })),
+	to: Type.String({ description: "New symbol name" }),
+	workspace: Type.Optional(Type.Boolean({ description: "Rename across the project" })),
+	apply: Type.Optional(Type.Boolean({ description: "Apply the verified edits; default true" })),
 });
 
 interface RenameParams {

@@ -12,7 +12,7 @@ export function optionalIntOrString(description: string) {
 
 /** Required file-path parameter shared by the read, edit, and write tools. */
 export function filePathParam() {
-  return Type.String({ description: "File path" });
+  return Type.String({ description: "Absolute or relative file path" });
 }
 
 /** Optional structural-map toggle shared by the read and write tools. */

@@ -524,7 +524,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 	const imageModes = imageMode === "auto" ? ["none", "ocr", "caption", "objects"] as const : ["ocr", "caption", "objects"] as const;
 	const promptMetadata = defineToolPromptMetadata({
 		promptUrl: new URL("../prompts/read.md", import.meta.url),
-		promptSnippet: "Read files or images with anchors, maps, symbols, and OCR",
+		promptSnippet: "Read anchored text, symbols, maps, images, or PDFs",
 		registeredName: name,
 	});
 	const tool = registerReadSeekTool(pi, {
@@ -541,12 +541,12 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 		parameters: Type.Object({
 			path: filePathParam(),
 			offset: optionalIntOrString("Start line (1-indexed)"),
-			limit: optionalIntOrString("Max lines"),
+			limit: optionalIntOrString("Maximum lines to return"),
 			symbol: Type.Optional(Type.String({ description: "Symbol name to read" })),
 			map: mapParam(),
 			bundle: Type.Optional(
 				Type.Literal("local", {
-					description: "Include same-file local support",
+					description: "Include related symbols from the same file; requires symbol",
 				}),
 			),
 			...(imageMode === "off"

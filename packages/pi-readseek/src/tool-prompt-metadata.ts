@@ -2,16 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "@earendil-works/pi-coding-agent";
 
-const COMPACT_DESCRIPTIONS: Record<string, string> = {
-  "read.md": "Read text files, images, or PDFs by path; text has LINE:HASH anchors and visual files require an explicit image mode.",
-  "edit.md": "Edit existing text files using fresh LINE:HASH anchors from readSeek_read, readSeek_grep, readSeek_search, or readSeek_write.",
-  "grep.md": "Search file contents; non-summary results include LINE:HASH anchors for edits.",
-
-  "write.md": "Create or overwrite a complete file and return anchors.",
-  "sg.md": "Search code by AST pattern and return anchored matches.",
-  "refs.md": "Find references to an identifier and return anchored usages with enclosing symbols.",
-};
-
 const REPLACEABLE_TOOL_GUIDELINES: Record<string, { readSeekName: string; builtInName: string; benefit: string }> = {
   "read.md": {
     readSeekName: "readSeek_read",
@@ -37,8 +27,7 @@ const REPLACEABLE_TOOL_GUIDELINES: Record<string, { readSeekName: string; builtI
 
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
-    "Use readSeek_read map or symbol mode before pulling large code files into context.",
-    "For images and PDFs, explicitly choose one of the image modes exposed by readSeek_read.",
+    "Use readSeek_read map or symbol mode to inspect large code files without reading them in full.",
   ],
   "edit.md": [
     "With readSeek_edit, prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",
@@ -50,8 +39,7 @@ const COMPACT_GUIDELINES: Record<string, string[]> = {
     "Use anchored edits rather than readSeek_write for small changes or appends to existing files.",
   ],
   "sg.md": [
-    "Use readSeek_search for AST-shaped code patterns.",
-    "Use readSeek_grep instead of readSeek_search for plain text.",
+    "Use readSeek_search for syntax-aware code shapes; use readSeek_grep for plain text.",
   ],
   "refs.md": [
     "Use readSeek_refs to find every usage of an identifier before renaming or deleting it.",
@@ -96,7 +84,6 @@ export function defineToolPromptMetadata(options: {
 }): ToolPromptMetadata {
   const prompt = loadPrompt(options.promptUrl);
   const fileName = promptFileName(options.promptUrl);
-  const compactDescription = COMPACT_DESCRIPTIONS[fileName];
   const replaceable = REPLACEABLE_TOOL_GUIDELINES[fileName];
   const registeredName = options.registeredName ?? replaceable?.readSeekName;
   const preferenceGuideline = replaceable && registeredName
@@ -105,7 +92,7 @@ export function defineToolPromptMetadata(options: {
       : `Use ${registeredName}; ${replaceable.benefit}`
     : undefined;
   return {
-    description: rewriteToolAliases(compactDescription ?? firstPromptParagraph(prompt), options.toolAliases),
+    description: rewriteToolAliases(firstPromptParagraph(prompt), options.toolAliases),
     promptSnippet: rewriteToolAliases(options.promptSnippet, options.toolAliases),
     promptGuidelines: [
       ...(preferenceGuideline ? [preferenceGuideline] : []),

@@ -43,7 +43,7 @@ describe("defineToolPromptMetadata", () => {
       },
     });
 
-    expect(metadata.description).toBe("Edit existing text files using fresh LINE:HASH anchors from read, grep, readSeek_search, or write.");
+    expect(metadata.description).toBe("Edit existing text files safely with fresh `LINE:HASH` anchors; on `file-not-read`, read or search the file first.");
     expect(metadata.promptSnippet).toBe("Edit files using hash-verified anchors from read/grep/readSeek_search/write");
   });
 });

@@ -1,4 +1,4 @@
-Read files through readseek. Text results use `LINE:HASH|content` anchors for `readSeek_edit`. Images and PDFs require an explicit available `image` mode; omitting it skips them. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+Read anchored text by range, map, or symbol, and process images or PDFs with an explicit mode.
 
 ## Choose the right read
 
@@ -15,6 +15,8 @@ Read files through readseek. Text results use `LINE:HASH|content` anchors for `r
 - `symbol` — `Name`, `Class.method`, or `Name@<line>`; incompatible with `offset` / `limit`.
 - `bundle` — only `"local"`; requires `symbol` and excludes `map`.
 - `image` — an exposed image/PDF mode.
+
+Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}. Omitting `image` skips images and PDFs.
 
 Truncated full-file reads append a map when available. Use its ranges for follow-up reads.
 

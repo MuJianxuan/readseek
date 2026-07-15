@@ -1,5 +1,4 @@
-Find structural definitions by qualified or unqualified name across a file or
-directory.
+Find symbol declarations by qualified or unqualified name. Use instead of text search when locating where a function, class, type, or other symbol is defined.
 
 ## Parameters
 
@@ -8,7 +7,4 @@ directory.
 - `lang` — language override.
 - `cached`, `others`, `ignored` — Git file selection; `ignored` requires `others`.
 
-## When to use
-
-- After `readSeek_hover`, use its qualified symbol name.
-- When asked where a function, class, or type is defined.
+After `readSeek_hover`, use its qualified symbol name.

@@ -1,5 +1,4 @@
-Find identifier references before renaming, deleting, or changing a symbol when
-text search is too broad. Results include edit-ready anchors and enclosing symbols.
+Find identifier usages with enclosing symbols and edit-ready anchors. Use before renaming, deleting, or changing a symbol; add a cursor scope to exclude same-named bindings.
 
 ## Parameters
 
@@ -23,5 +22,3 @@ shadows.
 
 In Git repositories, directory search includes tracked/indexed and untracked
 non-ignored files. `ignored` requires `others`.
-
-Use `readSeek_grep` for plain text, `readSeek_search` for code shape, and `readSeek_refs` for identifier usage.
