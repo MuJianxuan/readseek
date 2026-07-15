@@ -77,7 +77,7 @@ same mode applies to each embedded image. Line/hash suffixes, `--end`, `--limit`
 and `--language` do not apply to visual files.
 
 Vision models download lazily into the user cache and run on the CPU. Captioning
-and OCR can take substantial time.
+can take substantial time.
 
 ## Cache
 

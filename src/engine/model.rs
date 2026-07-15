@@ -3,9 +3,9 @@
 
 //! Vision model cache: lazily downloads and SHA-256-verifies the BLIP
 //! caption model (GGUF + tokenizer), the YOLOv8-nano object-detection weights,
-//! and the `TrOCR` printed-text recognition model (weights + config + tokenizer)
-//! into the `models/` subdirectory of the user cache (`dirs::cache_dir`) on
-//! first use. A progress bar is shown while downloading when stdout is a TTY.
+//! and the ocrs text detection/recognition models into the `models/` subdirectory
+//! of the user cache (`dirs::cache_dir`) on first use. A progress bar is shown
+//! while downloading when stdout is a TTY.
 
 use anyhow::{Context as _, Result, anyhow};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -17,8 +17,8 @@ use std::path::PathBuf;
 const HF_BASE: &str = "https://huggingface.co";
 const CACHE_SUBDIR: &str = "models";
 
-/// `(repo, remote path, local file name, cache subdir, byte size, sha256)`.
-/// `(repo, revision, remote path, local file name, byte size, sha256)`.
+/// `(repository or HTTPS base URL, revision, remote path, local file name, byte
+/// size, sha256)`.
 const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
     (
         "lmz/candle-blip",
@@ -45,28 +45,20 @@ const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
         "5788ff529e26961281ebeb26facecaea38ec9a79a3ad2282995ab899eb905626",
     ),
     (
-        "microsoft/trocr-base-printed",
-        "refs/pr/7",
-        "model.safetensors",
-        "trocr-base-printed.safetensors",
-        1_333_384_464,
-        "1cf4a6eedab26afaaf505f1c7f73d9634944924dbd1ed049d569db98039cd596",
+        "https://ocrs-models.s3-accelerate.amazonaws.com",
+        "",
+        "text-detection.rten",
+        "text-detection.rten",
+        2_510_284,
+        "f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca",
     ),
     (
-        "microsoft/trocr-base-printed",
-        "refs/pr/7",
-        "config.json",
-        "trocr-config.json",
-        4_126,
-        "5bda1deab455661feb3d91906656e5600e2ca520d5c00a2a03836614b850c93e",
-    ),
-    (
-        "ToluClassics/candle-trocr-tokenizer",
-        "main",
-        "tokenizer.json",
-        "trocr-tokenizer.json",
-        2_108_614,
-        "2f1a555a1ee93656b4e6f67aa75d492a843c225e5ef754bae24c36bd85851cd7",
+        "https://ocrs-models.s3-accelerate.amazonaws.com",
+        "",
+        "text-recognition.rten",
+        "text-recognition.rten",
+        9_716_568,
+        "e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e",
     ),
 ];
 
@@ -105,24 +97,18 @@ fn cache_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Path under the readseek model cache directory for a locally produced file
-/// that is not downloaded from a registry — e.g. the runtime-quantized `TrOCR`
-/// `q4_K` GGUF, derived from the SHA-256-verified F32 safetensors and reused
-/// across runs so the one-time quantization cost is paid only once.
-pub(crate) fn local_cache_path(name: &str) -> Result<PathBuf> {
-    let dir = cache_dir()?.join(CACHE_SUBDIR);
-    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    Ok(dir.join(name))
-}
-
 /// Downloads `remote` from `repo` into `target` via a `.part` file, then
 /// atomically renames. A progress bar is shown when stdout is a TTY.
 fn download(repo: &str, revision: &str, remote: &str, local: &str, target: &PathBuf) -> Result<()> {
-    let url = format!(
-        "{HF_BASE}/{repo}/resolve/{}/{}",
-        revision.replace('/', "%2F"),
-        remote,
-    );
+    let url = if repo.starts_with("https://") {
+        format!("{repo}/{remote}")
+    } else {
+        format!(
+            "{HF_BASE}/{repo}/resolve/{}/{}",
+            revision.replace('/', "%2F"),
+            remote,
+        )
+    };
     let part = target.with_extension("part");
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),

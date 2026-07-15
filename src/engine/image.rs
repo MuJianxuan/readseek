@@ -15,6 +15,121 @@ use serde::Serialize;
 
 const MAX_LONG_EDGE: u32 = 1568;
 const JPEG_QUALITY: u8 = 80;
+const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+/// Return exact diagram labels from draw.io's embedded PNG `mxfile` metadata.
+pub(crate) fn embedded_drawio_text(bytes: &[u8]) -> Option<String> {
+    let encoded = png_text_chunk(bytes, b"mxfile")?;
+    let xml = String::from_utf8(percent_decode(encoded)?).ok()?;
+    let mut reader = quick_xml::Reader::from_str(&xml);
+    reader.config_mut().trim_text(true);
+    let mut labels = Vec::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(cell) | quick_xml::events::Event::Empty(cell))
+                if cell.name().as_ref() == b"mxCell" =>
+            {
+                for attribute in cell.attributes().flatten() {
+                    if attribute.key.as_ref() != b"value" {
+                        continue;
+                    }
+                    let value = attribute
+                        .decoded_and_normalized_value(
+                            quick_xml::XmlVersion::Implicit1_0,
+                            reader.decoder(),
+                        )
+                        .ok()?;
+                    let label = plain_drawio_label(&value);
+                    if !label.is_empty() {
+                        labels.push(label);
+                    }
+                }
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+    }
+
+    (!labels.is_empty()).then(|| labels.join("\n"))
+}
+
+fn png_text_chunk<'a>(bytes: &'a [u8], keyword: &[u8]) -> Option<&'a [u8]> {
+    if bytes.get(..PNG_SIGNATURE.len())? != PNG_SIGNATURE {
+        return None;
+    }
+
+    let mut pos = PNG_SIGNATURE.len();
+    while pos.checked_add(12)? <= bytes.len() {
+        let len = u32::from_be_bytes(bytes.get(pos..pos + 4)?.try_into().ok()?) as usize;
+        let data_start = pos.checked_add(8)?;
+        let data_end = data_start.checked_add(len)?;
+        let chunk_end = data_end.checked_add(4)?;
+        if chunk_end > bytes.len() {
+            return None;
+        }
+        if bytes.get(pos + 4..pos + 8)? == b"tEXt" {
+            let data = bytes.get(data_start..data_end)?;
+            let split = data.iter().position(|byte| *byte == 0)?;
+            if data.get(..split)? == keyword {
+                return data.get(split + 1..);
+            }
+        }
+        pos = chunk_end;
+    }
+    None
+}
+
+fn percent_decode(value: &[u8]) -> Option<Vec<u8>> {
+    let mut decoded = Vec::with_capacity(value.len());
+    let mut pos = 0;
+    while pos < value.len() {
+        if value[pos] != b'%' {
+            decoded.push(value[pos]);
+            pos += 1;
+            continue;
+        }
+        let high = hex_digit(*value.get(pos + 1)?)?;
+        let low = hex_digit(*value.get(pos + 2)?)?;
+        decoded.push(high << 4 | low);
+        pos += 3;
+    }
+    Some(decoded)
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn plain_drawio_label(value: &str) -> String {
+    let value = value
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("&nbsp;", " ");
+    let mut plain = String::with_capacity(value.len());
+    let mut in_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => plain.push(character),
+            _ => {}
+        }
+    }
+    plain
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// A recognized image format.
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -199,4 +314,45 @@ fn skip_sub_blocks(bytes: &[u8], mut pos: usize) -> usize {
         pos += usize::from(size);
     }
     pos
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png_with_text(keyword: &[u8], value: &[u8]) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(keyword);
+        data.push(0);
+        data.extend_from_slice(value);
+
+        let mut png = PNG_SIGNATURE.to_vec();
+        png.extend_from_slice(
+            &u32::try_from(data.len())
+                .expect("test chunk length fits u32")
+                .to_be_bytes(),
+        );
+        png.extend_from_slice(b"tEXt");
+        png.extend_from_slice(&data);
+        png.extend_from_slice(&[0; 4]);
+        png
+    }
+
+    #[test]
+    fn extracts_embedded_drawio_labels() {
+        let encoded = b"%3Cmxfile%3E%3CmxCell%20value%3D%22Title%26%23xa%3BSecond%22%2F%3E%3CmxCell%20value%3D%22%26lt%3Bb%26gt%3BBold%26lt%3B%2Fb%26gt%3B%22%2F%3E%3C%2Fmxfile%3E";
+        let png = png_with_text(b"mxfile", encoded);
+
+        assert_eq!(
+            embedded_drawio_text(&png).as_deref(),
+            Some("Title\nSecond\nBold")
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_png_text() {
+        let png = png_with_text(b"Comment", b"plain text");
+
+        assert_eq!(embedded_drawio_text(&png), None);
+    }
 }

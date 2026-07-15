@@ -1,5 +1,9 @@
 # Research: speeding up readseek's vision inference
 
+> **Historical note:** OCR now uses ocrs/RTen instead of TrOCR. TrOCR-specific
+> findings below describe the retired implementation; BLIP and YOLO findings
+> still apply.
+
 Scope: the CPU vision pipeline in `src/engine/vision.rs` + `yolo.rs` + `vision_cache.rs`,
 backed by `candle-core` / `candle-nn` / `candle-transformers` 0.11. The three task
 models are quantized BLIP caption (q4_K GGUF, autoregressive, "up to a couple of

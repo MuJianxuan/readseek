@@ -146,7 +146,7 @@ Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
 Visual files use a separate result shape. Images return bounded base64 by default;
 \fB--image none|caption|objects|ocr\fR selects base64, BLIP captioning, YOLOv8-nano
-objects, or TrOCR text. PDFs return page-tagged Markdown plus page-associated
+objects, or ocrs text. PDFs return page-tagged Markdown plus page-associated
 embedded images with the same mode. \fB--end\fR, \fB--limit\fR, \fB--language\fR,
 and line or hash suffixes do not apply to visual files. Vision models download
 lazily (see \fBCACHE\fR).
@@ -344,8 +344,8 @@ Binary source-map cache files keyed by file hash.
 Sharded binary definition index keyed by symbol name, used by \fBdef\fR directory lookup.
 .TP
 .I $XDG_CACHE_HOME/readseek/models/
-Vision model files (BLIP GGUF + tokenizer, YOLOv8-nano weights, and TrOCR
-weights + config + tokenizer), downloaded lazily on first use of
+Vision model files (BLIP GGUF + tokenizer, YOLOv8-nano weights, and ocrs text
+recognition models), downloaded lazily on first use of
 \fBread --image caption|objects|ocr\fR.
 
 .SH EXAMPLES

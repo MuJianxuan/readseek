@@ -14,7 +14,6 @@ pub(crate) mod output;
 pub(crate) mod paths;
 pub(crate) mod pdf;
 pub(crate) mod quantized_blip;
-pub(crate) mod quantized_trocr;
 pub(crate) mod refs;
 pub(crate) mod rename;
 pub(crate) mod repo;
