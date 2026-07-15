@@ -32,11 +32,12 @@ describe("OpenCode presentation", () => {
   test("publishes live and final titles without changing JSON output", async () => {
     const titles: string[] = [];
     const output = { file: "/repo/file.ts", start_line: 2, end_line: 4, hashlines: [] };
-    spyOn(Bun, "spawn").mockReturnValue({
-      stdout: new Response(JSON.stringify(output)).body,
+    let call = 0;
+    spyOn(Bun, "spawn").mockImplementation(() => ({
+      stdout: new Response(JSON.stringify(call++ === 0 ? {} : output)).body,
       stderr: new Response("").body,
       exited: Promise.resolve(0),
-    } as never);
+    }) as never);
     const read = (await ReadSeekPlugin({} as never)).tool?.readseek_read;
     if (!read) throw new Error("plugin did not register readseek_read");
 

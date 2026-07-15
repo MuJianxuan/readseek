@@ -5,7 +5,7 @@ import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { tool, type Plugin, type ToolContext } from "@opencode-ai/plugin";
+import { tool, type Plugin, type PluginOptions, type ToolContext } from "@opencode-ai/plugin";
 
 const require = createRequire(import.meta.url);
 const readseekScript = require.resolve("@jarkkojs/readseek/bin/readseek.js");
@@ -22,6 +22,22 @@ type Presentation = {
   title: string;
   metadata: Record<string, number>;
 };
+
+type ImagePolicy = "on" | "auto" | "off";
+type ImageMode = "none" | "ocr" | "caption" | "objects";
+
+function resolveImagePolicy(options: PluginOptions | undefined): ImagePolicy {
+  const value = options?.imageMode;
+  if (value === undefined) return "auto";
+  if (value === "on" || value === "auto" || value === "off") return value;
+  throw new Error('opencode-readseek imageMode must be "on", "auto", or "off"');
+}
+
+function isVisualFile(value: unknown): boolean {
+  const output = record(value);
+  const type = output.type;
+  return typeof output.width === "number" || type === "application/pdf";
+}
 
 class SessionAnchors {
   #pathsBySession = new Map<string, Set<string>>();
@@ -305,8 +321,12 @@ function readseekTool(
  * Adds readseek's anchored reads and structural navigation without replacing
  * OpenCode's built-in file tools.
  */
-export const ReadSeekPlugin: Plugin = async () => {
+export const ReadSeekPlugin: Plugin = async (_input, options) => {
   const anchors = new SessionAnchors();
+  const imagePolicy = resolveImagePolicy(options);
+  const imageModes: readonly ImageMode[] = imagePolicy === "auto"
+    ? ["none", "ocr", "caption", "objects"]
+    : ["ocr", "caption", "objects"];
   const withSearchFlags = (args: string[], input: { cached?: boolean; others?: boolean; ignored?: boolean }) => {
     if (input.ignored && !input.others) throw new Error("ignored requires others");
     optionalFlag(args, input.cached, "--cached");
@@ -317,18 +337,36 @@ export const ReadSeekPlugin: Plugin = async () => {
   return {
     tool: {
       readseek_read: readseekTool(
-        "Read a text file with stable LINE:HASH anchors. Use those anchors when describing a later edit.",
+        imagePolicy === "off"
+          ? "Read text with stable LINE:HASH anchors. Image and PDF files are skipped."
+          : `Read text with stable LINE:HASH anchors. For images and PDFs, explicitly select image: ${imageModes.join(", ")}; omitting image skips the file.`,
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
           limit: tool.schema.number().int().positive().optional().describe("Maximum number of lines"),
+          ...(imagePolicy === "off"
+            ? {}
+            : {
+                image: tool.schema.enum(imageModes as [ImageMode, ...ImageMode[]]).optional()
+                  .describe(`Image/PDF mode: ${imageModes.join(", ")}. Must be selected explicitly.`),
+              }),
         },
         "read",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
+          const image = input.image as ImageMode | undefined;
+          if (imagePolicy === "off" && image !== undefined) throw new Error("image and PDF reads are disabled");
+          if (imagePolicy === "on" && image === "none") throw new Error('image="none" requires imageMode="auto"');
+          if (image === undefined) {
+            const detection = await runReadSeek(context, ["detect", filePath]);
+            if (isVisualFile(detection)) {
+              return { file: filePath, skipped: true, reason: "image mode not selected" };
+            }
+          }
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
           if (input.limit !== undefined) args.push("--end", String((input.offset ?? 1) + input.limit - 1));
+          if (image !== undefined) args.push("--image", image);
           return runReadSeek(context, args);
         },
       ),

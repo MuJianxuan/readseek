@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { replacedTools, settingsWarnings, availability } = vi.hoisted(() => ({
+const { replacedTools, settingsWarnings, availability, imageMode } = vi.hoisted(() => ({
 	replacedTools: { value: [] as string[] },
 	settingsWarnings: { value: [] as Array<{ source: string; message: string }> },
 	availability: { value: { available: true } as { available: true } | { available: false; reason: string } },
+	imageMode: { value: "auto" as "on" | "auto" | "off" },
 }));
 
 vi.mock("../src/readseek-client.js", async (importOriginal) => ({
@@ -16,7 +17,7 @@ vi.mock("../src/readseek-settings.js", () => ({
 		settings: { replacedTools: replacedTools.value },
 		warnings: settingsWarnings.value,
 	}),
-	resolveReadSeekImageMode: () => "force",
+	resolveReadSeekImageMode: () => imageMode.value,
 	resolveReadSeekSyntaxValidation: () => undefined,
 	resolveReadSeekTimeoutMs: () => undefined,
 }));
@@ -72,6 +73,29 @@ describe("pi-readseek extension", () => {
 		replacedTools.value = [];
 		settingsWarnings.value = [];
 		availability.value = { available: true };
+		imageMode.value = "auto";
+	});
+
+	it("exposes image modes according to imageMode", () => {
+		const auto = createPi([]);
+		piReadSeekExtension(auto.pi);
+		const autoRead = auto.toolDefinitions.get("readSeek_read") as any;
+		expect(autoRead.promptGuidelines.at(-1)).toContain("none, ocr, caption, objects");
+		expect(autoRead.parameters.properties.image.anyOf).toHaveLength(4);
+
+		imageMode.value = "on";
+		const on = createPi([]);
+		piReadSeekExtension(on.pi);
+		const onRead = on.toolDefinitions.get("readSeek_read") as any;
+		expect(onRead.promptGuidelines.at(-1)).toContain("ocr, caption, objects");
+		expect(onRead.promptGuidelines.at(-1)).not.toContain("none");
+
+		imageMode.value = "off";
+		const off = createPi([]);
+		piReadSeekExtension(off.pi);
+		const offRead = off.toolDefinitions.get("readSeek_read") as any;
+		expect(offRead.promptGuidelines.at(-1)).toBe("Image and PDF reads are disabled.");
+		expect(offRead.parameters.properties.image).toBeUndefined();
 	});
 
 	it("activates readseek tools without removing active built-ins", () => {

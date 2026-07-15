@@ -1,4 +1,4 @@
-Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `readSeek_edit`; supported images return attachments and may append OCR/caption/object text depending on `readseek.imageMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
+Read files through readseek. Text output uses `LINE:HASH|content` anchors that can be copied directly into `readSeek_edit`. Image and PDF reads require an explicit `image` mode made available by `readseek.imageMode`. Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}.
 
 ## Choose the right read
 
@@ -14,6 +14,7 @@ Read files through readseek. Text output uses `LINE:HASH|content` anchors that c
 - `map` — append the full-file structural map; cannot combine with `symbol` or `bundle`.
 - `symbol` — symbol query; supports `Class.method`, package-relative Java names, and `Name@<line>` disambiguation; cannot combine with `offset` / `limit`.
 - `bundle` — only `"local"`; requires `symbol` and cannot combine with `map`.
+- `image` — explicit image/PDF handling mode. Available values are controlled by `readseek.imageMode`; omitting it skips image and PDF files.
 
 When a full-file read is truncated, readseek appends a structural map automatically when available. Use map line ranges for follow-up `readSeek_read({ offset, limit })` calls.
 

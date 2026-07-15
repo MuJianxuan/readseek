@@ -51,8 +51,8 @@ describe("readseek settings", () => {
 		await writeFile(path.join(tempCwd, ".pi", "settings.json"), JSON.stringify(settings));
 	}
 
-	it("defaults imageMode to force", () => {
-		expect(resolveReadSeekImageMode()).toBe("force");
+	it("defaults imageMode to auto", () => {
+		expect(resolveReadSeekImageMode()).toBe("auto");
 	});
 
 	it("reads imageMode from global settings", async () => {
@@ -60,9 +60,9 @@ describe("readseek settings", () => {
 		expect(resolveReadSeekImageMode()).toBe("auto");
 	});
 
-	it("accepts on as an imageMode alias for force", async () => {
+	it("accepts on as an imageMode", async () => {
 		await writeGlobal({ readseek: { imageMode: "on" } });
-		expect(resolveReadSeekImageMode()).toBe("force");
+		expect(resolveReadSeekImageMode()).toBe("on");
 	});
 
 	it("lets project settings override global", async () => {
@@ -71,13 +71,13 @@ describe("readseek settings", () => {
 		expect(resolveReadSeekImageMode()).toBe("off");
 	});
 
-	it("warns on invalid imageMode and falls back to force", async () => {
+	it("warns on invalid imageMode and falls back to auto", async () => {
 		await writeGlobal({ readseek: { imageMode: "maybe" } });
 		const { settings, warnings } = resolveReadSeekJsonSettings();
 		expect(settings.imageMode).toBeUndefined();
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]?.path).toBe("readseek.imageMode");
-		expect(resolveReadSeekImageMode()).toBe("force");
+		expect(resolveReadSeekImageMode()).toBe("auto");
 	});
 
 	it("merges nested grep settings", async () => {
@@ -129,6 +129,6 @@ describe("readseek settings", () => {
 		expect(resolveReadSeekImageMode()).toBe("off");
 
 		await rm(path.join(tempHome, ".pi", "agent", "settings.json"));
-		expect(resolveReadSeekImageMode()).toBe("force");
+		expect(resolveReadSeekImageMode()).toBe("auto");
 	});
 });

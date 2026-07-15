@@ -4,19 +4,17 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createReadToolExecuteMock, readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, readSeekPreparedImageMock, imageMode } = vi.hoisted(() => ({
-	createReadToolExecuteMock: vi.fn(),
+const { readSeekMapMock, readSeekReadMock, readSeekDetectMock, readSeekImageMock, readSeekPreparedImageMock, imageMode } = vi.hoisted(() => ({
 	readSeekMapMock: vi.fn(),
 	readSeekReadMock: vi.fn(),
 	readSeekDetectMock: vi.fn(),
 	readSeekImageMock: vi.fn(),
 	readSeekPreparedImageMock: vi.fn(),
-	imageMode: { value: "force" as "force" | "off" | "auto" },
+	imageMode: { value: "auto" as "on" | "off" | "auto" },
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async () => ({
 	...(await import("./support/pi-coding-agent-mock.js")).createPiCodingAgentBaseMock(),
-	createReadTool: () => ({ execute: createReadToolExecuteMock }),
 }));
 
 vi.mock("../src/readseek-settings.js", () => ({
@@ -39,7 +37,7 @@ const { executeRead } = await import("../src/read.js");
 describe("executeRead anchor tracking", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		imageMode.value = "force";
+		imageMode.value = "auto";
 	});
 
 	async function writeImage(cwd: string): Promise<string> {
@@ -112,48 +110,37 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
-	it("falls back to image attachment when image analysis crashes", async () => {
+	it("returns an error when requested image analysis fails", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			const filePath = await writeImage(cwd);
 			readSeekDetectMock.mockResolvedValue(imageDetectionFor(filePath));
 			readSeekImageMock.mockRejectedValueOnce(new Error("readseek crashed with SIGFPE"));
-			createReadToolExecuteMock.mockResolvedValueOnce({
-				content: [{ type: "text", text: "image attachment" }],
-			});
-
 			const result = await executeRead({
 				toolCallId: "test",
-				params: { path: "image.png" },
+				params: { path: "image.png", image: "ocr" },
 				signal: undefined,
 				onUpdate: undefined,
 				cwd,
 			});
 
-			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
-			expect(text).toContain("image attachment");
-			expect(text).toContain("image analysis unavailable");
-			expect(text).not.toContain("binary");
-			const details = (result as any).details;
-			expect(details?.readSeekValue).toBeUndefined();
+			expect((result as { isError?: boolean }).isError).toBe(true);
+			expect((result.content[0] as { text: string }).text).toContain("Image analysis unavailable");
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
-	it("appends image analysis (OCR, caption, objects) to image reads and does not mark them as anchored", async () => {
+	it("returns explicitly selected local image analysis", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
-			createReadToolExecuteMock.mockResolvedValueOnce({
-				content: [{ type: "text", text: "image attachment" }],
-			});
 			const onSuccessfulRead = vi.fn();
 
 			const result = await executeRead({
 				toolCallId: "test",
-				params: { path: "image.png" },
+				params: { path: "image.png", image: "caption" },
 				signal: undefined,
 				onUpdate: undefined,
 				cwd,
@@ -162,24 +149,19 @@ describe("executeRead anchor tracking", () => {
 
 			expect(onSuccessfulRead).not.toHaveBeenCalled();
 			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
-			expect(text).toContain("image attachment");
-			expect(text).toContain("OCR TEXT");
 			expect(text).toContain("Image caption:\nA tiny test image.");
-			expect(text).toContain("Detected objects:\n- dot [1, 2, 3, 4]");
+			expect(readSeekImageMock).toHaveBeenCalledWith(filePath, ["caption"], { signal: undefined });
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
-	it("skips image analysis when imageMode is off", async () => {
+	it("skips images when imageMode is off", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			imageMode.value = "off";
 			const filePath = await writeImage(cwd);
 			mockImageDetection(filePath);
-			createReadToolExecuteMock.mockResolvedValueOnce({
-				content: [{ type: "text", text: "image attachment" }],
-			});
 
 			const result = await executeRead({
 				toolCallId: "test",
@@ -187,18 +169,16 @@ describe("executeRead anchor tracking", () => {
 				signal: undefined,
 				onUpdate: undefined,
 				cwd,
-				modelSupportsImages: false,
 			});
 
-			const text = (result.content as Array<{ type: string; text: string }>).map((part) => part.text).join("\n");
-			expect(text).toBe("image attachment");
+			expect((result.content[0] as { text: string }).text).toContain("Skipped image/PDF");
 			expect(readSeekImageMock).not.toHaveBeenCalled();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
-	it("preprocesses images for image-capable models when imageMode is auto", async () => {
+	it("preprocesses images when the model selects none in auto mode", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
 			imageMode.value = "auto";
@@ -212,16 +192,14 @@ describe("executeRead anchor tracking", () => {
 
 			const result = await executeRead({
 				toolCallId: "test",
-				params: { path: "image.png" },
+				params: { path: "image.png", image: "none" },
 				signal: undefined,
 				onUpdate: undefined,
 				cwd,
-				modelSupportsImages: true,
 			});
 
 			expect(result.content).toEqual([{ type: "image", mimeType: "image/jpeg", data: "prepared-image" }]);
 			expect(readSeekImageMock).not.toHaveBeenCalled();
-			expect(createReadToolExecuteMock).not.toHaveBeenCalled();
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

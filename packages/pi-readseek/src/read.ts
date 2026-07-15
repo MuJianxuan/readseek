@@ -2,7 +2,6 @@ import { readFile as fsReadFile } from "node:fs/promises";
 
 import type { ExtensionAPI, ToolRenderResultOptions, AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
-	createReadTool,
 	truncateHead,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -41,6 +40,7 @@ interface ReadParams {
 	symbol?: string;
 	map?: boolean;
 	bundle?: string;
+	image?: "none" | "ocr" | "caption" | "objects";
 }
 
 interface ReadToolOptions {
@@ -55,8 +55,6 @@ export interface ExecuteReadOptions {
 	onUpdate: any;
 	cwd: string;
 	onSuccessfulRead?: FileAnchoredCallback;
-	/** Whether the active model accepts image input natively. Used when imageMode is auto. */
-	modelSupportsImages?: boolean;
 }
 
 function hasReadAnchors(result: AgentToolResult<any>): boolean {
@@ -82,8 +80,15 @@ function formatImageAnalysis(detection: ReadSeekDetection): string | undefined {
 	return sections.length > 0 ? sections.join("\n\n") : undefined;
 }
 
+function skippedVisualFile(path: string): AgentToolResult<any> {
+	return {
+		content: [{ type: "text", text: `[Skipped image/PDF: ${path}; no image mode selected]` }],
+		details: {},
+	};
+}
+
 export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolResult<any>> {
-	const { toolCallId, params, signal, onUpdate, cwd, onSuccessfulRead } = opts;
+	const { params, signal, cwd, onSuccessfulRead } = opts;
 	await ensureHashInit();
 	const rawParams = params as ReadParams;
 	const offset = coerceObviousBase10Int(rawParams.offset, "offset");
@@ -171,47 +176,49 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			detection = await readSeekDetect(absolutePath, { signal });
 		} catch {
 		}
-		if (detection?.kind === "image") {
+		if (detection?.kind === "image" || detection?.type === "application/pdf") {
 			const imageMode = resolveReadSeekImageMode();
-			if (imageMode === "auto" && opts.modelSupportsImages) {
+			if (imageMode === "off" || p.image === undefined) {
+				return skippedVisualFile(rawParams.path);
+			}
+			if (imageMode === "on" && p.image === "none") {
+				return buildToolErrorResult("read", "invalid-params-combo", 'image="none" is only available when imageMode is "auto".', {
+					path: rawParams.path,
+				});
+			}
+			if (p.image === "none") {
 				try {
 					const image = await readSeekPreparedImage(absolutePath, { signal });
 					return succeed({
 						content: [{ type: "image" as const, data: image.data, mimeType: image.mime }],
 						details: {},
 					});
-				} catch {
-					// Retain Pi's native image reader when preprocessing is unavailable.
-				}
-			}
-
-			const builtinRead = createReadTool(cwd);
-			const builtinResult = await builtinRead.execute(toolCallId, p, signal, onUpdate);
-			const shouldRunVision = imageMode === "force" || (imageMode === "auto" && !opts.modelSupportsImages);
-			if (!shouldRunVision) return succeed(builtinResult);
-
-			try {
-				const ocrDetection = await readSeekImage(absolutePath, ["ocr", "caption", "objects"], { signal });
-				const imageAnalysis = formatImageAnalysis(ocrDetection);
-				if (imageAnalysis) {
-					return succeed({
-						...builtinResult,
-						content: [
-							...(builtinResult.content ?? []),
-							{ type: "text" as const, text: imageAnalysis },
-						],
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					return buildToolErrorResult("read", "read-error", `Image preprocessing unavailable: ${message}`, {
+						path: rawParams.path,
 					});
 				}
-			} catch {
-				return succeed({
-					...builtinResult,
-					content: [
-						...(builtinResult.content ?? []),
-						{ type: "text" as const, text: "[Warning: local image analysis unavailable — showing image attachment only]" },
-					],
+			}
+
+			try {
+				const analysis = await readSeekImage(absolutePath, [p.image], { signal });
+				const imageAnalysis = formatImageAnalysis(analysis);
+				if (imageAnalysis) {
+					return succeed({
+						content: [{ type: "text" as const, text: imageAnalysis }],
+						details: {},
+					});
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return buildToolErrorResult("read", "read-error", `Image analysis unavailable: ${message}`, {
+					path: rawParams.path,
 				});
 			}
-			return succeed(builtinResult);
+			return buildToolErrorResult("read", "read-error", "Image analysis returned no content.", {
+				path: rawParams.path,
+			});
 		}
 	}
 	throwIfAborted(signal);
@@ -469,6 +476,8 @@ function splitReadSeekLines(text: string): string[] {
 
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
 	const name = options.name ?? "readSeek_read";
+	const imageMode = resolveReadSeekImageMode();
+	const imageModes = imageMode === "auto" ? ["none", "ocr", "caption", "objects"] as const : ["ocr", "caption", "objects"] as const;
 	const promptMetadata = defineToolPromptMetadata({
 		promptUrl: new URL("../prompts/read.md", import.meta.url),
 		promptSnippet: "Read files or images with anchors, maps, symbols, and OCR",
@@ -479,7 +488,12 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 		label: "Read",
 		description: promptMetadata.description,
 		promptSnippet: promptMetadata.promptSnippet,
-		promptGuidelines: promptMetadata.promptGuidelines,
+		promptGuidelines: [
+			...promptMetadata.promptGuidelines,
+			imageMode === "off"
+				? "Image and PDF reads are disabled."
+				: `For an image or PDF, explicitly choose image: ${imageModes.join(", ")}; omitting image skips the file.`,
+		],
 		parameters: Type.Object({
 			path: filePathParam(),
 			offset: optionalIntOrString("Start line (1-indexed)"),
@@ -491,6 +505,13 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 					description: "Include same-file local support",
 				}),
 			),
+			...(imageMode === "off"
+				? {}
+				: {
+						image: Type.Optional(Type.Union(imageModes.map((mode) => Type.Literal(mode)), {
+							description: `Image/PDF mode: ${imageModes.join(", ")}. Must be selected explicitly.`,
+						})),
+					}),
 		}),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			return executeRead({
@@ -500,7 +521,6 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 				onUpdate,
 				cwd: ctx.cwd,
 				onSuccessfulRead: options.onSuccessfulRead,
-				modelSupportsImages: ctx.model?.input.includes("image") ?? false,
 			});
 		},
 		renderCall(args: any, theme: any, ...rest: any[]) {

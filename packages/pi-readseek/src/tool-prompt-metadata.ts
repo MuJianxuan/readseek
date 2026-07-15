@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "@earendil-works/pi-coding-agent";
 
 const COMPACT_DESCRIPTIONS: Record<string, string> = {
-  "read.md": "Read text files/images by path; text has LINE:HASH anchors, images return the attachment plus OCR text, a caption, and detected objects.",
+  "read.md": "Read text files, images, or PDFs by path; text has LINE:HASH anchors and visual files require an explicit image mode.",
   "edit.md": "Edit existing text files using fresh LINE:HASH anchors from readSeek_read, readSeek_grep, readSeek_search, or readSeek_write.",
   "grep.md": "Search file contents; non-summary results include LINE:HASH anchors for edits.",
 
@@ -38,7 +38,7 @@ const REPLACEABLE_TOOL_GUIDELINES: Record<string, { readSeekName: string; builtI
 const COMPACT_GUIDELINES: Record<string, string[]> = {
   "read.md": [
     "Use readSeek_read map or symbol mode before pulling large code files into context.",
-    "Use readSeek_read for images; it returns the image attachment plus OCR text, a caption, and detected objects.",
+    "For images and PDFs, explicitly choose one of the image modes exposed by readSeek_read.",
   ],
   "edit.md": [
     "With readSeek_edit, prefer set_line, replace_lines, and insert_after; use replace only when anchors are impractical.",

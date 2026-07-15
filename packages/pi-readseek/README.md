@@ -49,7 +49,7 @@ optional (defaults shown):
 {
   "readseek": {
     "replacedTools": [],
-    "imageMode": "force",
+    "imageMode": "auto",
     "syntaxValidation": "warn",
     "timeoutMs": 120000,
     "grep": {
@@ -63,10 +63,10 @@ optional (defaults shown):
 - **replacedTools:** built-in tool names to replace with their `readSeek_*` equivalents.
   Valid values are `"read"`, `"edit"`, `"write"`, and `"grep"`. For a
   readseek-only file surface, use `["read", "edit", "write", "grep"]`.
-- **imageMode:** image OCR/caption/object analysis in `readSeek_read`: `"force"`
-  (or its alias `"on"`) always runs it, `"off"` returns only the image
-  attachment, and `"auto"` runs it only when the active model does not support
-  native image input.
+- **imageMode:** controls which explicit image/PDF modes the model may select.
+  `"auto"` exposes `none`, `ocr`, `caption`, and `objects`; `"on"` exposes
+  `ocr`, `caption`, and `objects`; `"off"` skips image and PDF files. Omitting
+  the tool's `image` parameter also skips the file.
 - **syntaxValidation:** pre-write syntax-regression check in `readSeek_edit`:
   `"warn"` writes with a warning, `"block"` aborts without writing, `"off"`
   skips the check.

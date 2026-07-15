@@ -2,7 +2,7 @@ import { readFileSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type ReadSeekImageAnalysisMode = "force" | "off" | "auto";
+export type ReadSeekImageAnalysisMode = "on" | "off" | "auto";
 export type ReadSeekSyntaxValidationMode = "warn" | "block" | "off";
 interface ReadSeekGrepSettings {
   maxLines?: number;
@@ -106,8 +106,7 @@ function readImageMode(
 ): ReadSeekImageAnalysisMode | undefined {
   if (!("imageMode" in raw)) return undefined;
   const val = raw.imageMode;
-  if (val === "on") return "force";
-  if (val === "force" || val === "off" || val === "auto") return val;
+  if (val === "on" || val === "off" || val === "auto") return val;
   warnings.push(invalid(source, "readseek.imageMode"));
   return undefined;
 }
@@ -252,7 +251,7 @@ export function resolveReadSeekJsonSettings(): ReadSeekSettingsResult {
 }
 
 export function resolveReadSeekImageMode(): ReadSeekImageAnalysisMode {
-  return resolveReadSeekJsonSettings().settings.imageMode ?? "force";
+  return resolveReadSeekJsonSettings().settings.imageMode ?? "auto";
 }
 
 export function resolveReadSeekSyntaxValidation(): ReadSeekSyntaxValidationMode | undefined {
