@@ -25,6 +25,10 @@ use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Inputs for [`output`]: the cursor location, the new name, and expansion scope.
 pub(crate) struct Request {
@@ -125,7 +129,14 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     let others = workspace_others(request, &old_name, is_binding)?;
 
     let applied = if request.apply {
-        apply_all(request, &old_name, &edits, &conflicts, &others)?;
+        apply_all(
+            request,
+            &old_name,
+            &source.file_hash,
+            &edits,
+            &conflicts,
+            &others,
+        )?;
         true
     } else {
         false
@@ -284,6 +295,7 @@ fn rename_edit(
 fn apply_all(
     request: &Request,
     old_name: &str,
+    target_hash: &str,
     edits: &[RenameEdit],
     conflicts: &[RenameConflict],
     others: &[RenameFileOutput],
@@ -295,17 +307,31 @@ fn apply_all(
         );
     }
 
-    let plans: Vec<(&Path, &[RenameEdit])> = std::iter::once((request.target.as_path(), edits))
-        .chain(
-            others
-                .iter()
-                .map(|other| (other.file.as_path(), other.edits.as_slice())),
-        )
+    let plans: Vec<(&Path, &str, &[RenameEdit])> =
+        std::iter::once((request.target.as_path(), target_hash, edits))
+            .chain(others.iter().map(|other| {
+                (
+                    other.file.as_path(),
+                    other.file_hash.as_str(),
+                    other.edits.as_slice(),
+                )
+            }))
+            .collect();
+    let mut lock_paths: Vec<PathBuf> = plans
+        .iter()
+        .filter(|(_, _, edits)| !edits.is_empty())
+        .map(|(path, _, _)| path.with_extension("readseek-rename.lock"))
         .collect();
+    lock_paths.sort();
+    lock_paths.dedup();
+    let _locks: Vec<RenameLock> = lock_paths
+        .into_iter()
+        .map(RenameLock::acquire)
+        .collect::<Result<_>>()?;
 
     // Verify every file and compute its new text before touching any of them.
     let mut writes: Vec<(&Path, String, String)> = Vec::new();
-    for (path, edits) in plans {
+    for (path, expected_hash, edits) in plans {
         if edits.is_empty() {
             continue;
         }
@@ -318,6 +344,12 @@ fn apply_all(
             ContentCategory::Text,
             None,
         );
+        if current.file_hash != expected_hash {
+            bail!(
+                "refusing to apply: {} changed since the plan was computed",
+                path.display()
+            );
+        }
         for edit in edits {
             let line = current.line(edit.line).with_context(|| {
                 format!("line {} no longer exists in {}", edit.line, path.display())
@@ -347,6 +379,36 @@ fn apply_all(
         written.push((path, original));
     }
     Ok(())
+}
+
+struct RenameLock {
+    path: PathBuf,
+}
+
+impl RenameLock {
+    fn acquire(path: PathBuf) -> Result<Self> {
+        let deadline = Instant::now() + LOCK_TIMEOUT;
+        loop {
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Instant::now() >= deadline {
+                        bail!("timed out waiting for rename lock {}", path.display());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("lock {}", path.display()));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for RenameLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
+    }
 }
 
 /// Replace each edit span with `new_name` in one forward copy. Refuses unless
