@@ -5,8 +5,11 @@
 //! downloaded and SHA-256-verified on first use, then reused by file size.
 
 use std::fs;
-use std::io::IsTerminal as _;
-use std::path::PathBuf;
+use std::io::{BufReader, IsTerminal as _, Read as _};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -14,6 +17,7 @@ use sha2::{Digest, Sha256};
 
 const BASE: &str = "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main";
 const CACHE_SUBDIR: &str = "models";
+const LOCK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// `(remote path, local file name, byte size, sha256)`.
 const FILES: &[(&str, &str, u64, &str)] = &[
@@ -41,18 +45,13 @@ pub(crate) fn file(name: &str) -> Result<PathBuf> {
     let dir = cache_dir()?.join(CACHE_SUBDIR);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let target = dir.join(local);
-    if fs::metadata(&target).is_ok_and(|metadata| metadata.len() == size) {
+    let _lock = ModelLock::acquire(target.with_extension("lock"))?;
+    if valid_file(&target, size, sha256) {
         return Ok(target);
     }
+    let _ = fs::remove_file(&target);
 
     download(remote, local, &target)?;
-    let actual = sha256_file(&target);
-    if actual != sha256 {
-        let _ = fs::remove_file(&target);
-        return Err(anyhow!(
-            "checksum mismatch for {local}: expected {sha256}, got {actual}"
-        ));
-    }
     Ok(target)
 }
 
@@ -64,10 +63,10 @@ fn cache_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Download through a temporary file and atomically install the result.
+/// Download a verified model through a unique temporary file.
 fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
     let url = format!("{BASE}/{remote}");
-    let part = target.with_extension("part");
+    let part = unique_part(target)?;
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),
         ureq::unversioned::transport::DefaultConnector::default(),
@@ -79,7 +78,11 @@ fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
         .with_context(|| format!("download {url}"))?;
     let total = response.body().content_length();
 
-    let mut file = fs::File::create(&part).with_context(|| format!("create {}", part.display()))?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&part)
+        .with_context(|| format!("create {}", part.display()))?;
     let mut body = response.into_body();
     let mut reader = body.as_reader();
 
@@ -107,14 +110,87 @@ fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
     file.sync_all()
         .with_context(|| format!("sync {}", part.display()))?;
     drop(file);
+    let (_, _, size, sha256) = FILES
+        .iter()
+        .find(|(_, name, _, _)| *name == local)
+        .copied()
+        .expect("download only receives known model files");
+    if !valid_file(&part, size, sha256) {
+        let actual = sha256_file(&part).unwrap_or_default();
+        let _ = fs::remove_file(&part);
+        return Err(anyhow!(
+            "checksum mismatch for {local}: expected {sha256}, got {actual}"
+        ));
+    }
     fs::rename(&part, target)
         .with_context(|| format!("rename {} -> {}", part.display(), target.display()))?;
     Ok(())
 }
 
-fn sha256_file(path: &PathBuf) -> String {
-    match fs::read(path) {
-        Ok(bytes) => hex::encode(Sha256::digest(&bytes)),
-        Err(_) => String::new(),
+fn sha256_file(path: &PathBuf) -> Result<String> {
+    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 1024 * 1024];
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .with_context(|| format!("read {}", path.display()))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn valid_file(path: &PathBuf, expected_size: u64, expected_sha256: &str) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| metadata.len() == expected_size)
+        && sha256_file(path).is_ok_and(|actual| actual == expected_sha256)
+}
+
+fn unique_part(target: &Path) -> Result<PathBuf> {
+    static NEXT_PART: AtomicU64 = AtomicU64::new(0);
+    let sequence = NEXT_PART.fetch_add(1, Ordering::Relaxed);
+    let part = target.with_extension(format!("{}.{}.part", std::process::id(), sequence));
+    if part.exists() {
+        return Err(anyhow!(
+            "temporary model file already exists: {}",
+            part.display()
+        ));
+    }
+    Ok(part)
+}
+
+struct ModelLock {
+    path: PathBuf,
+}
+
+impl ModelLock {
+    fn acquire(path: PathBuf) -> Result<Self> {
+        let deadline = Instant::now() + LOCK_TIMEOUT;
+        loop {
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Instant::now() >= deadline {
+                        return Err(anyhow!(
+                            "timed out waiting for model cache lock {}",
+                            path.display()
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("lock {}", path.display()));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for ModelLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
     }
 }
