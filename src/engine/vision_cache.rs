@@ -15,9 +15,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const VISION_CACHE_DIR: &str = "vision";
 const CACHE_SCHEMA_VERSION: u32 = 7;
+const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
 
@@ -30,7 +33,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// On-disk cache entry holding every vision task run against one image. A `None`
 /// task field means the task has not been run yet; `Some` (even an empty string
 /// or empty vec) means it ran and the result is final.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CacheEntry {
     schema_version: u32,
     pub(crate) caption: Option<String>,
@@ -106,7 +109,24 @@ pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
         log::warn!("vision cache mkdir {}: {error}", parent.display());
         return;
     }
-    let data = match serde_json::to_vec(entry) {
+    let _lock = match CacheLock::acquire(path.with_extension("json.lock")) {
+        Ok(lock) => lock,
+        Err(error) => {
+            log::warn!("vision cache lock {}: {error}", path.display());
+            return;
+        }
+    };
+    let mut merged = load(readseek_dir, hash_hex).unwrap_or_else(CacheEntry::new_empty);
+    if merged.caption.is_none() {
+        merged.caption.clone_from(&entry.caption);
+    }
+    if merged.objects.is_none() {
+        merged.objects.clone_from(&entry.objects);
+    }
+    if merged.ocr.is_none() {
+        merged.ocr.clone_from(&entry.ocr);
+    }
+    let data = match serde_json::to_vec(&merged) {
         Ok(data) => data,
         Err(error) => {
             log::warn!("vision cache serialize: {error}");
@@ -115,6 +135,37 @@ pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
     };
     if let Err(error) = crate::engine::repo::write_atomic(&path, &data) {
         log::warn!("vision cache write {}: {error}", path.display());
+    }
+}
+
+struct CacheLock {
+    path: PathBuf,
+}
+
+impl CacheLock {
+    fn acquire(path: PathBuf) -> std::io::Result<Self> {
+        let deadline = Instant::now() + LOCK_TIMEOUT;
+        loop {
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Instant::now() >= deadline {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "timed out waiting for vision cache lock",
+                        ));
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
     }
 }
 

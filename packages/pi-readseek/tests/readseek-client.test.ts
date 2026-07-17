@@ -108,6 +108,11 @@ function spawnFailure(stderr: string) {
 }
 
 const IMAGE_MODE_PAYLOADS: Record<string, Record<string, unknown>> = {
+	all: {
+		ocr: "OCR TEXT",
+		caption: "A tiny test image.",
+		objects: [{ label: "dot", bbox: [1, 2, 3, 4] }],
+	},
 	ocr: { ocr: "OCR TEXT" },
 	caption: { caption: "A tiny test image." },
 	objects: { objects: [{ label: "dot", bbox: [1, 2, 3, 4] }] },
@@ -355,18 +360,12 @@ describe("readseek client parsing", () => {
 		expect(pdf.images[0]).toMatchObject({ page: 2, encoding: "base64", data: "image" });
 	});
 
-	it("merges every requested image analysis mode into one detection", async () => {
+	it("combines requested image analysis modes in one invocation", async () => {
 		mockImageModes();
 
 		const detection = await readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"]);
 
-		expect(imageCallArgs()).toEqual(
-			expect.arrayContaining([
-				["read", "--image", "ocr", "/tmp/image.png"],
-				["read", "--image", "caption", "/tmp/image.png"],
-				["read", "--image", "objects", "/tmp/image.png"],
-			]),
-		);
+		expect(imageCallArgs()).toEqual([["read", "--image", "all", "/tmp/image.png"]]);
 		expect(detection.kind).toBe("image");
 		if (detection.kind === "image") {
 			expect(detection.ocr).toBe("OCR TEXT");
@@ -403,17 +402,12 @@ describe("readseek client parsing", () => {
 		expect(imageCallArgs()).toHaveLength(2);
 	});
 
-	it("keeps the image analysis modes that succeed when others fail", async () => {
-		mockImageModes({ failing: ["caption"] });
+	it("rejects a failed combined image analysis", async () => {
+		mockImageModes({ failing: ["all"] });
 
-		const detection = await readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"]);
-
-		expect(detection.kind).toBe("image");
-		if (detection.kind === "image") {
-			expect(detection.ocr).toBe("OCR TEXT");
-			expect(detection.caption).toBeUndefined();
-			expect(detection.objects).toEqual([{ label: "dot", bbox: [1, 2, 3, 4] }]);
-		}
+		await expect(readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"])).rejects.toThrow(
+			"all model unavailable",
+		);
 	});
 
 	it("rejects invalid image object bounding boxes", async () => {

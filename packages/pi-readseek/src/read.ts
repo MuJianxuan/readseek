@@ -66,7 +66,7 @@ function hasReadAnchors(result: AgentToolResult<any>): boolean {
 	return Array.isArray(lines) && lines.length > 0;
 }
 
-function formatImageAnalysis(detection: ReadSeekDetection, mode: "ocr" | "caption" | "objects"): string | undefined {
+function formatImageAnalysis(detection: ReadSeekDetection, mode: "all" | "ocr" | "caption" | "objects"): string | undefined {
 	if (detection.kind !== "image") return undefined;
 	const sections: string[] = [];
 	const ocr = detection.ocr?.trim();
@@ -80,6 +80,7 @@ function formatImageAnalysis(detection: ReadSeekDetection, mode: "ocr" | "captio
 	if (sections.length > 0) return sections.join("\n\n");
 	if (mode === "ocr") return "No OCR text detected in image.";
 	if (mode === "objects") return "No objects detected in image.";
+	if (mode === "all") return "No image analysis returned.";
 	return "Image caption returned no text.";
 }
 
@@ -524,7 +525,7 @@ function splitReadSeekLines(text: string): string[] {
 export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}) {
 	const name = options.name ?? "readSeek_read";
 	const imageMode = resolveReadSeekImageMode();
-	const imageModes = imageMode === "auto" ? ["none", "ocr", "caption", "objects"] as const : ["ocr", "caption", "objects"] as const;
+	const imageModes = imageMode === "auto" ? ["none", "all", "ocr", "caption", "objects"] as const : ["all", "ocr", "caption", "objects"] as const;
 	const promptMetadata = defineToolPromptMetadata({
 		promptUrl: new URL("../prompts/read.md", import.meta.url),
 		promptSnippet: "Read anchored text, symbols, maps, images, or PDFs",

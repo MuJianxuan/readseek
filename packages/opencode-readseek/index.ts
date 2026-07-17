@@ -30,7 +30,7 @@ type Presentation = {
 };
 
 type ImagePolicy = "on" | "auto" | "off";
-type ImageMode = "none" | "ocr" | "caption" | "objects";
+type ImageMode = "none" | "all" | "ocr" | "caption" | "objects";
 
 function resolveImagePolicy(options: PluginOptions | undefined): ImagePolicy {
   const value = options?.imageMode;
@@ -506,8 +506,8 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
   const anchors = new SessionAnchors();
   const imagePolicy = resolveImagePolicy(options);
   const imageModes: readonly ImageMode[] = imagePolicy === "auto"
-    ? ["none", "ocr", "caption", "objects"]
-    : ["ocr", "caption", "objects"];
+    ? ["none", "all", "ocr", "caption", "objects"]
+    : ["all", "ocr", "caption", "objects"];
   const withSearchFlags = (args: string[], input: { cached?: boolean; others?: boolean; ignored?: boolean }) => {
     if (input.ignored && !input.others) throw new Error("ignored requires others");
     optionalFlag(args, input.cached, "--cached");

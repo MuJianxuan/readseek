@@ -79,7 +79,7 @@ pub(crate) struct ReadCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// image mode: none (default), caption, objects, or ocr
+    /// image mode: none (default), all, caption, objects, or ocr
     #[argh(option, from_str_fn(parse_image_mode))]
     pub(crate) image: Option<ImageMode>,
 }
@@ -346,11 +346,12 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
 pub(crate) fn parse_image_mode(value: &str) -> std::result::Result<ImageMode, String> {
     match value {
         "none" => Ok(ImageMode::None),
+        "all" => Ok(ImageMode::All),
         "caption" => Ok(ImageMode::Caption),
         "objects" => Ok(ImageMode::Objects),
         "ocr" => Ok(ImageMode::Ocr),
         _ => Err(format!(
-            "unknown image mode `{value}`; expected none, caption, objects, or ocr"
+            "unknown image mode `{value}`; expected none, all, caption, objects, or ocr"
         )),
     }
 }

@@ -34,7 +34,7 @@ results that contain actual hashlines, and adds current anchors plus pending
 dry-run rename plans to the OpenCode compaction context. Text reads return at
 most 2000 lines by default.
 
-`imageMode` defaults to `"auto"`: it exposes `none`, `ocr`, `caption`, and
+`imageMode` defaults to `"auto"`: it exposes `none`, `all`, `ocr`, `caption`, and
 `objects`. `"on"` omits `none`; `"off"` skips image/PDF files. Omitting
 `image` also skips visual files.
 

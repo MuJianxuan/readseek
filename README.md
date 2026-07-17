@@ -66,13 +66,14 @@ printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 ## Images and PDFs
 
 `detect` reports image metadata and PDF page counts. `read` returns bounded
-base64 images by default; use `--image` for one local analysis mode:
+base64 images by default; use `--image` for a local analysis mode:
 
 ```sh
 readseek read photo.jpg                   # default: bounded base64 image
 readseek read photo.jpg --image caption   # detailed natural-language caption
 readseek read photo.jpg --image objects   # object labels + bounding boxes
 readseek read photo.jpg --image ocr       # extracted text
+readseek read photo.jpg --image all       # caption, objects, and OCR in one pass
 ```
 
 PDF reads return page-tagged Markdown and page-associated embedded images. The

@@ -96,9 +96,9 @@ pub(crate) fn read(
                 }
             };
             let request = Request {
-                caption: mode == ImageMode::Caption,
-                objects: mode == ImageMode::Objects,
-                ocr: mode == ImageMode::Ocr,
+                caption: matches!(mode, ImageMode::All | ImageMode::Caption),
+                objects: matches!(mode, ImageMode::All | ImageMode::Objects),
+                ocr: matches!(mode, ImageMode::All | ImageMode::Ocr),
             };
             let analysis = if mode == ImageMode::None {
                 Analysis::default()
@@ -122,6 +122,7 @@ pub(crate) fn read(
             };
             let (caption, objects, ocr) = match mode {
                 ImageMode::None => (None, None, None),
+                ImageMode::All => (analysis.caption, analysis.objects, analysis.ocr),
                 ImageMode::Caption => (analysis.caption, None, None),
                 ImageMode::Objects => (None, analysis.objects, None),
                 ImageMode::Ocr => (None, None, analysis.ocr),

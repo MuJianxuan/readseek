@@ -64,7 +64,7 @@ unsafe extern "C" {
 unsafe extern "C" fn noop_log(_level: c_int, _text: *const c_char, _user_data: *mut c_void) {}
 
 /// A detected object with its category label and bounding box `[x1,y1,x2,y2]`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct DetectedObject {
     label: String,
     bbox: [i32; 4],
@@ -307,20 +307,26 @@ fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analy
 fn build_objects(objects: Vec<ObjectJson>, width: u32, height: u32) -> Vec<DetectedObject> {
     objects
         .into_iter()
-        .filter(|object| !object.label.is_empty() && object.bbox.len() == 4)
-        .map(|object| DetectedObject {
-            label: object.label,
-            bbox: [
+        .filter_map(|object| {
+            if object.label.is_empty() || object.bbox.len() != 4 {
+                return None;
+            }
+            let bbox = [
                 location_to_pixel(object.bbox[0], width),
                 location_to_pixel(object.bbox[1], height),
                 location_to_pixel(object.bbox[2], width),
                 location_to_pixel(object.bbox[3], height),
-            ],
+            ];
+            (bbox[0] < bbox[2] && bbox[1] < bbox[3]).then_some(DetectedObject {
+                label: object.label,
+                bbox,
+            })
         })
         .collect()
 }
 
 fn location_to_pixel(location: i32, dimension: u32) -> i32 {
+    let location = location.clamp(0, LOCATION_BINS as i32);
     ((location as f32 + 0.5) / LOCATION_BINS * dimension as f32).round() as i32
 }
 

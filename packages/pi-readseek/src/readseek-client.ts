@@ -116,7 +116,7 @@ export interface ReadSeekDetectedObject {
 	bbox: [number, number, number, number];
 }
 
-export type ReadSeekImageMode = "ocr" | "caption" | "objects";
+export type ReadSeekImageMode = "all" | "ocr" | "caption" | "objects";
 
 export interface ReadSeekPreparedImage {
 	mime: string;
@@ -851,8 +851,9 @@ export async function readSeekImage(
 	modes: ReadSeekImageMode[],
 	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekDetection> {
+	const requestedModes = modes.length > 1 ? ["all"] : modes;
 	const results = await Promise.allSettled(
-		modes.map(async (mode) =>
+		requestedModes.map(async (mode) =>
 			parseDetectOutput(await runReadSeekVision(["read", "--image", mode, filePath], { signal: options.signal })),
 		),
 	);
@@ -892,7 +893,7 @@ function parsePdfImage(value: unknown): ReadSeekPdfImage {
 	if (!value || typeof value !== "object") throw new Error("invalid readseek PDF image");
 	const image = value as Record<string, unknown>;
 	const mode = requireString(image.mode, "PDF image.mode");
-	if (mode !== "none" && mode !== "ocr" && mode !== "caption" && mode !== "objects") {
+	if (mode !== "none" && mode !== "all" && mode !== "ocr" && mode !== "caption" && mode !== "objects") {
 		throw new Error("invalid readseek PDF image.mode");
 	}
 	return {

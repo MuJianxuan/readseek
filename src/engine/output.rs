@@ -190,6 +190,7 @@ impl From<&SourceFile> for SourceHeader {
 pub(crate) enum ImageMode {
     #[default]
     None,
+    All,
     Caption,
     Objects,
     Ocr,
@@ -202,6 +203,7 @@ impl Serialize for ImageMode {
     {
         serializer.serialize_str(match self {
             Self::None => "none",
+            Self::All => "all",
             Self::Caption => "caption",
             Self::Objects => "objects",
             Self::Ocr => "ocr",
@@ -551,6 +553,7 @@ pub(crate) fn read_image_output(
     };
     let (caption, objects, ocr) = match mode {
         ImageMode::None => (None, None, None),
+        ImageMode::All => (analysis.caption, analysis.objects, analysis.ocr),
         ImageMode::Caption => (analysis.caption, None, None),
         ImageMode::Objects => (None, analysis.objects, None),
         ImageMode::Ocr => (None, None, analysis.ocr),

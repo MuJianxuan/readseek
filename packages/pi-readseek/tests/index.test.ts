@@ -82,14 +82,14 @@ describe("pi-readseek extension", () => {
 		const auto = createPi([]);
 		piReadSeekExtension(auto.pi);
 		const autoRead = auto.toolDefinitions.get("readSeek_read") as any;
-		expect(autoRead.promptGuidelines.at(-1)).toContain("none, ocr, caption, objects");
-		expect(autoRead.parameters.properties.image.anyOf).toHaveLength(4);
+		expect(autoRead.promptGuidelines.at(-1)).toContain("none, all, ocr, caption, objects");
+		expect(autoRead.parameters.properties.image.anyOf).toHaveLength(5);
 
 		imageMode.value = "on";
 		const on = createPi([]);
 		piReadSeekExtension(on.pi);
 		const onRead = on.toolDefinitions.get("readSeek_read") as any;
-		expect(onRead.promptGuidelines.at(-1)).toContain("ocr, caption, objects");
+		expect(onRead.promptGuidelines.at(-1)).toContain("all, ocr, caption, objects");
 		expect(onRead.promptGuidelines.at(-1)).not.toContain("none");
 
 		imageMode.value = "off";

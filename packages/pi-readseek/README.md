@@ -64,7 +64,7 @@ optional (defaults shown):
 - **replacedTools:** built-in tool names to replace with their `readSeek_*` equivalents.
   Valid values are `"read"`, `"edit"`, `"write"`, and `"grep"`. For a
   readseek-only file surface, use `["read", "edit", "write", "grep"]`.
-- **imageMode:** `"auto"` exposes `none`, `ocr`, `caption`, and `objects`;
+- **imageMode:** `"auto"` exposes `none`, `all`, `ocr`, `caption`, and `objects`;
   `"on"` omits `none`; `"off"` removes the `image` parameter and always skips
   image/PDF files. Omitting `image` also skips visual files.
 - **syntaxValidation:** pre-write syntax-regression check in `readSeek_edit`:

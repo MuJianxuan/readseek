@@ -192,9 +192,9 @@ impl cli::ReadCommand {
                 bail!("missing image bytes for {}", source.path.display());
             };
             let request = crate::engine::vision::Request {
-                caption: mode == cli::ImageMode::Caption,
-                objects: mode == cli::ImageMode::Objects,
-                ocr: mode == cli::ImageMode::Ocr,
+                caption: matches!(mode, cli::ImageMode::All | cli::ImageMode::Caption),
+                objects: matches!(mode, cli::ImageMode::All | cli::ImageMode::Objects),
+                ocr: matches!(mode, cli::ImageMode::All | cli::ImageMode::Ocr),
             };
             let analysis = run_vision(bytes, request);
             let prepared = (mode == cli::ImageMode::None)
