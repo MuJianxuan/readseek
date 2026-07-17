@@ -76,12 +76,8 @@ export function buildReadSeekLines(startLine: number, rawLines: string[]): ReadS
   return rawLines.map((raw, index) => buildReadSeekLine(startLine + index, raw));
 }
 
-function renderReadSeekLine(line: ReadSeekLine): string {
-  return `${line.anchor}|${line.display}`;
-}
-
 export function renderReadSeekLines(lines: ReadSeekLine[]): string {
-  return lines.map(renderReadSeekLine).join("\n");
+  return lines.map((line) => `${line.anchor}|${line.display}`).join("\n");
 }
 
 /**

@@ -76,9 +76,6 @@ function formatWhitespaceOnlyWarning(semanticSummary: SemanticSummary | undefine
   if (!extractNewTextValues(edits).some((text) => /\S/.test(text))) return undefined;
   return "⚠ Edit classified as whitespace-only — if you intended a behavior change, re-read to verify.";
 }
-function formatSemanticSuffix(_semanticSummary: SemanticSummary | undefined): string {
-  return "";
-}
 function formatReplaceHint(edits: unknown[] | undefined, noopEdits: unknown[]): string | undefined {
   if ((noopEdits ?? []).length > 0) return undefined;
   const counts = countEditTypes(edits);
@@ -88,7 +85,7 @@ function formatReplaceHint(edits: unknown[] | undefined, noopEdits: unknown[]): 
 }
 export function buildEditOutput(input: BuildEditOutputInput): EditOutputResult {
   const summary = `Updated ${input.displayPath}`;
-  const visibleSummary = `${buildVisibleSummary(input.displayPath, input.diff, input.edits)}${formatSemanticSuffix(input.semanticSummary)}`;
+  const visibleSummary = buildVisibleSummary(input.displayPath, input.diff, input.edits);
   const semanticWarning = formatWhitespaceOnlyWarning(input.semanticSummary, input.edits);
   const warningText = input.warnings.length ? `\n\nWarnings:\n${input.warnings.join("\n")}` : "";
   const replaceHint = formatReplaceHint(input.edits, input.noopEdits);

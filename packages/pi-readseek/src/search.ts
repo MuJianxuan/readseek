@@ -7,7 +7,7 @@ import { defineToolPromptMetadata } from "./tool-prompt-metadata.js";
 import { buildReadSeekLineWithHash, buildToolErrorResult, type ReadSeekLine } from "./readseek-value.js";
 import { resolveToCwd } from "./path-utils.js";
 import { statSearchPathOrError } from "./stat-search-path.js";
-import { classifyReadSeekFailure, readSeekSearch, type ReadSeekHashline, type ReadSeekSearchFileOutput } from "./readseek-client.js";
+import { classifyReadSeekFailure, readSeekSearch, type ReadSeekSearchFileOutput } from "./readseek-client.js";
 import { buildSearchOutput } from "./search-output.js";
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { langParam, readSeekGitSearchParams, searchPathParam, validateIgnoredRequiresOthers } from "./readseek-params.js";
@@ -66,15 +66,11 @@ export interface ExecuteSearchOptions {
   onFileAnchored?: FileAnchoredCallback;
 }
 
-function readSeekLineFromSearch(line: ReadSeekHashline): ReadSeekLine {
-  return buildReadSeekLineWithHash(line.line, line.hash, line.text);
-}
-
 function linesFromSearchResult(result: ReadSeekSearchFileOutput, ranges: SearchRange[]): ReadSeekLine[] {
   const lineMap = new Map<number, ReadSeekLine>();
   for (const match of result.matches) {
     for (const line of match.hashlines) {
-      lineMap.set(line.line, readSeekLineFromSearch(line));
+      lineMap.set(line.line, buildReadSeekLineWithHash(line.line, line.hash, line.text));
     }
   }
 
