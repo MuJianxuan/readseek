@@ -9,6 +9,8 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 use tree_sitter::{Node, Parser, Tree};
 
+const MAX_VARIADIC_STATES: usize = 100_000;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternMetaKind {
     Single,
@@ -34,6 +36,29 @@ struct SearchCaptureRange<'a> {
     text: &'a str,
     start_line: usize,
     end_line: usize,
+}
+
+struct MatchBudget {
+    remaining: usize,
+    exhausted: bool,
+}
+
+impl MatchBudget {
+    fn new() -> Self {
+        Self {
+            remaining: MAX_VARIADIC_STATES,
+            exhausted: false,
+        }
+    }
+
+    fn consume(&mut self) -> bool {
+        if self.remaining == 0 {
+            self.exhausted = true;
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
 }
 
 /// Search a single file for AST pattern matches.
@@ -88,13 +113,18 @@ pub(crate) fn search_file(
     .context("empty search pattern")?;
 
     let mut matches = Vec::new();
+    let mut budget = MatchBudget::new();
     collect_search_matches(
         &source,
         pattern,
         pattern_root,
         tree.root_node(),
         &mut matches,
+        &mut budget,
     )?;
+    if budget.exhausted {
+        bail!("search pattern exceeded the variadic matching complexity limit");
+    }
 
     Ok(Some(SearchFileOutput {
         file: source.path,
@@ -179,15 +209,23 @@ fn collect_search_matches<'a>(
     pattern_node: Node<'_>,
     source_node: Node<'_>,
     matches: &mut Vec<SearchMatch>,
+    budget: &mut MatchBudget,
 ) -> Result<()> {
     let mut captures = Vec::new();
-    if nodes_match(source, pattern, pattern_node, source_node, &mut captures) {
+    if nodes_match(
+        source,
+        pattern,
+        pattern_node,
+        source_node,
+        &mut captures,
+        budget,
+    ) {
         matches.push(search_match(source, source_node, captures)?);
     }
 
     let mut cursor = source_node.walk();
     for child in source_node.named_children(&mut cursor) {
-        collect_search_matches(source, pattern, pattern_node, child, matches)?;
+        collect_search_matches(source, pattern, pattern_node, child, matches, budget)?;
     }
 
     Ok(())
@@ -199,6 +237,7 @@ fn nodes_match<'a>(
     pattern_node: Node<'_>,
     source_node: Node<'_>,
     captures: &mut Vec<SearchCaptureRange<'a>>,
+    budget: &mut MatchBudget,
 ) -> bool {
     if let Some(meta) = pattern_meta(pattern, pattern_node) {
         if meta.kind == PatternMetaKind::Single {
@@ -220,9 +259,19 @@ fn nodes_match<'a>(
             == source_node.utf8_text(source.text.as_bytes()).ok();
     }
 
-    child_nodes_match(source, pattern, pattern_node, source_node, 0, 0, captures)
+    child_nodes_match(
+        source,
+        pattern,
+        pattern_node,
+        source_node,
+        0,
+        0,
+        captures,
+        budget,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn child_nodes_match<'a>(
     source: &'a SourceFile,
     pattern: &'a SearchPattern,
@@ -231,7 +280,11 @@ fn child_nodes_match<'a>(
     pattern_index: usize,
     source_index: usize,
     captures: &mut Vec<SearchCaptureRange<'a>>,
+    budget: &mut MatchBudget,
 ) -> bool {
+    if !budget.consume() {
+        return false;
+    }
     if pattern_index == pattern_node.named_child_count() {
         return source_index == source_node.named_child_count();
     }
@@ -271,6 +324,7 @@ fn child_nodes_match<'a>(
                 pattern_index + 1,
                 source_index + count,
                 captures,
+                budget,
             ) {
                 return true;
             }
@@ -287,7 +341,14 @@ fn child_nodes_match<'a>(
     };
 
     let snapshot = captures.len();
-    if !nodes_match(source, pattern, pattern_child, source_child, captures) {
+    if !nodes_match(
+        source,
+        pattern,
+        pattern_child,
+        source_child,
+        captures,
+        budget,
+    ) {
         return false;
     }
     if child_nodes_match(
@@ -298,6 +359,7 @@ fn child_nodes_match<'a>(
         pattern_index + 1,
         source_index + 1,
         captures,
+        budget,
     ) {
         return true;
     }
