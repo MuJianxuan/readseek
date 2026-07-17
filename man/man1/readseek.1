@@ -145,11 +145,11 @@ path to set the first line.
 Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
 Visual files use a separate result shape. Images return bounded base64 by default;
-\fB--image none|caption|objects|ocr\fR selects base64, BLIP captioning, YOLOv8-nano
-objects, or ocrs text. PDFs return page-tagged Markdown plus page-associated
-embedded images with the same mode. \fB--end\fR, \fB--limit\fR, \fB--language\fR,
-and line or hash suffixes do not apply to visual files. Vision models download
-lazily (see \fBCACHE\fR).
+\fB--image none|caption|objects|ocr\fR selects base64 or one Qwen3-VL analysis
+mode. PDFs return page-tagged Markdown plus page-associated embedded images with
+the same mode. \fB--end\fR, \fB--limit\fR, \fB--language\fR, and line or hash
+suffixes do not apply to visual files. The model runs through llama.cpp and
+downloads lazily (see \fBCACHE\fR).
 .TP
 .B map
 Print the structural source map: each top-level symbol's kind, name, qualified
@@ -257,8 +257,8 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
 \fB--image\fR \fImode\fR
 For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64),
-\fIcaption\fR (BLIP), \fIobjects\fR (YOLOv8-nano), or \fIocr\fR (TrOCR).
-Ignored for non-visual input.
+\fIcaption\fR, \fIobjects\fR, or \fIocr\fR. The three analysis modes use the
+Qwen3-VL multimodal model. Ignored for non-visual input.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
@@ -344,9 +344,8 @@ Binary source-map cache files keyed by file hash.
 Sharded binary definition index keyed by symbol name, used by \fBdef\fR directory lookup.
 .TP
 .I $XDG_CACHE_HOME/readseek/models/
-Vision model files (BLIP GGUF + tokenizer, YOLOv8-nano weights, and ocrs text
-recognition models), downloaded lazily on first use of
-\fBread --image caption|objects|ocr\fR.
+The Qwen3-VL quantized GGUF model and multimodal projector, downloaded lazily on
+first use of \fBread --image caption|objects|ocr\fR.
 
 .SH EXAMPLES
 

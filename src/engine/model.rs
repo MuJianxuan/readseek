@@ -1,94 +1,61 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Vision model cache: lazily downloads and SHA-256-verifies the BLIP
-//! caption model (GGUF + tokenizer), the YOLOv8-nano object-detection weights,
-//! and the ocrs text detection/recognition models into the `models/` subdirectory
-//! of the user cache (`dirs::cache_dir`) on first use. A progress bar is shown
-//! while downloading when stdout is a TTY.
+//! Qwen3-VL model cache. The quantized text model and multimodal projector are
+//! downloaded and SHA-256-verified on first use, then reused by file size.
 
-use anyhow::{Context as _, Result, anyhow};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
-const HF_BASE: &str = "https://huggingface.co";
+use anyhow::{Context as _, Result, anyhow};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
+
+const BASE: &str = "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main";
 const CACHE_SUBDIR: &str = "models";
 
-/// `(repository or HTTPS base URL, revision, remote path, local file name, byte
-/// size, sha256)`.
-const FILES: &[(&str, &str, &str, &str, u64, &str)] = &[
+/// `(remote path, local file name, byte size, sha256)`.
+const FILES: &[(&str, &str, u64, &str)] = &[
     (
-        "lmz/candle-blip",
-        "main",
-        "blip-image-captioning-large-q4k.gguf",
-        "blip-image-captioning-large-q4k.gguf",
-        270_847_360,
-        "c7f7a3e19a562c0cfef02d023562705050fa555a79296f5d44d5047167571533",
+        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
+        1_107_409_952,
+        "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
     ),
     (
-        "Salesforce/blip-image-captioning-large",
-        "main",
-        "tokenizer.json",
-        "blip-tokenizer.json",
-        711_396,
-        "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
-    ),
-    (
-        "lmz/candle-yolo-v8",
-        "main",
-        "yolov8n.safetensors",
-        "yolov8n.safetensors",
-        6_369_332,
-        "5788ff529e26961281ebeb26facecaea38ec9a79a3ad2282995ab899eb905626",
-    ),
-    (
-        "https://ocrs-models.s3-accelerate.amazonaws.com",
-        "",
-        "text-detection.rten",
-        "text-detection.rten",
-        2_510_284,
-        "f15cfb56bd02c4bf478a20343986504a1f01e1665c2b3a0ad66340f054b1b5ca",
-    ),
-    (
-        "https://ocrs-models.s3-accelerate.amazonaws.com",
-        "",
-        "text-recognition.rten",
-        "text-recognition.rten",
-        9_716_568,
-        "e484866d4cce403175bd8d00b128feb08ab42e208de30e42cd9889d8f1735a6e",
+        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+        "mmproj-Qwen3VL-2B-Instruct-F16.gguf",
+        819_394_848,
+        "c3d5afbef5287953acd57b4043d2269456e5761a4eaccb3b71b062996970aea5",
     ),
 ];
 
-/// Returns the path to cached model file `name`, downloading and verifying it
-/// on first use. Subsequent calls reuse the cached file when its size matches,
-/// avoiding a full re-hash of multi-gigabyte models on every run.
+/// Return a cached model file, downloading and verifying it when absent.
 pub(crate) fn file(name: &str) -> Result<PathBuf> {
-    let (repo, revision, remote, local, size, sha) = FILES
+    let (remote, local, size, sha256) = FILES
         .iter()
-        .find(|(_, _, _, local, _, _)| *local == name)
+        .find(|(_, local, _, _)| *local == name)
         .copied()
         .ok_or_else(|| anyhow!("unknown model file `{name}`"))?;
     let dir = cache_dir()?.join(CACHE_SUBDIR);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let target = dir.join(local);
-    if fs::metadata(&target).is_ok_and(|meta| meta.len() == size) {
+    if fs::metadata(&target).is_ok_and(|metadata| metadata.len() == size) {
         return Ok(target);
     }
-    download(repo, revision, remote, local, &target)?;
-    let got = sha256_file(&target);
-    if got != sha {
+
+    download(remote, local, &target)?;
+    let actual = sha256_file(&target);
+    if actual != sha256 {
         let _ = fs::remove_file(&target);
         return Err(anyhow!(
-            "checksum mismatch for {local}: expected {sha}, got {got}"
+            "checksum mismatch for {local}: expected {sha256}, got {actual}"
         ));
     }
     Ok(target)
 }
 
-/// Root cache directory for the vision model files.
 fn cache_dir() -> Result<PathBuf> {
     let dir = dirs::cache_dir()
         .context("no user cache directory is available on this platform")?
@@ -97,18 +64,9 @@ fn cache_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Downloads `remote` from `repo` into `target` via a `.part` file, then
-/// atomically renames. A progress bar is shown when stdout is a TTY.
-fn download(repo: &str, revision: &str, remote: &str, local: &str, target: &PathBuf) -> Result<()> {
-    let url = if repo.starts_with("https://") {
-        format!("{repo}/{remote}")
-    } else {
-        format!(
-            "{HF_BASE}/{repo}/resolve/{}/{}",
-            revision.replace('/', "%2F"),
-            remote,
-        )
-    };
+/// Download through a temporary file and atomically install the result.
+fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
+    let url = format!("{BASE}/{remote}");
     let part = target.with_extension("part");
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),
@@ -125,25 +83,24 @@ fn download(repo: &str, revision: &str, remote: &str, local: &str, target: &Path
     let mut body = response.into_body();
     let mut reader = body.as_reader();
 
-    let tty = std::io::stdout().is_terminal();
-    if tty {
-        let mp = MultiProgress::new();
-        let pb = match total {
-            Some(len) => ProgressBar::new(len),
+    if std::io::stdout().is_terminal() {
+        let progress = MultiProgress::new();
+        let bar = match total {
+            Some(length) => ProgressBar::new(length),
             None => ProgressBar::new_spinner(),
         };
-        pb.set_style(
+        bar.set_style(
             ProgressStyle::with_template(
-                "{prefix:<24} {bar:30} {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
+                "{prefix:<36} {bar:30} {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
             )
             .unwrap_or_else(|_| ProgressStyle::default_bar())
             .progress_chars("=> "),
         );
-        pb.set_prefix(local.to_string());
-        let pb = mp.add(pb);
-        let mut wrapped = pb.wrap_read(&mut reader);
+        bar.set_prefix(local.to_owned());
+        let bar = progress.add(bar);
+        let mut wrapped = bar.wrap_read(&mut reader);
         std::io::copy(&mut wrapped, &mut file).with_context(|| format!("read {url}"))?;
-        pb.finish_with_message(format!("{local} done"));
+        bar.finish_with_message(format!("{local} done"));
     } else {
         std::io::copy(&mut reader, &mut file).with_context(|| format!("read {url}"))?;
     }

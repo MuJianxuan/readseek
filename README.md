@@ -19,7 +19,10 @@ npm install -g @jarkkojs/readseek
 ```
 
 Prebuilt binaries are available for macOS ARM64, Linux ARM64 and x64, and
-Windows x64. The Linux binaries are statically linked with musl.
+Windows x64. The Linux binaries are static glibc PIE executables.
+
+Local builds require CMake, Clang/libclang, and a C++ compiler because image
+inference uses `llama-cpp-2`.
 
 ## Pi extension
 
@@ -76,8 +79,9 @@ PDF reads return page-tagged Markdown and page-associated embedded images. The
 same mode applies to each embedded image. Line/hash suffixes, `--end`, `--limit`,
 and `--language` do not apply to visual files.
 
-Vision models download lazily into the user cache and run on the CPU. Captioning
-can take substantial time.
+The Qwen3-VL GGUF model and multimodal projector download lazily into the user
+cache and run through `llama-cpp-2` on the CPU. Captioning can take substantial
+time.
 
 ## Cache
 
@@ -100,3 +104,6 @@ Pass `--help` to any command for command-specific usage.
 
 `readseek` is licensed under `LGPL-2.1-or-later`. The JavaScript npm wrapper
 is licensed under `Apache-2.0`.
+
+The downloaded `Qwen/Qwen3-VL-2B-Instruct-GGUF` model is licensed under
+`Apache-2.0`.
