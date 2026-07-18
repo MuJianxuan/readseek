@@ -85,7 +85,7 @@ pub(crate) struct ReadCommand {
     pub(crate) image: Option<ImageMode>,
 }
 
-/// view an indexed document outline
+/// view an indexed document
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "view")]
 #[argh(help_triggers("-h", "--help"))]
@@ -101,6 +101,26 @@ pub(crate) struct ViewCommand {
         default = "crate::engine::output::Format::Plain"
     )]
     pub(crate) format: crate::engine::output::Format,
+
+    /// node ID to use as the view root
+    #[argh(option)]
+    pub(crate) node: Option<String>,
+
+    /// one-based source page to view
+    #[argh(option)]
+    pub(crate) page: Option<usize>,
+
+    /// node kind to include
+    #[argh(option)]
+    pub(crate) kind: Option<crate::engine::document::NodeKind>,
+
+    /// maximum node depth to include
+    #[argh(option)]
+    pub(crate) depth: Option<usize>,
+
+    /// show the document outline only
+    #[argh(switch)]
+    pub(crate) outline: bool,
 }
 
 /// map a file to symbols

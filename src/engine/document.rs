@@ -40,24 +40,54 @@ pub(crate) struct Document {
     pub(crate) assets: Vec<Asset>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum NodeKind {
+    Artifact,
+    Footer,
+    Header,
+    Heading,
+    MarginalLabel,
+    Page,
+    PageNumber,
+    Paragraph,
     Section,
 }
 
 impl NodeKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Artifact => "artifact",
+            Self::Footer => "footer",
+            Self::Header => "header",
+            Self::Heading => "heading",
+            Self::MarginalLabel => "marginal_label",
+            Self::Page => "page",
+            Self::PageNumber => "page_number",
+            Self::Paragraph => "paragraph",
             Self::Section => "section",
         }
     }
 
     pub(crate) fn parse(value: &str) -> Result<Self> {
         match value {
+            "artifact" => Ok(Self::Artifact),
+            "footer" => Ok(Self::Footer),
+            "header" => Ok(Self::Header),
+            "heading" => Ok(Self::Heading),
+            "marginal_label" => Ok(Self::MarginalLabel),
+            "page" => Ok(Self::Page),
+            "page_number" => Ok(Self::PageNumber),
+            "paragraph" => Ok(Self::Paragraph),
             "section" => Ok(Self::Section),
             _ => bail!("unsupported indexed node kind: {value}"),
         }
+    }
+}
+
+impl argh::FromArgValue for NodeKind {
+    fn from_arg_value(value: &str) -> std::result::Result<Self, String> {
+        Self::parse(value).map_err(|error| error.to_string())
     }
 }
 
@@ -72,6 +102,10 @@ pub(crate) struct Node {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) level: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) source_anchor: Option<SourceAnchor>,
 }
 
@@ -81,6 +115,16 @@ pub(crate) struct SourceAnchor {
     pub(crate) page: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) destination: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) bbox: Option<BoundingBox>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub(crate) struct BoundingBox {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

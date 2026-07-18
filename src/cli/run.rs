@@ -90,6 +90,12 @@ fn parse_cli() -> Result<cli::Cli> {
             }
             if matches!(
                 &cli.command,
+                Some(cli::Command::View(command)) if command.page == Some(0)
+            ) {
+                usage_error(cmd, "page must be greater than zero");
+            }
+            if matches!(
+                &cli.command,
                 Some(cli::Command::Read(command))
                     if command.image.is_some()
                         && (command.end.is_some()
@@ -266,14 +272,33 @@ impl cli::ViewCommand {
             .context("no .readseek directory found; run 'readseek init' first")?;
         let document = if let Some(document) = document_store::load(&readseek_dir, &id)? {
             document
+        } else if self.outline {
+            crate::engine::pdf::extract_outline_document(&source.path, bytes, id)?
         } else {
             let document = crate::engine::pdf::extract_document(&source.path, bytes, id)?;
             document_store::store(&readseek_dir, &document)?;
             document
         };
+        if let Some(page) = self.page
+            && page > document.pages
+        {
+            bail!("page {page} exceeds document page count {}", document.pages);
+        }
+        let selection = document_view::Selection {
+            node: self.node.as_deref(),
+            page: self.page,
+            kind: self.kind,
+            depth: self.depth,
+            outline: self.outline,
+            overview: self.node.is_none()
+                && self.page.is_none()
+                && self.kind.is_none()
+                && !self.outline,
+        };
+        let document = document_view::select(&document, selection)?;
 
         match self.format {
-            output::Format::Plain => Ok(document_view::render_outline(&document)),
+            output::Format::Plain => Ok(document_view::render(&document)),
             output::Format::Json => Ok(serde_json::to_string(&document)?),
         }
     }

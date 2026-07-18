@@ -47,6 +47,8 @@ name=read rejects binary blob | path=blob-read.bin | content=\x00A\xff\n | args=
 
 name=view rejects text | path=view.txt | content=hello\n | args=view %s | status=1 | stderr=view currently supports PDF documents only
 name=view rejects bad format | path=view.pdf | content=not a pdf\n | args=view %s --format yaml | status=2 | stderr=invalid format
+name=view rejects page zero | path=view.pdf | content=not a pdf\n | args=view %s --page 0 | status=2 | stderr=page must be greater than zero
+name=view rejects bad kind | path=view.pdf | content=not a pdf\n | args=view %s --kind frobnicate | status=2 | stderr=unsupported indexed node kind
 
 # map
 
