@@ -95,11 +95,6 @@ opencode_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- p
 npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts
 npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts
 
-npm --prefix packages/pi-readseek run typecheck
-npm --prefix packages/pi-readseek test
-npm --prefix packages/opencode-readseek run typecheck
-bun test packages/opencode-readseek/tests
-
 node - "$next_ver" <<'NODE'
 const fs = require('node:fs');
 
@@ -126,6 +121,33 @@ for (const [packagePath, data] of corePackages) {
   fs.writeFileSync(packagePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
+const readseekDependency = '@jarkkojs/readseek';
+const readseekRange = `^${nextVersion}`;
+const platformDependencies = Object.keys(root.optionalDependencies);
+
+function updateLockedPackage(lock, packageName) {
+  const lockedPackage = lock.packages[`node_modules/${packageName}`];
+  if (!lockedPackage) {
+    throw new Error(`package-lock.json does not contain ${packageName}`);
+  }
+
+  const unscopedName = packageName.slice(packageName.indexOf('/') + 1);
+  lockedPackage.version = nextVersion;
+  lockedPackage.resolved =
+    `https://registry.npmjs.org/${packageName}/-/${unscopedName}-${nextVersion}.tgz`;
+  delete lockedPackage.integrity;
+}
+
+function updatePluginLock(lock) {
+  updateLockedPackage(lock, readseekDependency);
+  for (const packageName of platformDependencies) updateLockedPackage(lock, packageName);
+
+  const lockedReadseek = lock.packages[`node_modules/${readseekDependency}`];
+  for (const packageName of platformDependencies) {
+    lockedReadseek.optionalDependencies[packageName] = nextVersion;
+  }
+}
+
 const coreLockPath = 'package-lock.json';
 const coreLock = JSON.parse(fs.readFileSync(coreLockPath, 'utf8'));
 coreLock.version = nextVersion;
@@ -133,32 +155,35 @@ coreLock.packages[''].version = nextVersion;
 for (const name of Object.keys(root.optionalDependencies)) {
   coreLock.packages[''].optionalDependencies[name] = nextVersion;
 }
+for (const packageName of platformDependencies) updateLockedPackage(coreLock, packageName);
 fs.writeFileSync(coreLockPath, `${JSON.stringify(coreLock, null, 2)}\n`);
 
 const piPackagePath = 'packages/pi-readseek/package.json';
 const piPackage = JSON.parse(fs.readFileSync(piPackagePath, 'utf8'));
 piPackage.version = nextVersion;
-piPackage.dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+piPackage.dependencies[readseekDependency] = readseekRange;
 fs.writeFileSync(piPackagePath, `${JSON.stringify(piPackage, null, 2)}\n`);
 
 const piLockPath = 'packages/pi-readseek/package-lock.json';
 const piLock = JSON.parse(fs.readFileSync(piLockPath, 'utf8'));
 piLock.version = nextVersion;
 piLock.packages[''].version = nextVersion;
-piLock.packages[''].dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+piLock.packages[''].dependencies[readseekDependency] = readseekRange;
+updatePluginLock(piLock);
 fs.writeFileSync(piLockPath, `${JSON.stringify(piLock, null, 2)}\n`);
 
 const opencodePackagePath = 'packages/opencode-readseek/package.json';
 const opencodePackage = JSON.parse(fs.readFileSync(opencodePackagePath, 'utf8'));
 opencodePackage.version = nextVersion;
-opencodePackage.dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+opencodePackage.dependencies[readseekDependency] = readseekRange;
 fs.writeFileSync(opencodePackagePath, `${JSON.stringify(opencodePackage, null, 2)}\n`);
 
 const opencodeLockPath = 'packages/opencode-readseek/package-lock.json';
 const opencodeLock = JSON.parse(fs.readFileSync(opencodeLockPath, 'utf8'));
 opencodeLock.version = nextVersion;
 opencodeLock.packages[''].version = nextVersion;
-opencodeLock.packages[''].dependencies['@jarkkojs/readseek'] = `^${nextVersion}`;
+opencodeLock.packages[''].dependencies[readseekDependency] = readseekRange;
+updatePluginLock(opencodeLock);
 fs.writeFileSync(opencodeLockPath, `${JSON.stringify(opencodeLock, null, 2)}\n`);
 NODE
 
@@ -176,6 +201,11 @@ grep -q '^\.TH .* "'"$date"'"' man/man1/readseek.1 \
 	|| die "failed to update man/man1/readseek.1 date"
 grep -q '^\.TH .* "readseek '"$next_ver"'"' man/man1/readseek.1 \
 	|| die "failed to update man/man1/readseek.1 version"
+
+npm --prefix packages/pi-readseek run typecheck
+npm --prefix packages/pi-readseek test
+npm --prefix packages/opencode-readseek run typecheck
+bun test packages/opencode-readseek/tests
 
 cargo build
 cargo test
