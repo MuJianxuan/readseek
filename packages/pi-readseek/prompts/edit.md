@@ -42,9 +42,9 @@ matches before continuing.
 ## `replace_symbol`
 
 Use `replace_symbol` for one whole mapped `Name`, `Class.method`, or
-`Name@<line>` in TypeScript, JavaScript, Rust, or Java. `new_body` must be
-non-empty and unindented. Confirm fuzzy symbol matches first; do not overlap it
-with anchored edits.
+`Name@<line>` in any mappable source file. `new_body` must be non-empty and
+unindented. Confirm fuzzy symbol matches first; do not overlap them with anchored
+edits.
 
 ## Stale anchors
 
@@ -59,9 +59,10 @@ Retry with those anchors, or read/search again. Verify any auto-relocation warni
 ## Validation and warnings
 
 All edits validate before writing; hard failures write nothing. Anchored edits run
-bottom-up. `no-op` means no change. Syntax validation for Rust, C++, C headers,
-and Java follows `readseek.syntaxValidation`: `warn` (default), `block`, or `off`.
-It reports only newly introduced parser errors.
+bottom-up. `no-op` means no change. Syntax validation for every language with a
+tree-sitter parser follows `readseek.syntaxValidation`: `warn` (default), `block`,
+or `off`. It triggers when error or missing-node counts increase and reports the
+post-edit diagnostic ranges.
 
 ## Optional post-edit verification
 

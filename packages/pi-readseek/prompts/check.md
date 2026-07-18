@@ -2,7 +2,7 @@ Check a source file for parser errors and missing syntax. Use after edits for qu
 
 ## Parameters
 
-- `path` - source file to check.
+- `path` — source file to check.
 
 ## Output
 

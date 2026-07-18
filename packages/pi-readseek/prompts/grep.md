@@ -19,4 +19,6 @@ Search plain text or regex in files and return edit-ready `LINE:HASH` anchors. U
 - `scope` — only `"symbol"` is supported.
 - `scopeContext` — non-negative context within symbol scope; requires `scope: "symbol"`.
 
-If output says results were truncated at `limit` or by display budget, narrow before editing. Good narrowing order: `summary` → `path`/`glob` → stricter pattern → `scope: "symbol"` or `context`.
+If output is truncated at `limit` or by the display budget, narrow with `summary`,
+then `path`/`glob`, then a stricter pattern. Request context or symbol blocks only
+after narrowing.

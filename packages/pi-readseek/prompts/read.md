@@ -24,7 +24,7 @@ Truncated full-file reads append a map when available. Use its ranges for follow
 
 | Query | Reads |
 |---|---|
-| `{ "symbol": "processEvent" }` | function or top-level symbol |
+| `{ "symbol": "processEvent" }` | function or unqualified symbol |
 | `{ "symbol": "EventEmitter" }` | class/interface/type/enum/etc. |
 | `{ "symbol": "EventEmitter.emit" }` | child method/member |
 | `{ "symbol": "Foo.bar@42" }` | overload/definition near line 42 |

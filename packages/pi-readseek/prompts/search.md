@@ -30,6 +30,6 @@ punctuation must be valid for the selected language.
 
 ## Git selection
 
-In Git repositories, directory search includes tracked/indexed and untracked
-non-ignored files. Use `cached`, `others`, and `ignored` to choose; `ignored`
-requires `others`.
+In Git repositories, directory search includes tracked/indexed and untracked,
+non-ignored files by default. `cached` or `others` restricts the search to that
+group; `ignored` requires `others`.

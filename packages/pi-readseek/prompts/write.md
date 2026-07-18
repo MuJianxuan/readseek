@@ -1,6 +1,6 @@
 Create or replace a complete file and return `LINE:HASH` anchors. Use for new or fully generated files; use anchored edits for small changes.
 
-## Use / avoid
+## Usage
 
 Existing files are overwritten without confirmation. Binary-looking content is
 rejected without writing.

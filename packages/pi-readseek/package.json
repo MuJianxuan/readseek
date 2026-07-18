@@ -59,7 +59,6 @@
     "vitest": "^4.1.0"
   },
   "directories": {
-    "doc": "docs",
     "test": "tests"
   },
   "bugs": {

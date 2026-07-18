@@ -11,8 +11,8 @@ readseek \- structural source-code reader with stable line hashing
     \fItarget\fR
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
-    [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR] [\fB--image\fR \fImode\fR]
-    \fItarget\fR
+    [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR] \fItarget\fR
+\fBreadseek read\fR [\fB--image\fR \fBnone|all|caption|objects|ocr\fR] \fItarget\fR
 
 \fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR
@@ -48,16 +48,16 @@ readseek \- structural source-code reader with stable line hashing
 .fi
 .SH DESCRIPTION
 .B readseek
-is a command-line tool that reads source files and outputs pretty-printed JSON.
-It is designed for scripts, editors, and coding agents that need stable addressable
+is a command-line tool whose source-processing commands output compact JSON.
+It is designed for scripts, editors, and coding agents that need stable, addressable
 source context.
 
-Every output line carries a \fIhashline\fR: a line number, a short 3-character hash,
-and the original text. These hashes are stable anchors that let subsequent calls
-refer back to specific lines without depending on shifting line numbers.
+Commands that return source lines represent them as hashline records containing a
+line number, a short 3-character hash, and the original text. Unchanged lines
+retain the same hash.
 
-Diagnostics and errors are written separately from JSON output, making the tool
-safe to pipe into other programs.
+Operational errors are written to standard error, making JSON output safe to pipe
+into other programs.
 
 .SH INPUTS AND TARGETS
 
@@ -80,7 +80,7 @@ Line numbers are one-based. A hash suffix is a 3-character string that was
 previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
 
 For \fBsymbol\fR, the \fB--name\fR flag treats the target suffix as a
-qualified or unqualified symbol name. If the name matches more than one symbol
+qualified or unqualified symbol name. If the name matches more than one symbol,
 the command reports an error.
 .SH LANGUAGES
 
@@ -145,14 +145,15 @@ path to set the first line.
 Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
 the two cannot be combined.
 Visual files use a separate result shape. Images return bounded base64 by default;
-\fB--image none|caption|objects|ocr\fR selects base64 or one Qwen3-VL analysis
-mode. PDFs return page-tagged Markdown plus page-associated embedded images with
-the same mode. \fB--end\fR, \fB--limit\fR, \fB--language\fR, and line or hash
-suffixes do not apply to visual files. The model runs through llama.cpp and
-downloads lazily (see \fBCACHE\fR).
+\fB--image none|all|caption|objects|ocr\fR selects bounded base64, all analyses,
+or one Qwen3-VL analysis mode. PDFs return page-tagged Markdown plus
+page-associated embedded images with the same mode. The option cannot be combined
+with \fB--end\fR, \fB--limit\fR, or \fB--language\fR, and line or hash suffixes do
+not apply to visual files. The model runs through llama.cpp and downloads lazily
+(see \fBCACHE\fR).
 .TP
 .B map
-Print the structural source map: each top-level symbol's kind, name, qualified
+Print the structural source map: each extracted symbol's kind, name, qualified
 name, start and end line, boundary hashes, the symbol's \fIstart_byte\fR and
 \fIend_byte\fR span, and the \fIname_byte\fR offset of its name token. For languages
 that do not support symbol extraction the output contains an empty symbol list.
@@ -193,14 +194,15 @@ With \fB--scope\fR and \fB--line\fR/\fB--column\fR, resolution is restricted to 
 lexical binding under the cursor within a single file. Each reported location then
 carries an \fIoccurrence\fR field of \fBdefinition\fR or \fBreference\fR, and
 same-named occurrences that resolve to a different binding are excluded. Scope
-resolution is currently available for \fBrust\fR, \fBc\fR, \fBcpp\fR, \fBgo\fR, \fBcsharp\fR, \fBpython\fR, \fBtypescript\fR, and \fBvimscript\fR; other
-languages report no resolvable binding.
+resolution is available for \fBrust\fR, \fBc\fR, \fBcpp\fR, \fBpython\fR, \fBgo\fR,
+\fBjava\fR, \fBjavascript\fR, \fBjsx\fR, \fBtypescript\fR, \fBtsx\fR, \fBcsharp\fR,
+\fBswift\fR, and \fBvimscript\fR; other languages report no resolvable binding.
 .TP
 .B rename
 Plan a binding-accurate rename of the lexical binding under \fB--line\fR/\fB--column\fR
 within a single file. The output is an edit plan: \fIold_name\fR, \fInew_name\fR,
 any \fIconflicts\fR the new name would introduce, and an \fIedits\fR array with the
-line, column range, byte range, occurrence kind, and the line hashline for each
+line, column range, byte range, occurrence kind, line hash, and text for each
 edit. Without \fB--apply\fR the command does not modify files; it emits the plan for
 a caller to apply. With \fB--apply\fR the edits are written to the file, but only
 after refusing on any conflict and re-verifying that every edited line's hash still
@@ -215,10 +217,10 @@ same way \fBrefs\fR matches, and the additional files appear in an \fIothers\fR 
 of per-file plans. Because readseek has no cross-file symbol resolver, an occurrence
 in another file is renamed only when it does not resolve to a local declaration
 there, so a same-named local binding is left untouched; files in languages without
-binding support are matched by name alone. Directory selection honours the same
+binding support are matched by name alone. Directory selection honors the same
 \fB\-c\fR/\fB\-o\fR/\fB\-i\fR Git flags as \fBrefs\fR. With \fB--apply\fR every file is
-verified first and only written if all pass, so a conflict or hash drift in any file
-aborts the whole rename without leaving a partial result.
+verified before writing begins. If a write fails, readseek attempts to restore
+files already written.
 .TP
 .B search
 Run an AST pattern against a file or every supported source file under a directory.
@@ -230,9 +232,8 @@ boundary hashes, and hashlines for each match.
 .TP
 .B init
 Initialize a \fI.readseek/\fR directory under \fIpath\fR (defaults to the current
-directory). This directory holds the source-map cache used by other commands.
-If the \fI.readseek/\fR directory already exists, \fBinit\fR reinitializes it.
-readseek also refreshes the cache internally on each invocation.
+directory) and populate its map cache and definition index. If the directory
+already exists, \fBinit\fR refreshes the caches.
 
 .SH OPTIONS
 .TP
@@ -250,15 +251,14 @@ Write JSON output to \fIpath\fR instead of standard output. It cannot be used wi
 Use \fIdir\fR as the \fI.readseek/\fR directory instead of discovering one by
 walking up from the target, analogous to \fBgit\fR's \fB--git-dir\fR. This global
 option must precede the command. For \fBinit\fR it controls where the directory is
-created; other commands read and refresh their source-map cache there.
+created; map-dependent commands update entries for files they process.
 .TP
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
 \fB--image\fR \fImode\fR
-For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64),
-\fIcaption\fR, \fIobjects\fR, or \fIocr\fR. The three analysis modes use the
-Qwen3-VL multimodal model. Ignored for non-visual input.
+For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64), \fIall\fR,
+\fIcaption\fR, \fIobjects\fR, or \fIocr\fR. See \fBread\fR under \fBCOMMANDS\fR.
 .TP
 \fB--format\fR \fIformat\fR
 For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
@@ -283,15 +283,12 @@ For \fBrename\fR, the new name for the binding. Must be a plain identifier and
 differ from the current name.
 .TP
 \fB--workspace\fR \fIdir\fR
-For \fBrename\fR, expand the rename across the directory or repository \fIdir\fR.
-The cursor file stays binding-accurate; other files are matched by name (local
-shadows excluded) and returned in an \fIothers\fR array. Honours the
-\fB\-c\fR/\fB\-o\fR/\fB\-i\fR Git flags.
+For \fBrename\fR, expand the rename across \fIdir\fR. See \fBrename\fR under
+\fBCOMMANDS\fR for cross-file matching and Git file selection.
 .TP
 \fB--apply\fR
-For \fBrename\fR, write the planned edits. Refuses on any naming conflict and
-verifies each edited line's hash before writing. With \fB--workspace\fR every file
-is verified first and written all-or-nothing.
+For \fBrename\fR, write the planned edits after checking conflicts and verifying
+each affected file and line hash.
 .TP
 \fB--end\fR \fIline\fR
 Last line to include when reading. Cannot be combined with \fB--limit\fR.
@@ -343,9 +340,12 @@ Binary source-map cache files keyed by file hash.
 .I .readseek/def-index/
 Sharded binary definition index keyed by symbol name, used by \fBdef\fR directory lookup.
 .TP
-.I $XDG_CACHE_HOME/readseek/models/
+.I .readseek/vision/
+Content-addressed cache of image caption, object-detection, and OCR results.
+.TP
+.I user cache directory/readseek/models/
 The Qwen3-VL quantized GGUF model and multimodal projector, downloaded lazily on
-first use of \fBread --image caption|objects|ocr\fR.
+first use of \fBread --image all|caption|objects|ocr\fR.
 
 .SH EXAMPLES
 
@@ -410,8 +410,7 @@ Apply the rename to the file:
 readseek rename src/main.rs --line 42 --column 8 --to renamed --apply
 .EE
 
-Rename a symbol across the repository (cursor file binding-accurate, other files
-matched by name) and apply it all-or-nothing:
+Rename a symbol across the repository after verifying every affected file:
 .EX
 readseek rename src/main.rs --line 42 --column 8 --to renamed --workspace . --apply
 .EE

@@ -20,5 +20,6 @@ shadows.
 
 ## Git selection
 
-In Git repositories, directory search includes tracked/indexed and untracked
-non-ignored files. `ignored` requires `others`.
+In Git repositories, directory search includes tracked/indexed and untracked,
+non-ignored files by default. `cached` or `others` restricts the search to that
+group; `ignored` requires `others`.

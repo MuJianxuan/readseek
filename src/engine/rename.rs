@@ -11,7 +11,8 @@
 //! With `--workspace` the rename expands across a directory or repository. The
 //! cursor file stays binding-accurate; for a lexical binding target, other files
 //! retain only free uses when a binding table is available. Other targets use
-//! name matching. `--apply` then writes every file all-or-nothing.
+//! name matching. `--apply` verifies all files before writing and attempts to
+//! restore files already written if a later write fails.
 
 use crate::engine::binding::{self, OccurrenceKind};
 use crate::engine::flags::GitFlags;

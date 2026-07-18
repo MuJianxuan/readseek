@@ -25,14 +25,15 @@ binary dependency with Bun at startup.
 - `readseek_map`: generate a structural symbol map.
 - `readseek_search`: AST-pattern search.
 - `readseek_def`, `readseek_refs`, `readseek_hover`: symbol navigation.
-- `readseek_rename`: atomically apply a verified rename by default; `apply: false` returns a dry-run plan.
+- `readseek_rename`: apply a verified rename by default; `apply: false` returns a dry-run plan.
 - `readseek_check`: parse diagnostics.
 
-The plugin asks for OpenCode read, grep, external-directory, and edit permissions
-as appropriate. It discards remembered anchors after file changes, records only
-results that contain actual hashlines, and adds current anchors plus pending
-dry-run rename plans to the OpenCode compaction context. Text reads return at
-most 2000 lines by default.
+The plugin requests OpenCode read, grep, external-directory, and edit permissions
+as needed. File changes invalidate remembered anchors. Compaction context records
+paths with fresh anchors and summaries of pending dry-run rename plans. Text reads
+return at most 2,000 lines by default.
+
+## Configuration
 
 `imageMode` defaults to `"auto"`: it exposes `none`, `all`, `ocr`, `caption`, and
 `objects`. `"on"` omits `none`; `"off"` skips image/PDF files. Omitting
@@ -40,5 +41,6 @@ most 2000 lines by default.
 
 ## Licensing
 
-This package is Apache-2.0. `@jarkkojs/readseek` is licensed separately as
-Apache-2.0 AND LGPL-2.1-or-later.
+This package uses the
+[Apache-2.0 license](https://github.com/jarkkojs/readseek/blob/main/LICENSE-APACHE-2.0).
+`@jarkkojs/readseek` declares `Apache-2.0 AND LGPL-2.1-or-later`.

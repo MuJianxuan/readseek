@@ -1,30 +1,32 @@
 # readseek
 
 `readseek` is a structural source reader for scripts, editors, and coding agents.
-It emits pretty-printed JSON with stable `LINE:HASH` anchors, structural symbol
-maps, parse diagnostics, AST search matches, references, and rename plans.
+It emits compact JSON with stable line/hash anchors, structural symbol maps, parse
+diagnostics, AST search matches, references, and rename plans.
 
-## Install
+## Installation
 
-Build the native binary from source:
-
-```sh
-cargo build --release
-```
-
-Or install the npm wrapper:
+Install the npm wrapper and a prebuilt binary:
 
 ```sh
 npm install -g @jarkkojs/readseek
 ```
 
-Prebuilt binaries are available for macOS ARM64, Linux ARM64 and x64, and
-Windows x64. The Linux binaries are static glibc PIE executables.
+Prebuilt binaries are available for macOS ARM64; Linux ARM64 and x64; and Windows
+x64. The Linux binaries are static glibc PIE executables.
 
-Local builds require CMake, Clang/libclang, and a C++ compiler because image
+To build and install from source:
+
+```sh
+make install
+```
+
+Source builds require CMake, Clang/libclang, and a C++ compiler because image
 inference uses `llama-cpp-2`.
 
-## Pi extension
+## Plugins
+
+### Pi extension
 
 The bundled [pi-readseek extension](packages/pi-readseek/README.md) exposes
 ReadSeek's anchored file and structural-code tools in Pi:
@@ -32,6 +34,11 @@ ReadSeek's anchored file and structural-code tools in Pi:
 ```sh
 pi install npm:pi-readseek
 ```
+
+### OpenCode plugin
+
+The [opencode-readseek plugin](packages/opencode-readseek/README.md) provides the
+same anchored and structural tools in OpenCode.
 
 ## Common commands
 
@@ -86,25 +93,27 @@ time.
 
 ## Cache
 
-`readseek init [path]` creates a `.readseek/` directory containing map cache files
-under `maps/` and definition-index shards under `def-index/`. Commands discover
-that directory by walking up from the target path, or use the directory passed by
-`--readseek-dir`.
+`readseek init [path]` creates and populates `.readseek/maps/` and
+`.readseek/def-index/`. Map-dependent commands update entries on demand and
+discover `.readseek/` by walking up from the target path, or use the directory
+passed by `--readseek-dir`. Image analysis caches results under the `.readseek/`
+found from the current working directory.
 
 ## Documentation
 
-The manual page is the authoritative CLI reference:
+The manual page provides the full CLI reference:
 
 ```sh
-man man/man1/readseek.1
+man ./man/man1/readseek.1
 ```
 
 Pass `--help` to any command for command-specific usage.
 
 ## Licensing
 
-`readseek` is licensed under `LGPL-2.1-or-later`. The JavaScript npm wrapper
-is licensed under `Apache-2.0`.
+The native `readseek` crate is licensed under `LGPL-2.1-or-later`. The
+`@jarkkojs/readseek` wrapper and platform packages declare
+`Apache-2.0 AND LGPL-2.1-or-later`.
 
 The downloaded `Qwen/Qwen3-VL-2B-Instruct-GGUF` model is licensed under
 `Apache-2.0`.

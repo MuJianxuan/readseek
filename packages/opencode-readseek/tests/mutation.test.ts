@@ -104,7 +104,7 @@ describe("mutation tools", () => {
     expect(permissions).toEqual(["edit"]);
   });
 
-  test("plans before atomically applying rename and supports dry-run", async () => {
+  test("plans before applying a verified rename and supports dry-run", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "opencode-readseek-"));
     const file = path.join(directory, "file.ts");
     const plan = { file, old_name: "before", new_name: "after", edits: [], conflicts: [], others: [], applied: false };
