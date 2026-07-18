@@ -5,6 +5,9 @@
 
 pub(crate) mod binding;
 pub(crate) mod def;
+pub(crate) mod document;
+pub(crate) mod document_store;
+pub(crate) mod document_view;
 pub(crate) mod flags;
 pub(crate) mod hash;
 pub(crate) mod image;

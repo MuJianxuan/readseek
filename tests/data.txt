@@ -43,6 +43,11 @@ name=read target line | path=target-line.txt | content=one\ntwo\nthree\n | args=
 name=read stdin path | stdin=one\ntwo\nthree\n | args=read stdin:buffer.ts:2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
 name=read rejects binary blob | path=blob-read.bin | content=\x00A\xff\n | args=read %s | status=1 | stderr=unsupported binary file
 
+# view
+
+name=view rejects text | path=view.txt | content=hello\n | args=view %s | status=1 | stderr=view currently supports PDF documents only
+name=view rejects bad format | path=view.pdf | content=not a pdf\n | args=view %s --format yaml | status=2 | stderr=invalid format
+
 # map
 
 name=map javascript | path=sample.js | content=class Greeter {\n  greet() { return 'hello'; }\n}\nconst make = () => new Greeter();\n | args=map %s | language=javascript | symbol=class,Greeter,start_byte=0,name_byte=6 | symbol=method,greet | symbol=function,make

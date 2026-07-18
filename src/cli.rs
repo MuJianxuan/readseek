@@ -37,6 +37,7 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     Detect(DetectCommand),
     Read(ReadCommand),
+    View(ViewCommand),
     Map(MapCommand),
     Check(CheckCommand),
     Symbol(SymbolCommand),
@@ -82,6 +83,24 @@ pub(crate) struct ReadCommand {
     /// image mode: none (default), all, caption, objects, or ocr
     #[argh(option, from_str_fn(parse_image_mode))]
     pub(crate) image: Option<ImageMode>,
+}
+
+/// view an indexed document outline
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "view")]
+#[argh(help_triggers("-h", "--help"))]
+pub(crate) struct ViewCommand {
+    /// document file to view
+    #[argh(positional)]
+    pub(crate) target: Option<String>,
+
+    /// output format: plain (default) or json
+    #[argh(
+        option,
+        long = "format",
+        default = "crate::engine::output::Format::Plain"
+    )]
+    pub(crate) format: crate::engine::output::Format,
 }
 
 /// map a file to symbols

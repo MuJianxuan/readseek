@@ -15,7 +15,7 @@ use crate::engine::output::SearchOutput;
 use crate::engine::paths::command_paths;
 use crate::engine::source::SourceFile;
 use crate::engine::target::Target;
-use crate::engine::{def, output, refs, rename, repo, vision_cache};
+use crate::engine::{def, document_store, document_view, output, refs, rename, repo, vision_cache};
 
 /// Parses arguments and runs the requested command, writing its output.
 pub(crate) fn run() -> Result<()> {
@@ -31,9 +31,10 @@ pub(crate) fn run() -> Result<()> {
     let output_path = cli.output;
     let command = cli.command.context("command required")?;
 
-    let json = match command {
+    let output = match command {
         cli::Command::Detect(command) => command.run()?,
         cli::Command::Read(command) => command.run()?,
+        cli::Command::View(command) => command.run()?,
         cli::Command::Map(command) => command.run()?,
         cli::Command::Check(command) => command.run()?,
         cli::Command::Symbol(command) => command.run()?,
@@ -48,7 +49,7 @@ pub(crate) fn run() -> Result<()> {
         }
     };
 
-    write_output(&json, output_path.as_deref())
+    write_output(&output, output_path.as_deref())
 }
 
 /// Parse process arguments into a [`cli::Cli`], mirroring `argh::from_env`
@@ -242,6 +243,42 @@ impl cli::ReadCommand {
     }
 }
 
+impl cli::ViewCommand {
+    fn run(&self) -> Result<String> {
+        let source = load_path_source(self.target.as_deref(), None)?;
+        if !matches!(
+            source.detection.category,
+            crate::engine::source::ContentCategory::Pdf(_)
+        ) {
+            bail!("view currently supports PDF documents only");
+        }
+        let bytes = source
+            .document_bytes
+            .as_deref()
+            .context("missing PDF document bytes")?;
+        let id = crate::engine::hash::hash_bytes(bytes);
+        let readseek_dir = repo::find_readseek_dir(&source.path)
+            .or_else(|| {
+                env::current_dir()
+                    .ok()
+                    .and_then(|cwd| repo::find_readseek_dir(&cwd))
+            })
+            .context("no .readseek directory found; run 'readseek init' first")?;
+        let document = if let Some(document) = document_store::load(&readseek_dir, &id)? {
+            document
+        } else {
+            let document = crate::engine::pdf::extract_document(&source.path, bytes, id)?;
+            document_store::store(&readseek_dir, &document)?;
+            document
+        };
+
+        match self.format {
+            output::Format::Plain => Ok(document_view::render_outline(&document)),
+            output::Format::Json => Ok(serde_json::to_string(&document)?),
+        }
+    }
+}
+
 impl cli::MapCommand {
     fn run(&self) -> Result<String> {
         let source = load_path_source(self.target.as_deref(), self.language)?;
@@ -416,11 +453,11 @@ fn load_path_source(target_str: Option<&str>, language: Option<Language>) -> Res
     output::load_source_for_input(&target, language)
 }
 
-fn write_output(json: &str, path: Option<&Path>) -> Result<()> {
+fn write_output(output: &str, path: Option<&Path>) -> Result<()> {
     if let Some(path) = path {
-        std::fs::write(path, json).with_context(|| format!("write {}", path.display()))
+        std::fs::write(path, output).with_context(|| format!("write {}", path.display()))
     } else {
-        println!("{json}");
+        println!("{output}");
         Ok(())
     }
 }
