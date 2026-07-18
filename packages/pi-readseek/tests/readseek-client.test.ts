@@ -374,6 +374,79 @@ describe("readseek client parsing", () => {
 		}
 	});
 
+	it("allows first-use vision setup beyond the standard timeout", async () => {
+		await mkdir(path.join(tempHome, ".pi", "readseek"), { recursive: true });
+		const vision = controlledSpawnResult();
+		spawnMock.mockImplementationOnce(() => vision.child);
+		vi.useFakeTimers();
+		try {
+			const pending = readSeekImage("/tmp/image.png", ["caption"]);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(imageCallArgs()).toHaveLength(1);
+
+			await vi.advanceTimersByTimeAsync(120_000);
+			expect(vision.child.kill).not.toHaveBeenCalled();
+
+			vision.complete(JSON.stringify({
+				file: "/tmp/image.png",
+				type: "image/png",
+				mime: "image/png",
+				format: "png",
+				width: 10,
+				height: 20,
+				animated: false,
+				caption: "Image ready.",
+			}));
+			await pending;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("applies configured timeouts to vision analysis", async () => {
+		await mkdir(path.join(tempHome, ".pi", "agent"), { recursive: true });
+		await mkdir(path.join(tempHome, ".pi", "readseek"), { recursive: true });
+		await writeFile(
+			path.join(tempHome, ".pi", "agent", "settings.json"),
+			JSON.stringify({ readseek: { timeoutMs: 20 } }),
+		);
+		const vision = controlledSpawnResult();
+		spawnMock.mockImplementationOnce(() => vision.child);
+
+		await expect(readSeekImage("/tmp/image.png", ["caption"])).rejects.toThrow(
+			"readseek timed out after 20 ms",
+		);
+		expect(vision.child.kill).toHaveBeenCalledWith("SIGKILL");
+	});
+
+	it("cancels image analysis while it waits in the vision queue", async () => {
+		await mkdir(path.join(tempHome, ".pi", "readseek"), { recursive: true });
+		const first = controlledSpawnResult();
+		spawnMock.mockImplementationOnce(() => first.child);
+		const firstRead = readSeekImage("/tmp/first.png", ["caption"]);
+		await vi.waitFor(() => expect(imageCallArgs()).toHaveLength(1));
+
+		const controller = new AbortController();
+		const queuedRead = readSeekImage("/tmp/queued.png", ["caption"], {
+			signal: controller.signal,
+		});
+		controller.abort();
+		await expect(queuedRead).rejects.toThrow("This operation was aborted");
+		expect(imageCallArgs()).toHaveLength(1);
+
+		first.complete(JSON.stringify({
+			file: "/tmp/first.png",
+			type: "image/png",
+			mime: "image/png",
+			format: "png",
+			width: 10,
+			height: 20,
+			animated: false,
+			caption: "First image.",
+		}));
+		await firstRead;
+	});
+
 	it("serializes concurrent image analysis processes", async () => {
 		const first = controlledSpawnResult();
 		mockImageModes();

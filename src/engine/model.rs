@@ -45,7 +45,10 @@ pub(crate) fn file(name: &str) -> Result<PathBuf> {
     let dir = cache_dir()?.join(CACHE_SUBDIR);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let target = dir.join(local);
-    let _lock = ModelLock::acquire(target.with_extension("lock"))?;
+    let _lock = ModelLock::acquire(&target.with_extension("file-lock"))?;
+    if let Err(error) = remove_stale_parts(&target) {
+        log::warn!("stale model download cleanup skipped: {error:#}");
+    }
     if valid_file(&target, size, sha256) {
         return Ok(target);
     }
@@ -162,17 +165,46 @@ fn unique_part(target: &Path) -> Result<PathBuf> {
     Ok(part)
 }
 
+fn remove_stale_parts(target: &Path) -> Result<()> {
+    let parent = target
+        .parent()
+        .with_context(|| format!("model path has no parent: {}", target.display()))?;
+    let stem = target
+        .file_stem()
+        .with_context(|| format!("model path has no file name: {}", target.display()))?
+        .to_string_lossy();
+    let prefix = format!("{stem}.");
+    for entry in fs::read_dir(parent).with_context(|| format!("read {}", parent.display()))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(&prefix) && name.ends_with(".part") {
+            fs::remove_file(entry.path()).with_context(|| {
+                format!("remove stale model download {}", entry.path().display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
 struct ModelLock {
-    path: PathBuf,
+    _file: fs::File,
 }
 
 impl ModelLock {
-    fn acquire(path: PathBuf) -> Result<Self> {
+    fn acquire(path: &Path) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .with_context(|| format!("open model cache lock {}", path.display()))?;
         let deadline = Instant::now() + LOCK_TIMEOUT;
         loop {
-            match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(fs::TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(anyhow!(
                             "timed out waiting for model cache lock {}",
@@ -181,16 +213,10 @@ impl ModelLock {
                     }
                     thread::sleep(Duration::from_millis(100));
                 }
-                Err(error) => {
+                Err(fs::TryLockError::Error(error)) => {
                     return Err(error).with_context(|| format!("lock {}", path.display()));
                 }
             }
         }
-    }
-}
-
-impl Drop for ModelLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
     }
 }

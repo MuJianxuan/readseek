@@ -358,6 +358,7 @@ function defaultReadSeekDir(): string | null {
 }
 
 const DEFAULT_READSEEK_TIMEOUT_MS = 120_000;
+const DEFAULT_READSEEK_VISION_TIMEOUT_MS = 30 * 60_000;
 
 function readSeekTimeoutMs(): number {
 	return resolveReadSeekTimeoutMs() ?? DEFAULT_READSEEK_TIMEOUT_MS;
@@ -493,11 +494,36 @@ async function runReadSeekVision(args: string[], options: RunReadSeekOptions = {
 	});
 	const predecessor = visionInvocationTail;
 	visionInvocationTail = predecessor.then(() => gate);
+	const signal = options.signal;
 
-	await predecessor;
 	try {
-		options.signal?.throwIfAborted();
-		return await runReadSeek(args, options);
+		if (signal) {
+			signal.throwIfAborted();
+			await new Promise<void>((resolve, reject) => {
+				const onAbort = (): void => {
+					signal.removeEventListener("abort", onAbort);
+					reject(signal.reason);
+				};
+				signal.addEventListener("abort", onAbort, { once: true });
+				predecessor.then(
+					() => {
+						signal.removeEventListener("abort", onAbort);
+						resolve();
+					},
+					(error) => {
+						signal.removeEventListener("abort", onAbort);
+						reject(error);
+					},
+				);
+			});
+		} else {
+			await predecessor;
+		}
+		signal?.throwIfAborted();
+		return await runReadSeek(args, {
+			...options,
+			timeoutMs: options.timeoutMs ?? resolveReadSeekTimeoutMs() ?? DEFAULT_READSEEK_VISION_TIMEOUT_MS,
+		});
 	} finally {
 		release();
 	}

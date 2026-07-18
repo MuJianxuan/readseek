@@ -109,7 +109,7 @@ pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
         log::warn!("vision cache mkdir {}: {error}", parent.display());
         return;
     }
-    let _lock = match CacheLock::acquire(path.with_extension("json.lock")) {
+    let _lock = match CacheLock::acquire(&path.with_extension("json.file-lock")) {
         Ok(lock) => lock,
         Err(error) => {
             log::warn!("vision cache lock {}: {error}", path.display());
@@ -139,16 +139,22 @@ pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
 }
 
 struct CacheLock {
-    path: PathBuf,
+    _file: fs::File,
 }
 
 impl CacheLock {
-    fn acquire(path: PathBuf) -> std::io::Result<Self> {
+    fn acquire(path: &Path) -> std::io::Result<Self> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
         let deadline = Instant::now() + LOCK_TIMEOUT;
         loop {
-            match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { path }),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(fs::TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
@@ -157,15 +163,9 @@ impl CacheLock {
                     }
                     thread::sleep(Duration::from_millis(10));
                 }
-                Err(error) => return Err(error),
+                Err(fs::TryLockError::Error(error)) => return Err(error),
             }
         }
-    }
-}
-
-impl Drop for CacheLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
     }
 }
 
