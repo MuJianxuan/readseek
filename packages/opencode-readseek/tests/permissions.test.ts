@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import type { ToolContext } from "@opencode-ai/plugin";
 
 import { ReadSeekPlugin } from "../index.ts";
@@ -73,6 +77,33 @@ describe("OpenCode permissions", () => {
 
     expect(asks.map((ask) => ask.permission)).toEqual(["external_directory", "read"]);
     expect(asks[0]?.patterns).toEqual(["/outside/*"]);
+  });
+
+  test("resolves symlinks before granting worktree access", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "opencode-readseek-"));
+    try {
+      const worktree = path.join(directory, "worktree");
+      const project = path.join(worktree, "project");
+      const external = path.join(directory, "external");
+      await mkdir(project, { recursive: true });
+      await mkdir(external);
+      await symlink(external, path.join(project, "linked"), process.platform === "win32" ? "junction" : "dir");
+
+      const asks: AskInput[] = [];
+      const context = {
+        ...createContext(asks, "external_directory"),
+        directory: project,
+        worktree,
+      };
+      await expect(
+        (await tools()).readseek_check.execute({ path: "linked/file.ts" }, context),
+      ).rejects.toThrow("permission denied");
+
+      expect(asks.map((ask) => ask.permission)).toEqual(["external_directory"]);
+      expect(asks[0]?.patterns).toEqual([path.join(external, "*").replaceAll("\\", "/")]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test("does not treat the filesystem root as a non-git worktree grant", async () => {

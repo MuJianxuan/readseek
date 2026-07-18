@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Jarkko Sakkinen 2026
 
-import { lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -116,12 +116,56 @@ function containsPath(directory: string, filePath: string): boolean {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
+async function resolveSymlinks(filePath: string): Promise<string> {
+  let unresolved = path.resolve(filePath);
+  let symlinks = 0;
+
+  while (true) {
+    const parsed = path.parse(unresolved);
+    const parts = unresolved.slice(parsed.root.length).split(path.sep).filter(Boolean);
+    let resolved = parsed.root;
+    let restart = false;
+
+    for (let index = 0; index < parts.length; index++) {
+      const candidate = path.join(resolved, parts[index]);
+      const info = await lstat(candidate);
+      if (!info.isSymbolicLink()) {
+        resolved = candidate;
+        continue;
+      }
+
+      symlinks++;
+      if (symlinks > 40) {
+        const error = new Error(`too many symbolic links: ${filePath}`) as NodeJS.ErrnoException;
+        error.code = "ELOOP";
+        throw error;
+      }
+
+      const target = await readlink(candidate);
+      unresolved = path.resolve(path.dirname(candidate), target, ...parts.slice(index + 1));
+      restart = true;
+      break;
+    }
+
+    if (!restart) return resolved;
+  }
+}
+
+async function portableRealpath(filePath: string): Promise<string> {
+  try {
+    return await realpath(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EACCES") throw error;
+    return resolveSymlinks(filePath);
+  }
+}
+
 async function canonicalPath(filePath: string): Promise<string> {
   const missing: string[] = [];
   let existing = filePath;
   while (true) {
     try {
-      return path.join(await realpath(existing), ...missing.reverse());
+      return path.join(await portableRealpath(existing), ...missing.reverse());
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       const parent = path.dirname(existing);
