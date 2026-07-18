@@ -270,15 +270,18 @@ impl cli::ViewCommand {
                     .and_then(|cwd| repo::find_readseek_dir(&cwd))
             })
             .context("no .readseek directory found; run 'readseek init' first")?;
-        let document = if let Some(document) = document_store::load(&readseek_dir, &id)? {
+        let mut document = if let Some(document) = document_store::load(&readseek_dir, &id)? {
             document
         } else if self.outline {
             crate::engine::pdf::extract_outline_document(&source.path, bytes, id)?
         } else {
-            let document = crate::engine::pdf::extract_document(&source.path, bytes, id)?;
+            let assets_dir = document_store::assets_dir(&readseek_dir, &id);
+            let document =
+                crate::engine::pdf::extract_document(&source.path, bytes, id, &assets_dir)?;
             document_store::store(&readseek_dir, &document)?;
             document
         };
+        document.rebind_source(&source.path);
         if let Some(page) = self.page
             && page > document.pages
         {

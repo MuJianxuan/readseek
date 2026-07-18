@@ -41,6 +41,12 @@ pub(crate) fn select(document: &Document, selection: Selection<'_>) -> Result<Do
             .any(|node| node.kind == NodeKind::Section)
         {
             NodeKind::Section
+        } else if document
+            .nodes
+            .iter()
+            .any(|node| node.kind == NodeKind::StructuralSection)
+        {
+            NodeKind::StructuralSection
         } else {
             NodeKind::Page
         }
@@ -91,6 +97,7 @@ pub(crate) fn select(document: &Document, selection: Selection<'_>) -> Result<Do
         });
         detach_missing_parents(&mut nodes);
     }
+    nodes = preorder_nodes(nodes);
     let assets = document
         .assets
         .iter()
@@ -128,6 +135,53 @@ fn detach_missing_parents(nodes: &mut [Node]) {
     for node in nodes {
         if detached.contains(&node.id) {
             node.parent_id = None;
+        }
+    }
+}
+
+fn preorder_nodes(nodes: Vec<Node>) -> Vec<Node> {
+    let order = {
+        let mut children: HashMap<Option<&str>, Vec<usize>> = HashMap::new();
+        for (index, node) in nodes.iter().enumerate() {
+            children
+                .entry(node.parent_id.as_deref())
+                .or_default()
+                .push(index);
+        }
+
+        let mut order = Vec::with_capacity(nodes.len());
+        let mut visited = vec![false; nodes.len()];
+        for index in children.get(&None).into_iter().flatten().copied() {
+            append_preorder(index, &nodes, &children, &mut visited, &mut order);
+        }
+        for index in 0..nodes.len() {
+            append_preorder(index, &nodes, &children, &mut visited, &mut order);
+        }
+        order
+    };
+
+    let mut nodes: Vec<Option<Node>> = nodes.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .filter_map(|index| nodes[index].take())
+        .collect()
+}
+
+fn append_preorder<'a>(
+    index: usize,
+    nodes: &'a [Node],
+    children: &HashMap<Option<&'a str>, Vec<usize>>,
+    visited: &mut [bool],
+    order: &mut Vec<usize>,
+) {
+    if visited[index] {
+        return;
+    }
+    visited[index] = true;
+    order.push(index);
+    if let Some(child_indices) = children.get(&Some(nodes[index].id.as_str())) {
+        for child_index in child_indices {
+            append_preorder(*child_index, nodes, children, visited, order);
         }
     }
 }
@@ -196,10 +250,14 @@ fn compact_text(text: &str) -> String {
 }
 
 fn is_descendant(node: &Node, root: &str, by_id: &HashMap<&str, &Node>) -> bool {
+    let mut visited = HashSet::new();
     let mut parent = node.parent_id.as_deref();
     while let Some(parent_id) = parent {
         if parent_id == root {
             return true;
+        }
+        if !visited.insert(parent_id) {
+            break;
         }
         parent = by_id
             .get(parent_id)
@@ -210,8 +268,12 @@ fn is_descendant(node: &Node, root: &str, by_id: &HashMap<&str, &Node>) -> bool 
 
 fn node_depth(id: &str, by_id: &HashMap<&str, &Node>) -> usize {
     let mut depth = 0;
+    let mut visited = HashSet::new();
     let mut parent = by_id.get(id).and_then(|node| node.parent_id.as_deref());
     while let Some(parent_id) = parent {
+        if !visited.insert(parent_id) {
+            break;
+        }
         depth += 1;
         parent = by_id
             .get(parent_id)
@@ -231,4 +293,92 @@ fn node_depths(document: &Document) -> HashMap<String, usize> {
         .iter()
         .map(|node| (node.id.clone(), node_depth(&node.id, &by_id)))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Selection, render, select};
+    use crate::engine::document::{Document, DocumentFormat, Node, NodeKind};
+
+    fn node(id: &str, parent_id: Option<&str>, kind: NodeKind) -> Node {
+        Node {
+            id: id.to_owned(),
+            parent_id: parent_id.map(str::to_owned),
+            kind,
+            title: Some(id.to_owned()),
+            text: None,
+            level: None,
+            column: None,
+            source_anchor: None,
+        }
+    }
+
+    fn document(nodes: Vec<Node>) -> Document {
+        Document {
+            id: "document".to_owned(),
+            format: DocumentFormat::Pdf,
+            source: "document.pdf".into(),
+            title: "document".to_owned(),
+            pages: 2,
+            nodes,
+            assets: Vec::new(),
+        }
+    }
+
+    fn all() -> Selection<'static> {
+        Selection {
+            node: None,
+            page: None,
+            kind: None,
+            depth: None,
+            outline: false,
+            overview: false,
+        }
+    }
+
+    #[test]
+    fn selection_normalizes_nodes_to_preorder() {
+        let input = document(vec![
+            node("body", Some("heading"), NodeKind::Paragraph),
+            node("page", None, NodeKind::Page),
+            node("heading", Some("section"), NodeKind::Heading),
+            node("section", None, NodeKind::StructuralSection),
+        ]);
+
+        let selected = select(&input, all()).expect("select document");
+        let ids: Vec<&str> = selected.nodes.iter().map(|node| node.id.as_str()).collect();
+
+        assert_eq!(ids, ["page", "section", "heading", "body"]);
+        let rendered = render(&selected);
+        assert!(rendered.contains("  [heading] heading"));
+        assert!(rendered.contains("    [body] paragraph"));
+    }
+
+    #[test]
+    fn cycles_terminate_selection_and_rendering() {
+        let input = document(vec![
+            node("a", Some("b"), NodeKind::Paragraph),
+            node("b", Some("a"), NodeKind::Paragraph),
+        ]);
+
+        let selected = select(&input, all()).expect("select cyclic document");
+
+        assert_eq!(selected.nodes.len(), 2);
+        assert!(!render(&selected).is_empty());
+    }
+
+    #[test]
+    fn overview_uses_structural_sections_without_outline() {
+        let input = document(vec![
+            node("page", None, NodeKind::Page),
+            node("section", None, NodeKind::StructuralSection),
+        ]);
+        let mut selection = all();
+        selection.overview = true;
+
+        let selected = select(&input, selection).expect("select overview");
+
+        assert_eq!(selected.nodes.len(), 1);
+        assert_eq!(selected.nodes[0].kind, NodeKind::StructuralSection);
+    }
 }

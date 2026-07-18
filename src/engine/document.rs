@@ -3,7 +3,7 @@
 
 //! Format-neutral indexed document model.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,16 @@ pub(crate) struct Document {
     pub(crate) assets: Vec<Asset>,
 }
 
+impl Document {
+    pub(crate) fn rebind_source(&mut self, path: &Path) {
+        self.source = path.to_path_buf();
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("document")
+            .clone_into(&mut self.title);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum NodeKind {
@@ -52,6 +62,7 @@ pub(crate) enum NodeKind {
     PageNumber,
     Paragraph,
     Section,
+    StructuralSection,
 }
 
 impl NodeKind {
@@ -66,6 +77,7 @@ impl NodeKind {
             Self::PageNumber => "page_number",
             Self::Paragraph => "paragraph",
             Self::Section => "section",
+            Self::StructuralSection => "structural_section",
         }
     }
 
@@ -80,6 +92,7 @@ impl NodeKind {
             "page_number" => Ok(Self::PageNumber),
             "paragraph" => Ok(Self::Paragraph),
             "section" => Ok(Self::Section),
+            "structural_section" => Ok(Self::StructuralSection),
             _ => bail!("unsupported indexed node kind: {value}"),
         }
     }
@@ -134,4 +147,27 @@ pub(crate) struct Asset {
     pub(crate) path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) source_anchor: Option<SourceAnchor>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Document, DocumentFormat};
+
+    #[test]
+    fn rebind_source_updates_path_dependent_metadata() {
+        let mut document = Document {
+            id: "id".to_owned(),
+            format: DocumentFormat::Pdf,
+            source: "old.pdf".into(),
+            title: "old".to_owned(),
+            pages: 1,
+            nodes: Vec::new(),
+            assets: Vec::new(),
+        };
+
+        document.rebind_source(std::path::Path::new("copies/new-name.pdf"));
+
+        assert_eq!(document.source, std::path::Path::new("copies/new-name.pdf"));
+        assert_eq!(document.title, "new-name");
+    }
 }

@@ -620,6 +620,12 @@ pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {
     let written_prefixes = write_index_shards(&readseek_dir, &shards)?;
     remove_stale_index_shards(&readseek_dir, &written_prefixes)?;
     stats.removed += remove_stale_maps(&readseek_dir, &active_hashes)?;
+    let active_document_hashes: HashSet<String> = paths
+        .par_iter()
+        .filter_map(|path| crate::engine::document_store::pdf_hash(path))
+        .collect();
+    stats.removed +=
+        crate::engine::document_store::remove_stale(&readseek_dir, &active_document_hashes)?;
 
     let active_image_hashes: HashSet<String> = paths
         .par_iter()

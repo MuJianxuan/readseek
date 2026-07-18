@@ -3,14 +3,17 @@
 
 //! Page-oriented PDF extraction.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::fs;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use pdf_oxide::{Destination, OutlineItem, PdfDocument, RegionRole};
 use serde::Serialize;
 
 use crate::engine::document::{
-    BoundingBox, Document, DocumentFormat, Node, NodeKind, SourceAnchor,
+    Asset, BoundingBox, Document, DocumentFormat, Node, NodeKind, SourceAnchor,
 };
 use crate::engine::output::ImageMode;
 use crate::engine::vision::{Analysis, DetectedObject, Request};
@@ -47,6 +50,19 @@ struct PdfImageOutput {
     data: Option<String>,
 }
 
+struct StructuralSectionState {
+    node_id: String,
+    node_index: usize,
+    headings: Vec<(u8, String)>,
+}
+
+#[derive(Clone, Copy)]
+
+struct RegionParents<'a> {
+    page_id: &'a str,
+    base_parent_id: &'a str,
+}
+
 pub(crate) fn probe(bytes: &[u8]) -> Result<PdfInfo> {
     let document = PdfDocument::from_bytes(bytes.to_vec()).context("parse PDF")?;
     let pages = document.page_count().context("read PDF page count")?;
@@ -54,28 +70,106 @@ pub(crate) fn probe(bytes: &[u8]) -> Result<PdfInfo> {
 }
 
 pub(crate) fn extract_document(
-    path: &std::path::Path,
+    path: &Path,
     bytes: &[u8],
     id: String,
+    assets_dir: &Path,
 ) -> Result<Document> {
     let pdf = PdfDocument::from_bytes(bytes.to_vec()).context("parse PDF")?;
     let pages = pdf.page_count().context("read PDF page count")?;
     let mut document = document_outline(path, &pdf, id, pages)?;
+    let mut headings = Vec::new();
+    let mut sections = HashMap::new();
     for page_index in 0..pages {
         let page = page_index + 1;
         let structured = pdf
             .extract_structured(page_index)
             .with_context(|| format!("extract structure from PDF page {page}"))?;
-        let parent_id = outline_parent_for_page(&document.nodes, page).map(str::to_owned);
         append_page_nodes(
             &document.id,
             page,
-            parent_id,
             &structured,
+            &mut headings,
+            &mut sections,
             &mut document.nodes,
         );
+        append_page_assets(
+            &pdf,
+            &document.id,
+            page_index,
+            page,
+            assets_dir,
+            &mut document.assets,
+        )?;
     }
     Ok(document)
+}
+
+fn append_page_assets(
+    pdf: &PdfDocument,
+    document_id: &str,
+    page_index: usize,
+    page: usize,
+    assets_dir: &Path,
+    assets: &mut Vec<Asset>,
+) -> Result<()> {
+    let handles = pdf
+        .page_image_handles(page_index)
+        .with_context(|| format!("enumerate images on PDF page {page}"))?;
+    if handles.is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(assets_dir)
+        .with_context(|| format!("create PDF asset directory {}", assets_dir.display()))?;
+
+    for handle in handles {
+        let image = match handle.decode() {
+            Ok(image) => image,
+            Err(error) => {
+                log::warn!(
+                    "skip undecodable PDF image {} on page {page}: {error}",
+                    handle.paint_order
+                );
+                continue;
+            }
+        };
+        let png = match image.to_png_bytes() {
+            Ok(png) if !png.is_empty() => png,
+            Ok(_) => continue,
+            Err(error) => {
+                log::warn!(
+                    "skip PDF image {} on page {page}: {error}",
+                    handle.paint_order
+                );
+                continue;
+            }
+        };
+        let id = asset_id(document_id, page, handle.paint_order);
+        let path = assets_dir.join(format!("{id}.png"));
+        crate::engine::repo::write_atomic(&path, &png)
+            .with_context(|| format!("write PDF asset {}", path.display()))?;
+        assets.push(Asset {
+            id,
+            mime: "image/png".to_owned(),
+            path,
+            source_anchor: Some(SourceAnchor {
+                page: Some(page),
+                destination: None,
+                bbox: Some(BoundingBox {
+                    x: handle.bbox.x,
+                    y: handle.bbox.y,
+                    width: handle.bbox.width,
+                    height: handle.bbox.height,
+                }),
+            }),
+        });
+    }
+    Ok(())
+}
+
+fn asset_id(document_id: &str, page: usize, paint_order: usize) -> String {
+    let digest = blake3::hash(format!("{document_id}:page:{page}:image:{paint_order}").as_bytes());
+    format!("a_{}", &digest.to_hex()[..16])
 }
 
 pub(crate) fn extract_outline_document(
@@ -101,20 +195,17 @@ fn document_outline(
     let mut nodes = Vec::new();
     append_outline_nodes(&id, &outline, None, "", &mut nodes);
 
-    let title = path
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or("document")
-        .to_owned();
-    Ok(Document {
+    let mut document = Document {
         id,
         format: DocumentFormat::Pdf,
-        source: path.to_path_buf(),
-        title,
+        source: std::path::PathBuf::new(),
+        title: String::new(),
         pages,
         nodes,
         assets: Vec::new(),
-    })
+    };
+    document.rebind_source(path);
+    Ok(document)
 }
 
 fn append_outline_nodes(
@@ -160,14 +251,15 @@ fn append_outline_nodes(
 fn append_page_nodes(
     document_id: &str,
     page: usize,
-    parent_id: Option<String>,
     structured: &pdf_oxide::StructuredPage,
+    headings: &mut Vec<(u8, String)>,
+    sections: &mut HashMap<usize, StructuralSectionState>,
     nodes: &mut Vec<Node>,
 ) {
     let page_id = node_id(document_id, &format!("page:{page}"));
     nodes.push(Node {
         id: page_id.clone(),
-        parent_id,
+        parent_id: None,
         kind: NodeKind::Page,
         title: Some(format!("Page {page}")),
         text: None,
@@ -185,33 +277,75 @@ fn append_page_nodes(
         }),
     });
 
-    let mut headings = Vec::new();
     for (position, region) in structured.regions.iter().enumerate() {
-        append_region_node(
-            document_id,
-            page,
-            position,
-            region,
-            &page_id,
-            &mut headings,
-            nodes,
-        );
-    }
-}
-
-fn outline_parent_for_page(nodes: &[Node], page: usize) -> Option<&str> {
-    nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(position, node)| {
-            if node.kind != NodeKind::Section {
-                return None;
+        if let Some(section_id) = region.section_id {
+            let state = sections.entry(section_id).or_insert_with(|| {
+                let node_id = node_id(document_id, &format!("section:{section_id}"));
+                let node_index = nodes.len();
+                let title = match region.kind {
+                    RegionRole::StructuralHeading { .. } => region.text.trim().to_owned(),
+                    _ => format!("Section {section_id}"),
+                };
+                nodes.push(Node {
+                    id: node_id.clone(),
+                    parent_id: None,
+                    kind: NodeKind::StructuralSection,
+                    title: Some(title),
+                    text: None,
+                    level: None,
+                    column: None,
+                    source_anchor: Some(SourceAnchor {
+                        page: Some(page),
+                        destination: None,
+                        bbox: Some(BoundingBox {
+                            x: region.bbox.x,
+                            y: region.bbox.y,
+                            width: region.bbox.width,
+                            height: region.bbox.height,
+                        }),
+                    }),
+                });
+                StructuralSectionState {
+                    node_id,
+                    node_index,
+                    headings: Vec::new(),
+                }
+            });
+            if matches!(region.kind, RegionRole::StructuralHeading { .. })
+                && nodes[state.node_index]
+                    .title
+                    .as_deref()
+                    .is_some_and(|title| title.starts_with("Section "))
+            {
+                nodes[state.node_index].title = Some(region.text.trim().to_owned());
             }
-            let section_page = node.source_anchor.as_ref().and_then(|anchor| anchor.page)?;
-            (section_page <= page).then_some((section_page, position, node.id.as_str()))
-        })
-        .max_by_key(|(section_page, position, _)| (*section_page, *position))
-        .map(|(_, _, id)| id)
+            append_region_node(
+                document_id,
+                page,
+                position,
+                region,
+                RegionParents {
+                    page_id: &page_id,
+                    base_parent_id: &state.node_id,
+                },
+                &mut state.headings,
+                nodes,
+            );
+        } else {
+            append_region_node(
+                document_id,
+                page,
+                position,
+                region,
+                RegionParents {
+                    page_id: &page_id,
+                    base_parent_id: &page_id,
+                },
+                headings,
+                nodes,
+            );
+        }
+    }
 }
 
 fn append_region_node(
@@ -219,7 +353,7 @@ fn append_region_node(
     page: usize,
     position: usize,
     region: &pdf_oxide::StructuredRegion,
-    page_id: &str,
+    parents: RegionParents<'_>,
     headings: &mut Vec<(u8, String)>,
     nodes: &mut Vec<Node>,
 ) {
@@ -246,13 +380,13 @@ fn append_region_node(
         }
         headings
             .last()
-            .map_or_else(|| page_id.to_owned(), |(_, id)| id.clone())
+            .map_or_else(|| parents.base_parent_id.to_owned(), |(_, id)| id.clone())
     } else if matches!(kind, NodeKind::Paragraph | NodeKind::MarginalLabel) {
         headings
             .last()
-            .map_or_else(|| page_id.to_owned(), |(_, id)| id.clone())
+            .map_or_else(|| parents.base_parent_id.to_owned(), |(_, id)| id.clone())
     } else {
-        page_id.to_owned()
+        parents.page_id.to_owned()
     };
     let (title, text) = if kind == NodeKind::Heading {
         (Some(text.to_owned()), None)
@@ -386,4 +520,113 @@ pub(crate) fn read(
         markdown,
         images,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use pdf_oxide::geometry::Rect;
+    use pdf_oxide::{RegionRole, StructuredPage, StructuredRegion};
+
+    use super::{StructuralSectionState, append_page_nodes};
+    use crate::engine::document::{Node, NodeKind};
+
+    fn region(kind: RegionRole, text: &str, section_id: Option<usize>) -> StructuredRegion {
+        StructuredRegion {
+            kind,
+            text: text.to_owned(),
+            bbox: Rect::new(1.0, 2.0, 3.0, 4.0),
+            spans: Vec::new(),
+            column_index: None,
+            section_id,
+        }
+    }
+
+    fn page(page_index: usize, regions: Vec<StructuredRegion>) -> StructuredPage {
+        StructuredPage {
+            page_index,
+            page_width: 100.0,
+            page_height: 200.0,
+            regions,
+        }
+    }
+
+    #[test]
+    fn structural_section_spans_pages() {
+        let mut nodes = Vec::new();
+        let mut headings = Vec::new();
+        let mut sections: HashMap<usize, StructuralSectionState> = HashMap::new();
+        append_page_nodes(
+            "document",
+            1,
+            &page(0, vec![region(RegionRole::BodyBlock, "first", Some(7))]),
+            &mut headings,
+            &mut sections,
+            &mut nodes,
+        );
+        append_page_nodes(
+            "document",
+            2,
+            &page(1, vec![region(RegionRole::BodyBlock, "second", Some(7))]),
+            &mut headings,
+            &mut sections,
+            &mut nodes,
+        );
+
+        let section = nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::StructuralSection)
+            .expect("structural section");
+        let paragraphs: Vec<&Node> = nodes
+            .iter()
+            .filter(|node| node.kind == NodeKind::Paragraph)
+            .collect();
+        assert_eq!(paragraphs.len(), 2);
+        assert!(
+            paragraphs
+                .iter()
+                .all(|node| node.parent_id.as_deref() == Some(section.id.as_str()))
+        );
+    }
+
+    #[test]
+    fn untagged_heading_spans_pages() {
+        let mut nodes = Vec::new();
+        let mut headings = Vec::new();
+        let mut sections = HashMap::new();
+        append_page_nodes(
+            "document",
+            1,
+            &page(
+                0,
+                vec![region(
+                    RegionRole::StructuralHeading { level: 1 },
+                    "Heading",
+                    None,
+                )],
+            ),
+            &mut headings,
+            &mut sections,
+            &mut nodes,
+        );
+        append_page_nodes(
+            "document",
+            2,
+            &page(1, vec![region(RegionRole::BodyBlock, "body", None)]),
+            &mut headings,
+            &mut sections,
+            &mut nodes,
+        );
+
+        let heading = nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::Heading)
+            .expect("heading");
+        let body = nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::Paragraph)
+            .expect("body");
+        assert_eq!(body.parent_id.as_deref(), Some(heading.id.as_str()));
+    }
 }
