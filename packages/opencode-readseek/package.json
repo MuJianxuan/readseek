@@ -1,6 +1,6 @@
 {
   "name": "opencode-readseek",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "description": "OpenCode plugin for readseek-backed structural code navigation",
   "type": "module",
   "main": "./index.ts",
@@ -30,7 +30,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@jarkkojs/readseek": "^0.6.10",
+    "@jarkkojs/readseek": "^0.6.11",
     "@opencode-ai/plugin": "^1.17.20"
   },
   "devDependencies": {
