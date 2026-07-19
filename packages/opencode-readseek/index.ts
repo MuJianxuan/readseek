@@ -11,6 +11,7 @@ import { tool, type Plugin, type PluginOptions, type ToolAttachment, type ToolCo
 const require = createRequire(import.meta.url);
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const DEFAULT_READ_LIMIT = 2000;
+const EDIT_RESULT_READ_LIMIT = 40;
 const MAX_DOCUMENT_OUTPUT_BYTES = 256 * 1024;
 const MAX_DOCUMENT_OUTPUT_LINES = 2000;
 const EDITING_POLICY = [
@@ -1296,14 +1297,20 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
             context.abort.throwIfAborted();
             await authorizeRead(context, filePath);
             await rejectSymlinkMutation(filePath);
-            const edits = input.edits;
+            const edits = input.edits as AnchorEdit[];
             const before = await readFile(filePath, "utf8");
             await verifyAnchors(context, filePath, edits);
             const after = applyAnchorEdits(before, edits);
             await authorizeEdit(context, [filePath], simpleDiff(filePath, before, after), false);
             context.abort.throwIfAborted();
             if (before !== after) await writeText(filePath, { exists: true, content: before }, after);
-            return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)], { cancelable: false });
+            const firstEditedLine = Math.min(...edits.flatMap((edit) => anchorRefs(edit).map((ref) => ref.line)));
+            const previewStart = Math.max(1, firstEditedLine - 3);
+            return runReadSeek(
+              context,
+              ["read", `${filePath}:${previewStart}`, "--end", String(previewStart + EDIT_RESULT_READ_LIMIT - 1)],
+              { cancelable: false },
+            );
           });
         },
       ),

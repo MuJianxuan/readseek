@@ -74,6 +74,31 @@ describe("mutation tools", () => {
     expect(permissions).toEqual(["read", "edit"]);
   });
 
+  test("limits the post-edit preview to nearby lines", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "opencode-readseek-"));
+    const file = path.join(directory, "large.ts");
+    const content = Array.from({ length: 1_000 }, (_, index) => `line ${index + 1}`).join("\n") + "\n";
+    await writeFile(file, content);
+    const spawn = spawnOutputs([
+      { file, hashlines: [{ line: 750, hash: "abc", text: "line 750" }] },
+      { file, start_line: 747, end_line: 786, hashlines: [] },
+    ]);
+    const edit = (await ReadSeekPlugin({} as never)).tool?.readseek_edit;
+    if (!edit) throw new Error("plugin did not register readseek_edit");
+
+    await edit.execute(
+      { path: "large.ts", edits: [{ set_line: { anchor: "750:abc", new_text: "changed" } }] },
+      context(directory),
+    );
+
+    expect((spawn.mock.calls.at(-1)?.[0] as string[]).slice(1)).toEqual([
+      "read",
+      `${file}:747`,
+      "--end",
+      "786",
+    ]);
+  });
+
   test("rejects overlapping anchored edits", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "opencode-readseek-"));
     const file = path.join(directory, "file.ts");
