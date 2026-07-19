@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "readseek"
-version = "0.6.13"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "arborium-meson",
