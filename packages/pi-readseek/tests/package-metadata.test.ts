@@ -7,6 +7,9 @@ interface PackageJson {
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   resolved?: string;
+  exports?: { ".": string };
+  pi?: { extensions?: string[] };
+  files?: string[];
 }
 
 interface PackageLock extends PackageJson {
@@ -42,6 +45,10 @@ describe("package metadata", () => {
     expect(pluginLock.version).toBe(version);
     expect(pluginLock.packages[""].version).toBe(version);
     expect(pluginPackage.dependencies?.["@jarkkojs/readseek"]).toBe(`^${version}`);
+    expect(pluginPackage.exports?.["."]).toBe("./dist/index.js");
+    expect(pluginPackage.pi?.extensions).toEqual(["./dist/index.js"]);
+    expect(pluginPackage.files).toContain("dist/");
+    expect(pluginPackage.files).toContain("prompts/");
     expect(pluginLock.packages[""].dependencies?.["@jarkkojs/readseek"]).toBe(`^${version}`);
 
     for (const packageName of platformDependencies) {

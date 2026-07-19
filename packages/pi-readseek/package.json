@@ -4,7 +4,7 @@
   "description": "Pi extension for readseek-backed hash-anchored read/edit/grep, structural code maps, structural search, and file exploration",
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./dist/index.js"
   },
   "keywords": [
     "pi-package",
@@ -21,18 +21,19 @@
   "license": "Apache-2.0",
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "files": [
-    "index.ts",
-    "src/",
+    "dist/",
     "prompts/",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "test": "node scripts/vitest-run.mjs",
+    "build": "bun build index.ts --outfile dist/index.js --target=node --packages=external",
+    "prepack": "npm run build",
+    "test": "npm run build && node scripts/vitest-run.mjs",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
