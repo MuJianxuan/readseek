@@ -147,9 +147,6 @@ jobs:
   readseek-vim:
     name: Test readseek.vim
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/readseek.vim
 
     steps:
       - name: Checkout

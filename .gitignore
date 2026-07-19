@@ -3,3 +3,6 @@
 /assets
 /node_modules
 /npm/*/bin
+test-readseek.log
+test-readseek-failures.log
+/.readseek
