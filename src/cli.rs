@@ -76,6 +76,10 @@ pub(crate) struct ReadCommand {
     #[argh(option)]
     pub(crate) limit: Option<usize>,
 
+    /// one-based PDF page to read
+    #[argh(option)]
+    pub(crate) page: Option<usize>,
+
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,

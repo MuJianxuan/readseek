@@ -3,13 +3,16 @@
 
 import { lstat, mkdir, open, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import path from "node:path";
 
-import { tool, type Plugin, type PluginOptions, type ToolContext } from "@opencode-ai/plugin";
+import { tool, type Plugin, type PluginOptions, type ToolAttachment, type ToolContext } from "@opencode-ai/plugin";
 
 const require = createRequire(import.meta.url);
 const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const DEFAULT_READ_LIMIT = 2000;
+const MAX_DOCUMENT_OUTPUT_BYTES = 256 * 1024;
+const MAX_DOCUMENT_OUTPUT_LINES = 2000;
 const READSEEK_PLATFORM_PACKAGES: Record<string, string> = {
   "darwin-arm64": "@jarkkojs/readseek-darwin-arm64",
   "linux-arm64": "@jarkkojs/readseek-linux-arm64",
@@ -22,15 +25,34 @@ type RenamePlan = {
   files: Set<string>;
 };
 
-type PresentationKind = "read" | "map" | "search" | "grep" | "def" | "refs" | "hover" | "rename" | "edit" | "write" | "check";
+type PresentationKind = "read" | "view" | "map" | "search" | "grep" | "def" | "refs" | "hover" | "rename" | "edit" | "write" | "check";
 
 type Presentation = {
   title: string;
   metadata: Record<string, number>;
 };
 
+type RenderedToolResult = {
+  output: string;
+  attachments?: ToolAttachment[];
+};
+
 type ImagePolicy = "on" | "auto" | "off";
 type ImageMode = "none" | "all" | "ocr" | "caption" | "objects";
+type DocumentNodeKind = "artifact" | "footer" | "header" | "heading" | "marginal_label" | "page" | "page_number" | "paragraph" | "section" | "structural_section";
+
+const DOCUMENT_NODE_KINDS: [DocumentNodeKind, ...DocumentNodeKind[]] = [
+  "artifact",
+  "footer",
+  "header",
+  "heading",
+  "marginal_label",
+  "page",
+  "page_number",
+  "paragraph",
+  "section",
+  "structural_section",
+];
 
 function resolveImagePolicy(options: PluginOptions | undefined): ImagePolicy {
   const value = options?.imageMode;
@@ -43,6 +65,10 @@ function isVisualFile(value: unknown): boolean {
   const output = record(value);
   const type = output.type;
   return typeof output.width === "number" || type === "application/pdf";
+}
+
+function isPdfFile(value: unknown): boolean {
+  return record(value).format === "pdf";
 }
 
 class SessionAnchors {
@@ -259,11 +285,11 @@ function readSeekBinaryPath(): string {
   return path.join(path.dirname(packageJson), "bin", process.platform === "win32" ? "readseek.exe" : "readseek");
 }
 
-async function runReadSeek(
+async function runReadSeekRaw(
   context: ToolContext,
   args: string[],
   options: { cancelable?: boolean } = {},
-): Promise<unknown> {
+): Promise<string> {
   context.abort.throwIfAborted();
   const cancelable = options.cancelable !== false;
   const spawnOptions = {
@@ -285,12 +311,46 @@ async function runReadSeek(
   ]);
   if (cancelable) context.abort.throwIfAborted();
   if (exitCode !== 0) throw new Error(stderr.trim() || `readseek exited with status ${exitCode}`);
+  return stdout;
+}
 
+async function runReadSeek(
+  context: ToolContext,
+  args: string[],
+  options: { cancelable?: boolean } = {},
+): Promise<unknown> {
+  const stdout = await runReadSeekRaw(context, args, options);
   try {
     return JSON.parse(stdout) as unknown;
   } catch {
     throw new Error(`readseek returned invalid JSON: ${stdout.trim()}`);
   }
+}
+
+let readSeekCacheInit: Promise<string> | undefined;
+
+function readSeekCacheDir(): string {
+  const xdgCacheHome = process.env.XDG_CACHE_HOME?.trim();
+  const cacheHome = xdgCacheHome || path.join(homedir(), ".cache");
+  return path.join(cacheHome, "opencode", "readseek");
+}
+
+async function ensureReadSeekCache(context: ToolContext): Promise<string> {
+  const cacheDir = readSeekCacheDir();
+  try {
+    const info = await stat(cacheDir);
+    if (!info.isDirectory()) throw new Error(`readseek cache is not a directory: ${cacheDir}`);
+    return cacheDir;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  readSeekCacheInit ??= runReadSeekRaw(context, ["--readseek-dir", cacheDir, "init"])
+    .then(() => cacheDir)
+    .finally(() => {
+      readSeekCacheInit = undefined;
+    });
+  return readSeekCacheInit;
 }
 
 function render(value: unknown): string {
@@ -603,6 +663,73 @@ function utf8Prefix(value: string, maxBytes: number): string {
   return "";
 }
 
+function boundDocumentOutput(value: string): string {
+  const lines = value.split("\n");
+  let output = lines.length > MAX_DOCUMENT_OUTPUT_LINES
+    ? lines.slice(0, MAX_DOCUMENT_OUTPUT_LINES).join("\n")
+    : value;
+  const truncated = output !== value || Buffer.byteLength(output, "utf8") > MAX_DOCUMENT_OUTPUT_BYTES;
+  output = utf8Prefix(output, MAX_DOCUMENT_OUTPUT_BYTES);
+  return truncated
+    ? `${output}\n[… document view truncated; narrow it with page, node, kind, or depth]`
+    : output;
+}
+
+function attachmentExtension(mime: string): string {
+  switch (mime) {
+    case "image/gif":
+      return "gif";
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    default:
+      return "bin";
+  }
+}
+
+function imageAttachment(image: Record<string, unknown>, filename: string): ToolAttachment | undefined {
+  if (image.encoding !== "base64" || typeof image.data !== "string" || typeof image.mime !== "string") {
+    return undefined;
+  }
+  return {
+    type: "file",
+    mime: image.mime,
+    url: `data:${image.mime};base64,${image.data}`,
+    filename: `${filename}.${attachmentExtension(image.mime)}`,
+  };
+}
+
+function formatReadResult(value: unknown): RenderedToolResult {
+  const output = record(value);
+  if (output.format === "pdf") {
+    const attachments: ToolAttachment[] = [];
+    const images = items(output.images).map((value, index) => {
+      const image = record(value);
+      const page = typeof image.page === "number" ? image.page : "unknown";
+      const attachment = imageAttachment(image, `pdf-page-${page}-image-${index + 1}`);
+      if (attachment) attachments.push(attachment);
+      const sanitized = { ...image };
+      delete sanitized.data;
+      delete sanitized.encoding;
+      return sanitized;
+    });
+    return {
+      output: boundDocumentOutput(render({ ...output, images })),
+      ...(attachments.length > 0 ? { attachments } : {}),
+    };
+  }
+
+  const attachment = imageAttachment(output, "image");
+  if (!attachment) return { output: render(value) };
+  const sanitized = { ...output };
+  delete sanitized.data;
+  delete sanitized.encoding;
+  return { output: render(sanitized), attachments: [attachment] };
+}
+
 function previewDiffLine(prefix: string, line: string): string {
   const value = `${prefix}${line}`;
   const maxBytes = 256;
@@ -702,6 +829,8 @@ function initialTitle(kind: PresentationKind, args: any): string {
   switch (kind) {
     case "read":
       return `Read ${args.path}`;
+    case "view":
+      return `View ${args.path}`;
     case "map":
       return `Map ${args.path}`;
     case "search":
@@ -744,6 +873,8 @@ function resultPresentation(kind: PresentationKind, args: any, value: unknown): 
       }
       break;
     }
+    case "view":
+      return { title: `Viewed ${args.path}`, metadata: {} };
     case "map": {
       const symbols = items(output.symbols).length;
       return { title: `Mapped ${args.path} (${symbols} symbols)`, metadata: { symbols } };
@@ -811,6 +942,7 @@ function readseekTool(
   args: Record<string, any>,
   kind: PresentationKind,
   execute: (args: any, context: ToolContext) => Promise<unknown>,
+  formatResult: (result: unknown) => RenderedToolResult = (result) => ({ output: render(result) }),
 ) {
   return tool({
     description,
@@ -820,7 +952,11 @@ function readseekTool(
       context.metadata({ title });
       const result = await execute(args, context);
       const presentation = resultPresentation(kind, args, result);
-      return { title: presentation.title, output: render(result), metadata: presentation.metadata };
+      return {
+        title: presentation.title,
+        ...formatResult(result),
+        metadata: presentation.metadata,
+      };
     },
   });
 }
@@ -852,6 +988,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           path: tool.schema.string().describe("Path relative to the project directory"),
           offset: tool.schema.number().int().positive().optional().describe("One-based starting line"),
           limit: tool.schema.number().int().positive().optional().describe(`Maximum number of lines; defaults to ${DEFAULT_READ_LIMIT}`),
+          page: tool.schema.number().int().positive().optional().describe("One-based PDF page; defaults to 1"),
           language: tool.schema.string().optional().describe("Language override when auto-detection is ambiguous"),
           ...(imagePolicy === "off"
             ? {}
@@ -867,20 +1004,55 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           const image = input.image as ImageMode | undefined;
           if (imagePolicy === "off" && image !== undefined) throw new Error("image and PDF reads are disabled");
           if (imagePolicy === "on" && image === "none") throw new Error('image="none" requires imageMode="auto"');
-          if (image === undefined) {
-            const detection = await runReadSeek(context, ["detect", filePath]);
-            if (isVisualFile(detection)) {
-              return { file: filePath, skipped: true, reason: "image mode not selected" };
-            }
+          const detection = await runReadSeek(context, ["detect", filePath]);
+          const visual = isVisualFile(detection);
+          const pdf = isPdfFile(detection);
+          if (visual && image === undefined) {
+            return { file: filePath, skipped: true, reason: "image mode not selected" };
           }
+          if (visual && (input.offset !== undefined || input.limit !== undefined)) {
+            throw new Error("offset and limit do not apply to image or PDF reads");
+          }
+          if (visual && input.language !== undefined) {
+            throw new Error("language does not apply to image or PDF reads");
+          }
+          if (!pdf && input.page !== undefined) throw new Error("page applies to PDF reads only");
+
           const args = ["read", input.offset === undefined ? filePath : `${filePath}:${input.offset}`];
-          if (image === undefined) {
+          if (!visual) {
             args.push("--end", String((input.offset ?? 1) + ((input.limit as number | undefined) ?? DEFAULT_READ_LIMIT) - 1));
           }
           if (input.language) args.push("--language", input.language as string);
           if (image !== undefined) args.push("--image", image);
+          if (pdf) args.push("--page", String(input.page ?? 1));
           return runReadSeek(context, args);
         },
+        formatReadResult,
+      ),
+      readseek_view: readseekTool(
+        "View the structure or selected content of an indexed PDF. Start with the overview, then narrow by page or node.",
+        {
+          path: tool.schema.string().describe("PDF path relative to the project directory"),
+          node: tool.schema.string().min(1).optional().describe("Node ID to use as the view root"),
+          page: tool.schema.number().int().positive().optional().describe("One-based source page"),
+          kind: tool.schema.enum(DOCUMENT_NODE_KINDS).optional().describe("Node kind filter"),
+          depth: tool.schema.number().int().nonnegative().optional().describe("Maximum depth below selected roots"),
+          outline: tool.schema.boolean().optional().describe("Return outline nodes only"),
+        },
+        "view",
+        async (input, context) => {
+          const filePath = resolvePath(context.directory, input.path as string);
+          await authorizeRead(context, filePath);
+          const cacheDir = await ensureReadSeekCache(context);
+          const args = ["--readseek-dir", cacheDir, "view", filePath];
+          if (input.node) args.push("--node", input.node as string);
+          if (input.page !== undefined) args.push("--page", String(input.page));
+          if (input.kind) args.push("--kind", input.kind as string);
+          if (input.depth !== undefined) args.push("--depth", String(input.depth));
+          optionalFlag(args, input.outline as boolean | undefined, "--outline");
+          return runReadSeekRaw(context, args);
+        },
+        (result) => ({ output: boundDocumentOutput(String(result)) }),
       ),
       readseek_map: readseekTool(
         "List symbols and ranges in a source file. Use to inspect structure without reading the full file.",

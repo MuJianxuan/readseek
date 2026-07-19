@@ -9,6 +9,7 @@ import { registerHoverTool } from "./src/hover.js";
 import { registerWriteTool } from "./src/write.js";
 import { registerDefTool } from "./src/def.js";
 import { registerCheckTool } from "./src/check.js";
+import { registerViewTool } from "./src/view.js";
 import { SessionAnchors } from "./src/session-anchors.js";
 import { readSeekBinaryAvailability } from "./src/readseek-client.js";
 import { resolveReadSeekJsonSettings, type ReadSeekSettingsWarning } from "./src/readseek-settings.js";
@@ -39,6 +40,7 @@ const READSEEK_TOOL_ENTRIES: ReadonlyArray<{ builtIn: ReplacedBuiltIn | null; re
 	{ builtIn: "write", readSeekName: "readSeek_write" },
 	{ builtIn: null, readSeekName: "readSeek_def" },
 	{ builtIn: null, readSeekName: "readSeek_check" },
+	{ builtIn: null, readSeekName: "readSeek_view" },
 ];
 
 function formatSettingsWarning(warning: ReadSeekSettingsWarning): string {
@@ -87,6 +89,7 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	registerHoverTool(pi);
 	registerDefTool(pi, { onFileAnchored: markAnchored });
 	registerCheckTool(pi);
+	registerViewTool(pi);
 	registerWriteTool(pi, { onFileAnchored: markAnchored, name: writeName });
 
 	pi.on("session_start", (_event, ctx) => {

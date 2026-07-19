@@ -481,6 +481,25 @@ async function runReadSeek(args: string[], options: RunReadSeekOptions = {}): Pr
 	return JSON.parse(stdout) as unknown;
 }
 
+export interface ReadSeekViewOptions {
+	node?: string;
+	page?: number;
+	kind?: string;
+	depth?: number;
+	outline?: boolean;
+	signal?: AbortSignal;
+}
+
+export async function readSeekView(filePath: string, options: ReadSeekViewOptions = {}): Promise<string> {
+	const args = ["view", filePath];
+	if (options.node !== undefined) args.push("--node", options.node);
+	if (options.page !== undefined) args.push("--page", String(options.page));
+	if (options.kind !== undefined) args.push("--kind", options.kind);
+	if (options.depth !== undefined) args.push("--depth", String(options.depth));
+	if (options.outline) args.push("--outline");
+	return runReadSeekRaw(args, { signal: options.signal });
+}
+
 let visionInvocationTail = Promise.resolve();
 
 /**
@@ -951,10 +970,12 @@ function parsePdfOutput(value: unknown): ReadSeekPdfOutput {
 export async function readSeekPdf(
 	filePath: string,
 	mode: "none" | ReadSeekImageMode,
-	options: { signal?: AbortSignal } = {},
+	options: { page?: number; signal?: AbortSignal } = {},
 ): Promise<ReadSeekPdfOutput> {
 	const run = mode === "none" ? runReadSeek : runReadSeekVision;
-	return parsePdfOutput(await run(["read", "--image", mode, filePath], { signal: options.signal }));
+	const args = ["read", "--image", mode, filePath];
+	if (options.page !== undefined) args.push("--page", String(options.page));
+	return parsePdfOutput(await run(args, { signal: options.signal }));
 }
 
 // --- Rename ---

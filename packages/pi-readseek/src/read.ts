@@ -32,11 +32,11 @@ import { clampLineToWidth, clampLinesToWidth, linkToolPath, renderPendingResult,
 import type { FileAnchoredCallback } from "./tool-types.js";
 import { filePathParam, mapParam, optionalIntOrString, registerReadSeekTool } from "./register-tool.js";
 
-
 interface ReadParams {
 	path: string;
 	offset?: number | string;
 	limit?: number | string;
+	page?: number | string;
 	symbol?: string;
 	map?: boolean;
 	bundle?: string;
@@ -101,6 +101,12 @@ function formatPdfAnalysis(pdf: ReadSeekPdfOutput): string {
 	return sections.filter(Boolean).join("\n\n");
 }
 
+function truncateDocumentText(text: string): string {
+	const truncation = truncateHead(text, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+	if (!truncation.truncated) return truncation.content;
+	return `${truncation.content}\n[… document output truncated; use readSeek_view with page or node selectors]`;
+}
+
 function skippedVisualFile(path: string): AgentToolResult<any> {
 	return {
 		content: [{ type: "text", text: `[Skipped image/PDF: ${path}; no image mode selected]` }],
@@ -128,6 +134,15 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		const message = `Invalid offset: expected a positive integer, received ${offset.value}.`;
 		return buildToolErrorResult("read", "invalid-offset", message, { path: rawParams.path });
 	}
+
+	const page = coerceObviousBase10Int(rawParams.page, "page");
+	if (!page.ok) {
+		return buildToolErrorResult("read", "invalid-page", page.message, { path: rawParams.path });
+	}
+	if (page.value !== undefined && page.value < 1) {
+		const message = `Invalid page: expected a positive integer, received ${page.value}.`;
+		return buildToolErrorResult("read", "invalid-page", message, { path: rawParams.path });
+	}
 	const rawBundle = typeof rawParams.bundle === "string" ? rawParams.bundle.trim() : undefined;
 	const requestedMapViaBundle =
 		rawBundle === "map" ||
@@ -136,6 +151,7 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 		...rawParams,
 		offset: offset.value,
 		limit: limit.value,
+		page: page.value,
 		map: rawParams.map === true || requestedMapViaBundle,
 		bundle: requestedMapViaBundle ? undefined : rawBundle,
 	};
@@ -207,6 +223,15 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			});
 		}
 		if (detection.kind === "image" || detection.type === "application/pdf") {
+			if (p.offset !== undefined || p.limit !== undefined) {
+				const message = "Cannot combine offset/limit with image or PDF reads.";
+				return buildToolErrorResult("read", "invalid-params-combo", message, { path: rawParams.path });
+			}
+			if (detection.kind !== "pdf" && p.page !== undefined) {
+				const message = "The page parameter applies to PDFs only.";
+				return buildToolErrorResult("read", "invalid-params-combo", message, { path: rawParams.path });
+			}
+			const pdfPage = detection.kind === "pdf" ? (p.page ?? 1) : undefined;
 			const imageMode = resolveReadSeekImageMode();
 			if (imageMode === "off" || p.image === undefined) {
 				return skippedVisualFile(rawParams.path);
@@ -219,8 +244,8 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 			if (p.image === "none") {
 				try {
 					if (detection.kind === "pdf") {
-						const pdf = await readSeekPdf(absolutePath, p.image, { signal });
-						const content: AgentToolResult<any>["content"] = [{ type: "text", text: pdf.markdown }];
+						const pdf = await readSeekPdf(absolutePath, p.image, { page: pdfPage, signal });
+						const content: AgentToolResult<any>["content"] = [{ type: "text", text: truncateDocumentText(pdf.markdown) }];
 						for (const image of pdf.images) {
 							if (image.encoding !== "base64" || image.data === undefined) continue;
 							content.push({ type: "text", text: `[PDF page ${image.page} image]` });
@@ -243,9 +268,9 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 
 			try {
 				if (detection.kind === "pdf") {
-					const pdf = await readSeekPdf(absolutePath, p.image, { signal });
+					const pdf = await readSeekPdf(absolutePath, p.image, { page: pdfPage, signal });
 					return succeed({
-						content: [{ type: "text" as const, text: formatPdfAnalysis(pdf) }],
+						content: [{ type: "text" as const, text: truncateDocumentText(formatPdfAnalysis(pdf)) }],
 						details: {},
 					});
 				}
@@ -268,6 +293,10 @@ export async function executeRead(opts: ExecuteReadOptions): Promise<AgentToolRe
 				path: rawParams.path,
 			});
 		}
+	}
+	if (p.page !== undefined) {
+		const message = "The page parameter applies to PDFs only.";
+		return buildToolErrorResult("read", "invalid-params-combo", message, { path: rawParams.path });
 	}
 	throwIfAborted(signal);
 	const rawText = rawBuffer.toString("utf-8");
@@ -548,6 +577,7 @@ export function registerReadTool(pi: ExtensionAPI, options: ReadToolOptions = {}
 			path: filePathParam(),
 			offset: optionalIntOrString("Start line (1-indexed)"),
 			limit: optionalIntOrString("Maximum lines to return"),
+			page: optionalIntOrString("One-based PDF page; defaults to 1"),
 			symbol: Type.Optional(Type.String({ description: "Symbol name to read" })),
 			map: mapParam(),
 			bundle: Type.Optional(

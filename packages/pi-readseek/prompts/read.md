@@ -15,8 +15,9 @@ Read anchored text by range, map, or symbol, and process images or PDFs with an 
 - `symbol` — `Name`, `Class.method`, or `Name@<line>`; incompatible with `offset` / `limit`.
 - `bundle` — only `"local"`; requires `symbol` and excludes `map`.
 - `image` — an exposed image/PDF mode; unavailable when `imageMode` is `"off"`.
+- `page` — one-based PDF page; defaults to page 1 and cannot be combined with `offset` / `limit`.
 
-Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}. Omitting `image` skips images and PDFs; when `imageMode` is `"off"`, visual files are always skipped.
+Default cap: {{DEFAULT_MAX_LINES}} lines or {{DEFAULT_MAX_BYTES}}. PDF reads return one page by default. Omitting `image` skips images and PDFs; when `imageMode` is `"off"`, visual files are always skipped.
 
 Truncated full-file reads append a map when available. Use its ranges for follow-up reads.
 

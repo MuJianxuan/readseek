@@ -42,6 +42,7 @@ name=read empty file | path=empty.txt | content= | args=read %s | line_count=0 |
 name=read target line | path=target-line.txt | content=one\ntwo\nthree\n | args=read %s:2 --limit 1 | start_line=2 | end_line=2 | hashlines.0.text=two
 name=read stdin path | stdin=one\ntwo\nthree\n | args=read stdin:buffer.ts:2 --end 2 | file=buffer.ts | start_line=2 | end_line=2 | hashlines.0.text=two
 name=read rejects binary blob | path=blob-read.bin | content=\x00A\xff\n | args=read %s | status=1 | stderr=unsupported binary file
+name=read rejects page zero | path=read.pdf | content=not a pdf\n | args=read %s --page 0 | status=2 | stderr=page must be greater than zero
 
 # view
 

@@ -18,7 +18,7 @@ binary dependency with Bun at startup.
 
 ## Tools
 
-- `readseek_read`: read text with `LINE:HASH` anchors; image/PDF handling is explicit.
+- `readseek_read`: read text with `LINE:HASH` anchors; image/PDF handling is explicit and PDFs default to one page.
 - `readseek_edit`: apply line, range, and insertion edits with fresh `LINE:HASH` anchors.
 - `readseek_write`: create or replace a complete text file.
 - `readseek_grep`: plain-text or regular-expression search with anchored results.
@@ -27,6 +27,7 @@ binary dependency with Bun at startup.
 - `readseek_def`, `readseek_refs`, `readseek_hover`: symbol navigation.
 - `readseek_rename`: apply a verified rename by default; `apply: false` returns a dry-run plan.
 - `readseek_check`: parse diagnostics.
+- `readseek_view`: view an indexed PDF overview or narrow it by page, node, kind, or depth.
 
 The plugin requests OpenCode read, grep, external-directory, and edit permissions
 as needed. File changes invalidate remembered anchors. Compaction context records

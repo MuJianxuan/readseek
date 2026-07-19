@@ -57,9 +57,13 @@ describe("readseek_read", () => {
   });
 
   test("passes an explicitly selected auto image mode", async () => {
+    const outputs = [
+      JSON.stringify({ type: "image/png", width: 10, height: 10 }),
+      "{}",
+    ];
     const spawn = spyOn(Bun, "spawn").mockImplementation(
       () => ({
-        stdout: new Response("{}").body,
+        stdout: new Response(outputs.shift() ?? "{}").body,
         stderr: new Response("").body,
         exited: Promise.resolve(0),
       }) as never,
@@ -70,7 +74,7 @@ describe("readseek_read", () => {
 
     await read.execute({ path: "figure.png", image: "none" }, createContext());
 
-    expect((spawn.mock.calls[0]?.[0] as string[]).slice(1)).toEqual([
+    expect((spawn.mock.calls[1]?.[0] as string[]).slice(1)).toEqual([
       "read", "/repo/figure.png", "--image", "none",
     ]);
   });
@@ -110,6 +114,75 @@ describe("readseek_read", () => {
     await expect(ReadSeekPlugin({} as never, { imageMode: "force" })).rejects.toThrow(
       'imageMode must be "on", "auto", or "off"',
     );
+  });
+
+  test("rejects page selection for non-PDF files", async () => {
+    const spawn = spyOn(Bun, "spawn").mockReturnValue({
+      stdout: new Response('{"type":"text/plain"}').body,
+      stderr: new Response("").body,
+      exited: Promise.resolve(0),
+    } as never);
+    const plugin = await ReadSeekPlugin({} as never);
+    const read = plugin.tool?.readseek_read;
+    if (!read) throw new Error("plugin did not register readseek_read");
+
+    await expect(read.execute({ path: "file.txt", page: 2 }, createContext())).rejects.toThrow(
+      "page applies to PDF reads only",
+    );
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  test("bounds a PDF read to one page and returns image attachments", async () => {
+    const outputs = [
+      JSON.stringify({ type: "application/pdf", format: "pdf", pages: 3 }),
+      JSON.stringify({
+        format: "pdf",
+        pages: 3,
+        markdown: "<!-- readseek:page 2 -->\nPage 2\n",
+        images: [{
+          page: 2,
+          width: 10,
+          height: 20,
+          mime: "image/png",
+          mode: "none",
+          encoding: "base64",
+          data: "pixel",
+        }],
+      }),
+    ];
+    const spawn = spyOn(Bun, "spawn").mockImplementation(
+      () => ({
+        stdout: new Response(outputs.shift() ?? "{}").body,
+        stderr: new Response("").body,
+        exited: Promise.resolve(0),
+      }) as never,
+    );
+    const plugin = await ReadSeekPlugin({} as never, { imageMode: "auto" });
+    const read = plugin.tool?.readseek_read;
+    if (!read) throw new Error("plugin did not register readseek_read");
+
+    const result = await read.execute(
+      { path: "paper.pdf", image: "none", page: 2 },
+      createContext(),
+    );
+    if (typeof result === "string") throw new Error("expected a structured result");
+
+    const readArgs = spawn.mock.calls[1]?.[0] as string[];
+    expect(readArgs).toContain("--page");
+    expect(readArgs).toContain("2");
+    expect(JSON.parse(result.output).images[0]).toEqual({
+      page: 2,
+      width: 10,
+      height: 20,
+      mime: "image/png",
+      mode: "none",
+    });
+    expect(result.attachments).toEqual([{
+      type: "file",
+      mime: "image/png",
+      url: "data:image/png;base64,pixel",
+      filename: "pdf-page-2-image-1.png",
+    }]);
   });
 
   test("passes cancellation and output limits to the subprocess", async () => {

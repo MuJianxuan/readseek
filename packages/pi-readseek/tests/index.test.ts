@@ -36,6 +36,7 @@ const READSEEK_TOOLS = [
 	"readSeek_write",
 	"readSeek_def",
 	"readSeek_check",
+	"readSeek_view",
 ];
 
 function createPi(activeToolNames: string[]) {
@@ -122,6 +123,7 @@ describe("pi-readseek extension", () => {
 			readSeek_write: "Create or replace a complete file with edit anchors",
 			readSeek_def: "Find where a symbol is defined",
 			readSeek_check: "Check a source file for parser errors and missing syntax",
+			readSeek_view: "View the structure or selected content of an indexed PDF",
 		});
 	});
 
@@ -142,6 +144,7 @@ describe("pi-readseek extension", () => {
 			"readSeek_hover",
 			"readSeek_def",
 			"readSeek_check",
+			"readSeek_view",
 		]));
 		// The built-in name stays active (now readSeek-backed); the readSeek_*
 		// variants are dropped.
@@ -157,6 +160,7 @@ describe("pi-readseek extension", () => {
 			"readSeek_hover",
 			"readSeek_def",
 			"readSeek_check",
+			"readSeek_view",
 		]);
 		expect(ctx.toolDefinitions.get("read")?.promptGuidelines?.[0]).toBe("Use read; it provides LINE:HASH anchors for safe edits.");
 		expect(ctx.toolDefinitions.get("edit")?.promptGuidelines?.[0]).toBe("Use edit; it verifies fresh LINE:HASH anchors.");

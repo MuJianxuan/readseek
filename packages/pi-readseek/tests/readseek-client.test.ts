@@ -353,11 +353,13 @@ describe("readseek client parsing", () => {
 			.mockImplementationOnce(() => spawnResult(readOutput));
 
 		const detection = await readSeekDetect("/tmp/paper.pdf");
-		const pdf = await readSeekPdf("/tmp/paper.pdf", "none");
+		const pdf = await readSeekPdf("/tmp/paper.pdf", "none", { page: 2 });
 
 		expect(detection.kind).toBe("pdf");
 		if (detection.kind === "pdf") expect(detection.pages).toBe(2);
 		expect(pdf.images[0]).toMatchObject({ page: 2, encoding: "base64", data: "image" });
+		expect(spawnMock.mock.calls[3]?.[1]).toContain("--page");
+		expect(spawnMock.mock.calls[3]?.[1]).toContain("2");
 	});
 
 	it("combines requested image analysis modes in one invocation", async () => {

@@ -90,6 +90,9 @@ fn parse_cli() -> Result<cli::Cli> {
             }
             if matches!(
                 &cli.command,
+                Some(cli::Command::Read(command)) if command.page == Some(0)
+            ) || matches!(
+                &cli.command,
                 Some(cli::Command::View(command)) if command.page == Some(0)
             ) {
                 usage_error(cmd, "page must be greater than zero");
@@ -191,8 +194,12 @@ impl cli::ReadCommand {
             if target.address.is_some() {
                 bail!("image targets do not support a line or hash suffix");
             }
-            if self.end.is_some() || self.limit.is_some() || self.language.is_some() {
-                bail!("--end, --limit, and --language do not apply to images");
+            if self.end.is_some()
+                || self.limit.is_some()
+                || self.page.is_some()
+                || self.language.is_some()
+            {
+                bail!("--end, --limit, --page, and --language do not apply to images");
             }
             let mode = self.image.unwrap_or_default();
             let Some(bytes) = source.document_bytes.as_deref() else {
@@ -226,8 +233,12 @@ impl cli::ReadCommand {
             let Some(bytes) = source.document_bytes.as_deref() else {
                 bail!("missing PDF bytes for {}", source.path.display());
             };
-            let pdf = crate::engine::pdf::read(bytes, mode, run_vision)?;
+            let pdf = crate::engine::pdf::read(bytes, mode, self.page, run_vision)?;
             return Ok(serde_json::to_string(&output::ReadOutput::Pdf(pdf))?);
+        }
+
+        if self.page.is_some() {
+            bail!("--page applies to PDFs only");
         }
 
         source.require_text()?;

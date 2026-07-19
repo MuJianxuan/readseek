@@ -6,9 +6,10 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::ops::Range;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use pdf_oxide::{Destination, OutlineItem, PdfDocument, RegionRole};
 use serde::Serialize;
 
@@ -422,9 +423,23 @@ fn node_id(document_id: &str, position: &str) -> String {
     format!("n_{}", &digest[..16])
 }
 
+fn selected_page_range(page: Option<usize>, pages: usize) -> Result<Range<usize>> {
+    let Some(page) = page else {
+        return Ok(0..pages);
+    };
+    if page == 0 {
+        bail!("PDF page must be greater than zero");
+    }
+    if page > pages {
+        bail!("PDF page {page} is past the end of the document ({pages} pages)");
+    }
+    Ok(page - 1..page)
+}
+
 pub(crate) fn read(
     bytes: &[u8],
     mode: ImageMode,
+    page: Option<usize>,
     mut analyze: impl FnMut(&[u8], Request) -> Analysis,
 ) -> Result<ReadPdfOutput> {
     let document = PdfDocument::from_bytes(bytes.to_vec()).context("parse PDF")?;
@@ -432,12 +447,14 @@ pub(crate) fn read(
     let mut markdown = String::new();
     let mut images = Vec::new();
 
-    for page_index in 0..pages {
+    let page_range = selected_page_range(page, pages)?;
+
+    for page_index in page_range {
         let page = page_index + 1;
         let text = document
             .extract_text(page_index)
             .with_context(|| format!("extract text from PDF page {page}"))?;
-        if page_index > 0 {
+        if !markdown.is_empty() {
             markdown.push('\n');
         }
         writeln!(markdown, "<!-- readseek:page {page} -->").unwrap();
@@ -529,8 +546,16 @@ mod tests {
     use pdf_oxide::geometry::Rect;
     use pdf_oxide::{RegionRole, StructuredPage, StructuredRegion};
 
-    use super::{StructuralSectionState, append_page_nodes};
+    use super::{StructuralSectionState, append_page_nodes, selected_page_range};
     use crate::engine::document::{Node, NodeKind};
+
+    #[test]
+    fn selects_one_based_pdf_pages() {
+        assert_eq!(selected_page_range(None, 4).unwrap(), 0..4);
+        assert_eq!(selected_page_range(Some(3), 4).unwrap(), 2..3);
+        assert!(selected_page_range(Some(0), 4).is_err());
+        assert!(selected_page_range(Some(5), 4).is_err());
+    }
 
     fn region(kind: RegionRole, text: &str, section_id: Option<usize>) -> StructuredRegion {
         StructuredRegion {

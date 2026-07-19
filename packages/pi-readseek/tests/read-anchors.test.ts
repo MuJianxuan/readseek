@@ -205,6 +205,28 @@ describe("executeRead anchor tracking", () => {
 		}
 	});
 
+	it("rejects page selection for images", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
+		try {
+			const filePath = await writeImage(cwd);
+			mockImageDetection(filePath);
+
+			const result = await executeRead({
+				toolCallId: "test",
+				params: { path: "image.png", image: "ocr", page: 2 },
+				signal: undefined,
+				onUpdate: undefined,
+				cwd,
+			});
+
+			expect((result as { isError?: boolean }).isError).toBe(true);
+			expect((result.content[0] as { text: string }).text).toContain("page parameter applies to PDFs only");
+			expect(readSeekImageMock).not.toHaveBeenCalled();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("preprocesses images when the model selects none in auto mode", async () => {
 		const cwd = await mkdtemp(path.join(tmpdir(), "pi-readseek-read-"));
 		try {
@@ -243,29 +265,29 @@ describe("executeRead anchor tracking", () => {
 				file: filePath,
 				mime: "application/pdf",
 				format: "pdf",
-				pages: 1,
+				pages: 3,
 			});
 			readSeekPdfMock.mockResolvedValue({
 				format: "pdf",
-				pages: 1,
-				markdown: "<!-- readseek:page 1 -->\nHello\n",
-				images: [{ page: 1, width: 1, height: 1, mime: "image/png", mode: "none", encoding: "base64", data: "pixel" }],
+				pages: 3,
+				markdown: "<!-- readseek:page 3 -->\nHello\n",
+				images: [{ page: 3, width: 1, height: 1, mime: "image/png", mode: "none", encoding: "base64", data: "pixel" }],
 			});
 
 			const result = await executeRead({
 				toolCallId: "test",
-				params: { path: "paper.pdf", image: "none" },
+				params: { path: "paper.pdf", image: "none", page: 3 },
 				signal: undefined,
 				onUpdate: undefined,
 				cwd,
 			});
 
 			expect(result.content).toEqual([
-				{ type: "text", text: "<!-- readseek:page 1 -->\nHello\n" },
-				{ type: "text", text: "[PDF page 1 image]" },
+				{ type: "text", text: "<!-- readseek:page 3 -->\nHello\n" },
+				{ type: "text", text: "[PDF page 3 image]" },
 				{ type: "image", data: "pixel", mimeType: "image/png" },
 			]);
-			expect(readSeekPdfMock).toHaveBeenCalledWith(filePath, "none", { signal: undefined });
+			expect(readSeekPdfMock).toHaveBeenCalledWith(filePath, "none", { page: 3, signal: undefined });
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
