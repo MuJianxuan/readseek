@@ -47,6 +47,16 @@ function formatSettingsWarning(warning: ReadSeekSettingsWarning): string {
 	return `${warning.message} (${warning.source})`;
 }
 
+function editingPolicy(readName: string, editName: string, writeName: string): string {
+	return [
+		"ReadSeek editing policy:",
+		`- Prefer ${readName} when preparing to edit existing text; its LINE:HASH anchors are required by ${editName}.`,
+		`- Prefer ${editName} for existing text files, ${writeName} for whole-file creation or replacement, and readSeek_rename for symbol renames.`,
+		"- Do not use Pi's built-in edit or write when the corresponding ReadSeek tool is available.",
+		"- Use readSeek_check after source edits for a quick syntax check.",
+	].join("\n");
+}
+
 export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	const sessionAnchors = new SessionAnchors();
 	const markAnchored = (absolutePath: string) => sessionAnchors.markAnchored(absolutePath);
@@ -91,6 +101,11 @@ export default function piReadSeekExtension(pi: ExtensionAPI): void {
 	registerCheckTool(pi);
 	registerViewTool(pi);
 	registerWriteTool(pi, { onFileAnchored: markAnchored, name: writeName });
+
+	pi.on("before_agent_start", (event) => {
+		if (!binaryAvailable) return;
+		return { systemPrompt: `${event.systemPrompt}\n\n${editingPolicy(readName, editName, writeName)}` };
+	});
 
 	pi.on("session_start", (_event, ctx) => {
 		sessionAnchors.clear();

@@ -5,6 +5,10 @@ editing, anchored grep, structural maps, symbol navigation, and structural searc
 Pi's built-in tools remain unchanged by default. `replacedTools` can register the
 corresponding ReadSeek implementations under built-in names.
 
+When the ReadSeek binary is available, the extension adds model guidance that
+prefers its anchored read, edit, write, rename, and syntax-check workflow while
+leaving Pi's built-ins available as fallbacks.
+
 ## Installation
 
 ```sh

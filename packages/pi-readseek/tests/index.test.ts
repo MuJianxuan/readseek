@@ -42,6 +42,7 @@ const READSEEK_TOOLS = [
 function createPi(activeToolNames: string[]) {
 	let activeTools = [...activeToolNames];
 	let sessionStart: ((event: unknown, ctx: unknown) => void) | undefined;
+	let beforeAgentStart: ((event: { systemPrompt: string }, ctx: unknown) => { systemPrompt: string } | void) | undefined;
 	const registeredTools: string[] = [];
 	const toolDefinitions = new Map<string, { description?: string; promptSnippet?: string; promptGuidelines?: string[] }>();
 	const notify = vi.fn();
@@ -51,8 +52,9 @@ function createPi(activeToolNames: string[]) {
 			registeredTools.push(tool.name);
 			toolDefinitions.set(tool.name, tool);
 		}),
-		on: vi.fn((event: string, handler: (event: unknown, ctx: unknown) => void) => {
+		on: vi.fn((event: string, handler: any) => {
 			if (event === "session_start") sessionStart = handler;
+			if (event === "before_agent_start") beforeAgentStart = handler;
 		}),
 		getActiveTools: vi.fn(() => [...activeTools]),
 		getAllTools: vi.fn(() => [...activeToolNames, ...registeredTools].map((name) => ({ name }))),
@@ -67,6 +69,7 @@ function createPi(activeToolNames: string[]) {
 		toolDefinitions,
 		notify,
 		runSessionStart: () => sessionStart?.({ reason: "startup" }, { hasUI: true, ui: { notify } }),
+		runBeforeAgentStart: (systemPrompt: string) => beforeAgentStart?.({ systemPrompt }, {}),
 		activeTools: () => activeTools,
 	};
 }
@@ -125,6 +128,27 @@ describe("pi-readseek extension", () => {
 			readSeek_check: "Check a source file for parser errors and missing syntax",
 			readSeek_view: "View the structure or selected content of an indexed PDF",
 		});
+	});
+
+	it("adds alias-aware ReadSeek editing guidance to the system prompt", () => {
+		replacedTools.value = ["read", "edit", "write"];
+		const ctx = createPi(["read", "edit", "write"]);
+		piReadSeekExtension(ctx.pi);
+
+		const result = ctx.runBeforeAgentStart("base prompt");
+
+		expect(result?.systemPrompt).toContain("base prompt\n\nReadSeek editing policy:");
+		expect(result?.systemPrompt).toContain("Prefer read when preparing to edit existing text");
+		expect(result?.systemPrompt).toContain("Prefer edit for existing text files, write for whole-file creation or replacement");
+		expect(result?.systemPrompt).toContain("Use readSeek_check after source edits");
+	});
+
+	it("does not add ReadSeek guidance when the binary is unavailable", () => {
+		availability.value = { available: false, reason: "unsupported platform" };
+		const ctx = createPi(["read", "edit", "write"]);
+		piReadSeekExtension(ctx.pi);
+
+		expect(ctx.runBeforeAgentStart("base prompt")).toBeUndefined();
 	});
 
 	it("replaces configured built-in tools by registering readseek under the built-in name", () => {
