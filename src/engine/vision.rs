@@ -516,7 +516,6 @@ fn decode_tokens(
     for position in (n_past..).take(budget as usize) {
         progress.maybe_reveal();
         let token = sampler.sample(context, -1);
-        sampler.accept(token);
         if model.is_eog_token(token) {
             break;
         }
