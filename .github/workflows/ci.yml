@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            cargo_args: --features cuda
+            cargo_args: ""
           - os: macos-latest
             cargo_args: --features metal
           - os: windows-2025
@@ -35,16 +35,7 @@ jobs:
 
       - name: Install native build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev nvidia-cuda-toolkit
-
-      - name: Configure CUDA libraries
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          # llama-cpp's CUDA helper does not search Ubuntu's multiarch directory.
-          mkdir -p "$RUNNER_TEMP/cuda-libs"
-          ln -s /usr/lib/x86_64-linux-gnu/{libcudart_static.a,libcublas_static.a,libcublasLt_static.a,libculibos.a} "$RUNNER_TEMP/cuda-libs/"
-          echo "RUSTFLAGS=-Lnative=$RUNNER_TEMP/cuda-libs" >> "$GITHUB_ENV"
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
 
       - name: Build
         run: cargo build
