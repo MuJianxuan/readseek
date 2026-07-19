@@ -10,6 +10,11 @@ NODE="${NODE:-node}"
 NPM="${NPM:-npm}"
 
 platforms=(darwin-arm64 linux-arm64 linux-x64 win32-x64)
+lock_files=(
+	package-lock.json
+	packages/pi-readseek/package-lock.json
+	packages/opencode-readseek/package-lock.json
+)
 
 cleanup() {
 	local status=$?
@@ -78,7 +83,7 @@ wait_for_npm_package() {
 publish_cargo_package() {
 	local output
 
-	if output="$($CARGO info "readseek@$version" 2>&1)"; then
+	if output="$($CARGO info --registry crates-io "readseek@$version" 2>&1)"; then
 		printf '%s\n' "readseek@$version is already published"
 		return
 	fi
@@ -168,6 +173,10 @@ else
 fi
 
 NPM="$NPM" "$NODE" scripts/update-npm-integrity.mjs "$version"
+git add -- "${lock_files[@]}"
+if ! git diff --cached --quiet; then
+	git commit -s -m "chore: Update package-lock.json files"
+fi
 
 printf '%s\n' "published readseek $version"
-printf '%s\n' "review and commit the updated npm lockfiles"
+printf '%s\n' "push the integrity commit"
