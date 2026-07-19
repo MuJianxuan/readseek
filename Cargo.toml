@@ -12,6 +12,7 @@ version = "0.7.2"
 
 [features]
 metal = ["llama-cpp-2/metal"]
+openmp = ["llama-cpp-2/openmp"]
 opencl = ["llama-cpp-2/opencl"]
 rocm = ["llama-cpp-2/rocm"]
 vulkan = ["llama-cpp-2/vulkan"]
@@ -82,7 +83,7 @@ xxhash-rust = { version = "0.8.15", features = ["xxh32"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 crc = "3.4.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
-llama-cpp-2 = { version = "=0.1.151", default-features = false, features = ["mtmd", "static-stdcxx"] }
+llama-cpp-2 = { version = "=0.1.151", default-features = false, features = ["common", "mtmd", "static-stdcxx"] }
 
 sha2 = "0.10"
 ureq = "3"

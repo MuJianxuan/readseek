@@ -31,7 +31,7 @@ Source builds require CMake, Clang/libclang, and a C++ compiler because image
 inference uses `llama-cpp-2`.
 
 GPU acceleration can be enabled at build time with the `metal`, `opencl`, `rocm`,
-or `vulkan` Cargo feature.
+or `vulkan` Cargo feature. CPU builds can enable `openmp` for OpenMP parallelism.
 
 ## Plugins
 
@@ -102,6 +102,31 @@ readseek read photo.jpg --image ocr       # extracted text
 readseek read photo.jpg --image all       # caption, objects, and OCR in one pass
 ```
 
+Inference defaults to the `balanced` profile. `fast` uses fewer visual tokens for
+lower latency, while `accurate` retains more visual detail for dense OCR and small
+objects:
+
+```sh
+readseek read photo.jpg --image caption --vision-profile fast
+readseek read scan.png --image ocr --vision-profile accurate
+```
+
+Use `--vision-diagnostics` to emit cache status, backend devices, token counts,
+per-stage timings, throughput, and peak RSS as JSON on stderr. For repeatable warm
+measurements, `--vision-benchmark N` runs one warmup followed by `N` measured
+iterations (currently image files only):
+
+```sh
+readseek read fixture.png --image all --vision-benchmark 5 \
+  >result.json 2>benchmark.json
+```
+
+CPU tuning overrides are available through `READSEEK_VISION_THREADS`,
+`READSEEK_VISION_BATCH`, and `READSEEK_VISION_UBATCH`. Values must be positive,
+and the micro-batch cannot exceed the logical batch. Compare overrides on a fixed
+representative image corpus; larger batches can improve prefill while increasing
+peak memory.
+
 PDF reads return page-tagged Markdown and page-associated embedded images. Use
 `--page` to select one page; the same image mode applies to each embedded image.
 After initializing `.readseek/`, `view` creates or reuses a persistent structural
@@ -109,9 +134,10 @@ PDF index and returns an overview that can be narrowed by page, node, kind, or
 depth. Line/hash suffixes, `--end`, `--limit`, and `--language` do not apply to
 visual files.
 
-The Qwen3-VL GGUF model and multimodal projector download lazily into the user
-cache and run through `llama-cpp-2` on the CPU. Captioning can take substantial
-time.
+The Qwen3-VL GGUF language model and Q8_0 multimodal projector download lazily
+into the user cache, are checksum-verified once, and then use a metadata-bound
+verification marker on later starts. Inference uses the backends enabled in the
+build; CPU-only captioning can still take substantial time.
 
 ## Cache
 
@@ -120,7 +146,7 @@ time.
 discover `.readseek/` by walking up from the target path, or use the directory
 passed by `--readseek-dir`. `view` creates PDF structure indexes and extracted
 assets under `.readseek/documents/` on demand. Image analysis caches results
-under the `.readseek/` found from the current working directory.
+under the `.readseek/` found from the current working directory. Cache entries are profile-specific.
 
 ## Documentation
 

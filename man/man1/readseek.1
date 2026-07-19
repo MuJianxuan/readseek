@@ -13,7 +13,8 @@ readseek \- structural source and PDF reader with stable line hashing
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR] \fItarget\fR
 \fBreadseek read\fR [\fB--image\fR \fBnone|all|caption|objects|ocr\fR]
-    [\fB--page\fR \fIpage\fR] \fItarget\fR
+    [\fB--vision-profile\fR \fBfast|balanced|accurate\fR] [\fB--vision-diagnostics\fR]
+    [\fB--vision-benchmark\fR \fIiterations\fR] [\fB--page\fR \fIpage\fR] \fItarget\fR
 
 \fBreadseek view\fR [\fB--format\fR \fBplain|json\fR] [\fB--node\fR \fIid\fR]
     [\fB--page\fR \fIpage\fR] [\fB--kind\fR \fIkind\fR] [\fB--depth\fR \fIn\fR]
@@ -153,7 +154,9 @@ the two cannot be combined.
 Visual files use a separate result shape. Images return bounded base64 by default;
 \fB--image none|all|caption|objects|ocr\fR selects bounded base64, all analyses,
 or one Qwen3-VL analysis mode. PDFs return page-tagged Markdown plus
-page-associated embedded images with the same mode. The option cannot be combined
+page-associated embedded images with the same mode. The \fIfast\fR vision profile
+reduces visual tokens, \fIbalanced\fR is the default, and \fIaccurate\fR retains
+more visual detail for dense OCR and small objects. Vision options cannot be combined
 with \fB--end\fR, \fB--limit\fR, or \fB--language\fR, and line or hash suffixes do
 not apply to visual files. The model runs through llama.cpp and downloads lazily
 (see \fBCACHE\fR).
@@ -275,6 +278,20 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64), \fIall\fR,
 \fIcaption\fR, \fIobjects\fR, or \fIocr\fR. See \fBread\fR under \fBCOMMANDS\fR.
 .TP
+\fB--vision-profile\fR \fIprofile\fR
+For analyzed images or PDFs, select \fIfast\fR, \fIbalanced\fR (default), or
+\fIaccurate\fR. Fast reduces visual-token work; accurate retains more detail.
+.TP
+\fB--vision-diagnostics\fR
+Emit cache status, backend devices, token counts, per-stage timings, throughput, and
+peak resident memory as one JSON object on standard error. Cached results may omit
+inference fields because no model inference ran.
+.TP
+\fB--vision-benchmark\fR \fIiterations\fR
+For an analyzed image file, run one unmeasured warmup followed by the positive number
+of measured iterations. Emit a JSON benchmark report on standard error. PDF
+benchmarking is not supported.
+.TP
 \fB--page\fR \fIpage\fR
 For \fBread\fR, select a one-based PDF page. For \fBview\fR, restrict the
 structural view to a one-based source page.
@@ -344,6 +361,19 @@ When searching a directory inside a Git repository, or expanding \fBrename
 \fB\-i\fR, \fB--ignored\fR
 With \fB--others\fR, also include ignored untracked files. Inside a Git repository
 \fB--ignored\fR requires \fB--others\fR.
+.SH ENVIRONMENT
+.TP
+.B READSEEK_VISION_THREADS
+Positive llama.cpp inference thread count. The default is the available logical CPU
+count.
+.TP
+.B READSEEK_VISION_BATCH
+Positive logical prompt batch size. The default is 2048.
+.TP
+.B READSEEK_VISION_UBATCH
+Positive physical micro-batch size. The default is 512 and it cannot exceed
+\fBREADSEEK_VISION_BATCH\fR. Larger batches can improve prompt prefill while
+increasing peak memory.
 
 .SH DIRECTORY SEARCH
 
@@ -382,11 +412,11 @@ Persistent PDF structural indexes and extracted embedded-image assets, keyed by
 PDF content hash.
 .TP
 .I .readseek/vision/
-Content-addressed cache of image caption, object-detection, and OCR results.
+Content-addressed, profile-specific cache of image caption, object-detection, and OCR results.
 .TP
 .I user cache directory/readseek/models/
-The Qwen3-VL quantized GGUF model and multimodal projector, downloaded lazily on
-first use of \fBread --image all|caption|objects|ocr\fR.
+The Qwen3-VL quantized GGUF model and Q8_0 multimodal projector, downloaded lazily
+and checksum-verified on first use of \fBread --image all|caption|objects|ocr\fR.
 
 .SH EXAMPLES
 
@@ -461,6 +491,16 @@ Rename a symbol across the repository after verifying every affected file:
 readseek rename src/main.rs --line 42 --column 8 --to renamed --workspace . --apply
 .EE
 
+Benchmark five warm inference iterations and save the normal result separately:
+.EX
+readseek read fixture.png --image all --vision-benchmark 5 >result.json 2>benchmark.json
+.EE
+
+Run low-latency captioning with four inference threads:
+.EX
+READSEEK_VISION_THREADS=4 readseek read photo.jpg --image caption --vision-profile fast
+.EE
+
 .SH BUILDING
 
 Build from source:
@@ -468,6 +508,8 @@ Build from source:
 cargo build --release
 .EE
 The included Makefile also provides install and uninstall targets.
+CPU builds can enable llama.cpp OpenMP support with \fB--features openmp\fR. GPU
+builds can enable \fBmetal\fR, \fBopencl\fR, \fBrocm\fR, or \fBvulkan\fR.
 
 .SH LICENSE
 

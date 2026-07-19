@@ -5,6 +5,7 @@ use crate::engine::flags::GitFlags;
 use crate::engine::lang::{LANGUAGE_SPECS, Language};
 use crate::engine::output::ImageMode;
 use crate::engine::target::{Target, TargetAddress};
+use crate::engine::vision::VisionProfile;
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use std::path::PathBuf;
@@ -87,6 +88,18 @@ pub(crate) struct ReadCommand {
     /// image mode: none (default), all, caption, objects, or ocr
     #[argh(option, from_str_fn(parse_image_mode))]
     pub(crate) image: Option<ImageMode>,
+
+    /// vision inference profile: fast, balanced (default), or accurate
+    #[argh(option, from_str_fn(parse_vision_profile))]
+    pub(crate) vision_profile: Option<VisionProfile>,
+
+    /// emit vision inference diagnostics as JSON on stderr
+    #[argh(switch)]
+    pub(crate) vision_diagnostics: bool,
+
+    /// benchmark vision inference for this many measured iterations after warmup
+    #[argh(option)]
+    pub(crate) vision_benchmark: Option<usize>,
 }
 
 /// view an indexed document
@@ -399,6 +412,17 @@ pub(crate) fn parse_image_mode(value: &str) -> std::result::Result<ImageMode, St
         "ocr" => Ok(ImageMode::Ocr),
         _ => Err(format!(
             "unknown image mode `{value}`; expected none, all, caption, objects, or ocr"
+        )),
+    }
+}
+
+pub(crate) fn parse_vision_profile(value: &str) -> std::result::Result<VisionProfile, String> {
+    match value {
+        "fast" => Ok(VisionProfile::Fast),
+        "balanced" => Ok(VisionProfile::Balanced),
+        "accurate" => Ok(VisionProfile::Accurate),
+        _ => Err(format!(
+            "unknown vision profile `{value}`; expected fast, balanced, or accurate"
         )),
     }
 }

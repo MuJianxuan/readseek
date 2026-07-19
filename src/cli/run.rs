@@ -90,6 +90,12 @@ fn parse_cli() -> Result<cli::Cli> {
             }
             if matches!(
                 &cli.command,
+                Some(cli::Command::Read(command)) if command.vision_benchmark == Some(0)
+            ) {
+                usage_error(cmd, "vision benchmark iterations must be greater than zero");
+            }
+            if matches!(
+                &cli.command,
                 Some(cli::Command::Read(command)) if command.page == Some(0)
             ) || matches!(
                 &cli.command,
@@ -108,6 +114,21 @@ fn parse_cli() -> Result<cli::Cli> {
                 usage_error(
                     cmd,
                     "--image cannot be combined with --end, --limit, or --language",
+                );
+            }
+            if matches!(
+                &cli.command,
+                Some(cli::Command::Read(command))
+                    if (command.vision_profile.is_some()
+                        || command.vision_diagnostics
+                        || command.vision_benchmark.is_some())
+                        && (command.end.is_some()
+                            || command.limit.is_some()
+                            || command.language.is_some())
+            ) {
+                usage_error(
+                    cmd,
+                    "vision options cannot be combined with --end, --limit, or --language",
                 );
             }
             Ok(cli)
@@ -140,6 +161,8 @@ impl cli::DetectCommand {
 fn run_vision(
     input: crate::engine::vision::Input<'_>,
     request: crate::engine::vision::Request,
+    profile: crate::engine::vision::VisionProfile,
+    diagnostics: bool,
 ) -> crate::engine::vision::Analysis {
     let readseek_dir = std::env::current_dir()
         .ok()
@@ -149,21 +172,43 @@ fn run_vision(
     let (mut entry, cache_version) = readseek_dir.as_deref().map_or_else(
         || {
             (
-                vision_cache::CacheEntry::new_empty(),
+                vision_cache::CacheEntry::new_empty(profile),
                 vision_cache::CacheVersion::Missing,
             )
         },
-        |dir| vision_cache::load(dir, &hash),
+        |dir| vision_cache::load(dir, &hash, profile),
     );
+    let requested_tasks = [request.caption, request.objects, request.ocr]
+        .into_iter()
+        .filter(|requested| *requested)
+        .count();
+    let cached_tasks = [
+        request.caption && entry.caption.is_some(),
+        request.objects && entry.objects.is_some(),
+        request.ocr && entry.ocr.is_some(),
+    ]
+    .into_iter()
+    .filter(|cached| *cached)
+    .count();
+    let cache_status = if cached_tasks == requested_tasks {
+        "hit"
+    } else if cached_tasks == 0 {
+        "miss"
+    } else {
+        "partial"
+    };
 
     let missing = crate::engine::vision::Request {
         caption: request.caption && entry.caption.is_none(),
         objects: request.objects && entry.objects.is_none(),
         ocr: request.ocr && entry.ocr.is_none(),
     };
+    let mut metrics = None;
     if missing.caption || missing.objects || missing.ocr {
-        match crate::engine::vision::analyze(input, missing) {
-            Ok(analysis) => {
+        match crate::engine::vision::analyze(input, missing, profile) {
+            Ok(result) => {
+                metrics = result.metrics;
+                let analysis = result.analysis;
                 if missing.caption {
                     entry.caption = analysis.caption;
                 }
@@ -180,6 +225,15 @@ fn run_vision(
             Err(error) => log::warn!("vision skipped: {error:#}"),
         }
     }
+    if diagnostics {
+        let report = serde_json::json!({
+            "kind": "readseek_vision_diagnostics",
+            "cache": cache_status,
+            "profile": profile,
+            "inference": metrics,
+        });
+        eprintln!("{report}");
+    }
 
     crate::engine::vision::Analysis {
         caption: if request.caption { entry.caption } else { None },
@@ -191,6 +245,10 @@ fn run_vision(
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
         let (target, source) = load_source(self.target.as_deref(), false, self.language)?;
+        let vision_options = self.vision_profile.is_some()
+            || self.vision_diagnostics
+            || self.vision_benchmark.is_some();
+        let profile = self.vision_profile.unwrap_or_default();
 
         if matches!(
             source.detection.category,
@@ -207,6 +265,9 @@ impl cli::ReadCommand {
                 bail!("--end, --limit, --page, and --language do not apply to images");
             }
             let mode = self.image.unwrap_or_default();
+            if mode == cli::ImageMode::None && vision_options {
+                bail!("vision options require an analysis --image mode");
+            }
             let Some(bytes) = source.document_bytes.as_deref() else {
                 bail!("missing image bytes for {}", source.path.display());
             };
@@ -215,7 +276,15 @@ impl cli::ReadCommand {
                 objects: matches!(mode, cli::ImageMode::All | cli::ImageMode::Objects),
                 ocr: matches!(mode, cli::ImageMode::All | cli::ImageMode::Ocr),
             };
-            let analysis = run_vision(crate::engine::vision::Input::Encoded(bytes), request);
+            let input = crate::engine::vision::Input::Encoded(bytes);
+            let analysis = if let Some(iterations) = self.vision_benchmark {
+                let (analysis, report) =
+                    crate::engine::vision::benchmark(input, request, profile, iterations)?;
+                eprintln!("{}", serde_json::to_string(&report)?);
+                analysis
+            } else {
+                run_vision(input, request, profile, self.vision_diagnostics)
+            };
             let prepared = (mode == cli::ImageMode::None)
                 .then(|| crate::engine::image::preprocess(bytes))
                 .transpose()?;
@@ -234,16 +303,27 @@ impl cli::ReadCommand {
             if self.end.is_some() || self.limit.is_some() || self.language.is_some() {
                 bail!("--end, --limit, and --language do not apply to PDFs");
             }
+            if self.vision_benchmark.is_some() {
+                bail!("--vision-benchmark currently supports image files only");
+            }
             let mode = self.image.unwrap_or_default();
+            if mode == cli::ImageMode::None && vision_options {
+                bail!("vision options require an analysis --image mode");
+            }
             let Some(bytes) = source.document_bytes.as_deref() else {
                 bail!("missing PDF bytes for {}", source.path.display());
             };
-            let pdf = crate::engine::pdf::read(bytes, mode, self.page, run_vision)?;
+            let pdf = crate::engine::pdf::read(bytes, mode, self.page, |input, request| {
+                run_vision(input, request, profile, self.vision_diagnostics)
+            })?;
             return Ok(serde_json::to_string(&output::ReadOutput::Pdf(pdf))?);
         }
 
         if self.page.is_some() {
             bail!("--page applies to PDFs only");
+        }
+        if vision_options {
+            bail!("vision options apply to image and PDF files only");
         }
 
         source.require_text()?;

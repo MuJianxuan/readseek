@@ -9,7 +9,7 @@
 //! cache format or a different vision model; bump it whenever either changes.
 
 use crate::engine::hash;
-use crate::engine::vision::DetectedObject;
+use crate::engine::vision::{DetectedObject, VisionProfile};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -19,7 +19,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 7;
+const CACHE_SCHEMA_VERSION: u32 = 8;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
@@ -36,6 +36,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CacheEntry {
     schema_version: u32,
+    profile: VisionProfile,
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
     pub(crate) ocr: Option<String>,
@@ -50,18 +51,19 @@ pub(crate) enum CacheVersion {
 
 impl CacheEntry {
     /// A fresh entry with no tasks completed, stamped with the current schema.
-    pub(crate) fn new_empty() -> Self {
+    pub(crate) fn new_empty(profile: VisionProfile) -> Self {
         Self {
             schema_version: CACHE_SCHEMA_VERSION,
+            profile,
             caption: None,
             objects: None,
             ocr: None,
         }
     }
 
-    /// Whether this entry was produced by the current cache format.
-    fn is_valid(&self) -> bool {
-        self.schema_version == CACHE_SCHEMA_VERSION
+    /// Whether this entry was produced by the current cache format and profile.
+    fn is_valid(&self, profile: VisionProfile) -> bool {
+        self.schema_version == CACHE_SCHEMA_VERSION && self.profile == profile
     }
 }
 
@@ -75,17 +77,21 @@ fn entry_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
 
 /// Load and validate the cache entry for `hash_hex`, returning an empty entry on
 /// a miss and a version stamp used to avoid an unchanged-file reread at store.
-pub(crate) fn load(readseek_dir: &Path, hash_hex: &str) -> (CacheEntry, CacheVersion) {
+pub(crate) fn load(
+    readseek_dir: &Path,
+    hash_hex: &str,
+    profile: VisionProfile,
+) -> (CacheEntry, CacheVersion) {
     let path = entry_path(readseek_dir, hash_hex);
     let before = cache_version(&path);
     if before == CacheVersion::Missing {
-        return (CacheEntry::new_empty(), before);
+        return (CacheEntry::new_empty(profile), before);
     }
     let data = match fs::read(&path) {
         Ok(data) => data,
         Err(error) => {
             log::warn!("vision cache read {}: {error}", path.display());
-            return (CacheEntry::new_empty(), CacheVersion::Unknown);
+            return (CacheEntry::new_empty(profile), CacheVersion::Unknown);
         }
     };
     let after = cache_version(&path);
@@ -98,15 +104,15 @@ pub(crate) fn load(readseek_dir: &Path, hash_hex: &str) -> (CacheEntry, CacheVer
         Ok(entry) => entry,
         Err(error) => {
             log::warn!("vision cache parse {}: {error}", path.display());
-            return (CacheEntry::new_empty(), version);
+            return (CacheEntry::new_empty(profile), version);
         }
     };
-    if !entry.is_valid() {
+    if !entry.is_valid(profile) {
         log::warn!(
-            "vision cache schema/model mismatch in {}, treating as miss",
+            "vision cache schema/model/profile mismatch in {}, treating as miss",
             path.display()
         );
-        return (CacheEntry::new_empty(), version);
+        return (CacheEntry::new_empty(profile), version);
     }
     (entry, version)
 }
@@ -152,7 +158,7 @@ pub(crate) fn store(
         if *loaded_version != CacheVersion::Unknown && cache_version(&path) == *loaded_version {
             entry.clone()
         } else {
-            load(readseek_dir, hash_hex).0
+            load(readseek_dir, hash_hex, entry.profile).0
         };
     if merged.caption.is_none() {
         merged.caption.clone_from(&entry.caption);
