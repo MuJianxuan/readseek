@@ -295,6 +295,69 @@ export def Check()
   })
 enddef
 
+export def Read(count: number = 21)
+  var path = buffer.Path()
+  var start_line = buffer.Line()
+  var end_line = start_line + count - 1
+  Status($'reading {fnamemodify(path, ":t")}:{start_line}-{end_line}...')
+  job.Run(['read', $'stdin:{path}:{start_line}', '--end', string(end_line)], buffer.Stdin(), (result: dict<any>) => {
+    if !result.ok
+      Notify(get(result, 'error', 'readseek read failed'), 'error')
+      return
+    endif
+
+    var lines = HashLines(result.json)
+    if empty(lines)
+      Notify('no lines found', 'info')
+      return
+    endif
+
+    ShowContent(lines, $' readseek {fnamemodify(path, ":t")}:{get(result.json, "start_line", start_line)}-{get(result.json, "end_line", end_line)} ')
+  })
+enddef
+
+export def Symbol()
+  var path = buffer.Path()
+  var current_line = buffer.Line()
+  Status($'reading symbol at {fnamemodify(path, ":t")}:{current_line}...')
+  job.Run(['symbol', $'stdin:{path}:{current_line}'], buffer.Stdin(), (result: dict<any>) => {
+    if !result.ok
+      Notify(get(result, 'error', 'readseek symbol failed'), 'error')
+      return
+    endif
+
+    var lines = HashLines(result.json)
+    if empty(lines)
+      Notify('no symbol found at cursor', 'info')
+      return
+    endif
+
+    var symbol = get(result.json, 'symbol', {})
+    var kind = get(symbol, 'kind', 'symbol')
+    var name = get(symbol, 'name', '')
+    ShowContent(lines, empty(name) ? $' readseek {kind} ' : $' readseek {kind}: {name} ')
+  })
+enddef
+
+export def Detect()
+  var path = buffer.Path()
+  Status($'detecting {fnamemodify(path, ":t")}...')
+  job.Run(['detect', $'stdin:{path}'], buffer.Stdin(), (result: dict<any>) => {
+    if !result.ok
+      Notify(get(result, 'error', 'readseek detect failed'), 'error')
+      return
+    endif
+
+    var lines = DetectLines(result.json)
+    if empty(lines)
+      Notify('no file metadata found', 'info')
+      return
+    endif
+
+    ShowContent(lines, $' readseek detect: {fnamemodify(path, ":t")} ')
+  })
+enddef
+
 export def DiagnosticsLocations(json: dict<any>, path: string): list<any>
   var locations: list<any> = []
   for diagnostic in get(json, 'diagnostics', [])
@@ -461,6 +524,41 @@ export def HoverLines(identify: dict<any>): list<string>
   endif
 
   return lines
+enddef
+
+export def HashLines(json: dict<any>): list<string>
+  var lines: list<string> = []
+  for hashline in get(json, 'hashlines', [])
+    add(lines, $'{get(hashline, "line", 0)}:{get(hashline, "hash", "")}: {get(hashline, "text", "")}')
+  endfor
+  return lines
+enddef
+
+export def DetectLines(json: dict<any>): list<string>
+  var lines: list<string> = []
+  for key in ['type', 'language', 'engine', 'supported', 'mime', 'syntax', 'format', 'pages']
+    if has_key(json, key)
+      add(lines, $'{key}: {json[key]}')
+    endif
+  endfor
+  return lines
+enddef
+
+# Display source content close to the cursor without moving the current window.
+def ShowContent(lines: list<string>, title: string)
+  if !exists('*popup_create')
+    echo join(lines, "\n")
+    return
+  endif
+
+  Popup(lines, {
+    pos: 'botleft',
+    line: 'cursor+1',
+    col: 'cursor',
+    padding: [0, 1, 0, 1],
+    title: title,
+    scrollbar: 1,
+  })
 enddef
 
 def ShowHover(lines: list<string>)

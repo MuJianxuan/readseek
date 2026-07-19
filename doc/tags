@@ -1,13 +1,16 @@
 :ReadSeekCheck	readseek.txt	/*:ReadSeekCheck*
 :ReadSeekCheckHealth	readseek.txt	/*:ReadSeekCheckHealth*
 :ReadSeekDefinition	readseek.txt	/*:ReadSeekDefinition*
+:ReadSeekDetect	readseek.txt	/*:ReadSeekDetect*
 :ReadSeekHover	readseek.txt	/*:ReadSeekHover*
 :ReadSeekInit	readseek.txt	/*:ReadSeekInit*
 :ReadSeekInstall	readseek.txt	/*:ReadSeekInstall*
 :ReadSeekMap	readseek.txt	/*:ReadSeekMap*
+:ReadSeekRead	readseek.txt	/*:ReadSeekRead*
 :ReadSeekReferences	readseek.txt	/*:ReadSeekReferences*
 :ReadSeekRename	readseek.txt	/*:ReadSeekRename*
 :ReadSeekSearch	readseek.txt	/*:ReadSeekSearch*
+:ReadSeekSymbol	readseek.txt	/*:ReadSeekSymbol*
 :ReadSeekUninstall	readseek.txt	/*:ReadSeekUninstall*
 :ReadSeekUpdate	readseek.txt	/*:ReadSeekUpdate*
 g:readseek_auto_install	readseek.txt	/*g:readseek_auto_install*

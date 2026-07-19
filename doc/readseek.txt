@@ -70,6 +70,23 @@ Commands~
         Check the current buffer through stdin and place parser diagnostics in
         the configured results list. Unsaved changes are included.
 
+
+                                                        *:ReadSeekRead*
+  :[count]ReadSeekRead
+        Read from the cursor line through [count] lines (21 by default), including
+        stable line/hash anchors, and display the result in a popup. The current
+        buffer is sent through stdin, so unsaved changes are included.
+
+                                                      *:ReadSeekSymbol*
+  :ReadSeekSymbol
+        Read the enclosing symbol at the cursor, including its stable line/hash
+        anchors, and display it in a popup. Unsaved changes are included.
+
+                                                      *:ReadSeekDetect*
+  :ReadSeekDetect
+        Detect the current buffer's file type, language, analysis engine, and
+        support status, then display the metadata in a popup.
+
                                                         *:ReadSeekInstall*
   :ReadSeekInstall
         Download and activate the ReadSeek release matching this plugin. An
@@ -95,6 +112,9 @@ Plug mappings are provided for users to bind to preferred keys:
           <Plug>(ReadSeekMap)           :ReadSeekMap
           <Plug>(ReadSeekInit)          :ReadSeekInit
           <Plug>(ReadSeekCheck)         :ReadSeekCheck
+          <Plug>(ReadSeekRead)          :ReadSeekRead
+          <Plug>(ReadSeekSymbol)        :ReadSeekSymbol
+          <Plug>(ReadSeekDetect)        :ReadSeekDetect
 
                                                         *g:readseek_root_markers*
   g:readseek_root_markers

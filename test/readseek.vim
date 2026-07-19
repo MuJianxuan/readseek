@@ -401,6 +401,46 @@ def TestDiagnosticsLocations()
   Check('diagnostic missing text', locations[1].text ==# '[missing] parser diagnostic')
 enddef
 
+
+def TestRuntimeReadOutput()
+  var lines = readseek#HashLines({
+    hashlines: [
+      {line: 7, hash: 'abc', text: 'fn main() {'},
+      {line: 8, hash: 'def', text: '}'},
+    ],
+  })
+  Check('hashline count', len(lines) == 2)
+  Check('hashline preserves anchors', lines[0] ==# '7:abc: fn main() {')
+  Check('hashline preserves text', lines[1] ==# '8:def: }')
+
+  var metadata = readseek#DetectLines({
+    type: 'source',
+    language: 'rust',
+    engine: 'tree-sitter',
+    supported: true,
+    mime: 'text/rust',
+  })
+  Check('detect output includes type', index(metadata, 'type: source') >= 0)
+  Check('detect output includes language', index(metadata, 'language: rust') >= 0)
+  Check('detect output includes support status', index(metadata, 'supported: true') >= 0)
+enddef
+
+def TestRuntimeCommands()
+  Check('Read command exists', exists(':ReadSeekRead') == 2)
+  Check('Symbol command exists', exists(':ReadSeekSymbol') == 2)
+  Check('Detect command exists', exists(':ReadSeekDetect') == 2)
+  Check('Read function exists', exists('*readseek#Read') == 1)
+  Check('Symbol function exists', exists('*readseek#Symbol') == 1)
+  Check('Detect function exists', exists('*readseek#Detect') == 1)
+
+  var read = maparg('<Plug>(ReadSeekRead)', 'n', false, true)
+  var symbol = maparg('<Plug>(ReadSeekSymbol)', 'n', false, true)
+  var detect = maparg('<Plug>(ReadSeekDetect)', 'n', false, true)
+  Check('read plug mapping', !empty(read) && read.rhs ==# '<ScriptCmd>ReadSeekRead<CR>')
+  Check('symbol plug mapping', !empty(symbol) && symbol.rhs ==# '<ScriptCmd>ReadSeekSymbol<CR>')
+  Check('detect plug mapping', !empty(detect) && detect.rhs ==# '<ScriptCmd>ReadSeekDetect<CR>')
+enddef
+
 def TestPluginConfiguration()
   Check('auto install defaults off', !g:readseek_auto_install)
   Check('auto open results defaults on', g:readseek_auto_open_results)
@@ -458,6 +498,8 @@ TestSearchLocations()
 TestDiagnosticsLocations()
 TestPluginConfiguration()
 TestJobTimeout()
+TestRuntimeReadOutput()
+TestRuntimeCommands()
 
 if !empty(failures)
   writefile(failures, 'test-readseek-failures.log')
