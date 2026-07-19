@@ -437,6 +437,10 @@ fn selected_page_range(page: Option<usize>, pages: usize) -> Result<Range<usize>
     Ok(page - 1..page)
 }
 
+fn rgb_data_len(width: u32, height: u32) -> Option<usize> {
+    width.checked_mul(height)?.checked_mul(3)?.try_into().ok()
+}
+
 fn analyze_pdf_image(
     image: &PdfImage,
     width: u32,
@@ -446,6 +450,15 @@ fn analyze_pdf_image(
     request: Request,
     analyze: &mut impl FnMut(Input<'_>, Request) -> Analysis,
 ) -> Option<(Analysis, Option<crate::engine::image::PreparedImage>)> {
+    if let ImageData::Raw {
+        pixels,
+        format: PixelFormat::RGB,
+    } = image.data()
+        && rgb_data_len(width, height) != Some(pixels.len())
+    {
+        log::warn!("PDF page {page} image skipped: invalid RGB dimensions");
+        return None;
+    }
     let encode_png = || match image.to_png_bytes() {
         Ok(png) => Some(png),
         Err(error) => {
@@ -469,7 +482,6 @@ fn analyze_pdf_image(
         format: PixelFormat::RGB,
     } = image.data()
         && image.icc_profile().is_none()
-        && pixels.len() == width as usize * height as usize * 3
     {
         let input = Input::Rgb {
             width,

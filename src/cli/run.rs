@@ -155,15 +155,13 @@ impl cli::DetectCommand {
 }
 
 /// Run the requested vision tasks against `bytes`, reusing cached results from
-/// `.readseek/vision/` and storing any newly computed ones. Returns the
-/// analysis with the requested fields populated (from cache or fresh); a task
-/// that fails is logged and left `None`.
+/// `.readseek/vision/` and storing any newly computed ones.
 fn run_vision(
     input: crate::engine::vision::Input<'_>,
     request: crate::engine::vision::Request,
     profile: crate::engine::vision::VisionProfile,
     diagnostics: bool,
-) -> crate::engine::vision::Analysis {
+) -> Result<crate::engine::vision::Analysis> {
     let readseek_dir = std::env::current_dir()
         .ok()
         .and_then(|cwd| repo::find_readseek_dir(&cwd));
@@ -205,24 +203,20 @@ fn run_vision(
     };
     let mut metrics = None;
     if missing.caption || missing.objects || missing.ocr {
-        match crate::engine::vision::analyze(input, missing, profile) {
-            Ok(result) => {
-                metrics = result.metrics;
-                let analysis = result.analysis;
-                if missing.caption {
-                    entry.caption = analysis.caption;
-                }
-                if missing.objects {
-                    entry.objects = analysis.objects;
-                }
-                if missing.ocr {
-                    entry.ocr = analysis.ocr;
-                }
-                if let Some(dir) = readseek_dir.as_deref() {
-                    vision_cache::store(dir, &hash, &cache_version, &entry);
-                }
-            }
-            Err(error) => log::warn!("vision skipped: {error:#}"),
+        let result = crate::engine::vision::analyze(input, missing, profile)?;
+        metrics = result.metrics;
+        let analysis = result.analysis;
+        if missing.caption {
+            entry.caption = analysis.caption;
+        }
+        if missing.objects {
+            entry.objects = analysis.objects;
+        }
+        if missing.ocr {
+            entry.ocr = analysis.ocr;
+        }
+        if let Some(dir) = readseek_dir.as_deref() {
+            vision_cache::store(dir, &hash, &cache_version, &entry);
         }
     }
     if diagnostics {
@@ -235,10 +229,25 @@ fn run_vision(
         eprintln!("{report}");
     }
 
-    crate::engine::vision::Analysis {
+    Ok(crate::engine::vision::Analysis {
         caption: if request.caption { entry.caption } else { None },
         objects: if request.objects { entry.objects } else { None },
         ocr: if request.ocr { entry.ocr } else { None },
+    })
+}
+
+fn run_pdf_vision(
+    input: crate::engine::vision::Input<'_>,
+    request: crate::engine::vision::Request,
+    profile: crate::engine::vision::VisionProfile,
+    diagnostics: bool,
+) -> crate::engine::vision::Analysis {
+    match run_vision(input, request, profile, diagnostics) {
+        Ok(analysis) => analysis,
+        Err(error) => {
+            log::warn!("vision skipped: {error:#}");
+            crate::engine::vision::Analysis::default()
+        }
     }
 }
 
@@ -283,7 +292,7 @@ impl cli::ReadCommand {
                 eprintln!("{}", serde_json::to_string(&report)?);
                 analysis
             } else {
-                run_vision(input, request, profile, self.vision_diagnostics)
+                run_vision(input, request, profile, self.vision_diagnostics)?
             };
             let prepared = (mode == cli::ImageMode::None)
                 .then(|| crate::engine::image::preprocess(bytes))
@@ -314,7 +323,7 @@ impl cli::ReadCommand {
                 bail!("missing PDF bytes for {}", source.path.display());
             };
             let pdf = crate::engine::pdf::read(bytes, mode, self.page, |input, request| {
-                run_vision(input, request, profile, self.vision_diagnostics)
+                run_pdf_vision(input, request, profile, self.vision_diagnostics)
             })?;
             return Ok(serde_json::to_string(&output::ReadOutput::Pdf(pdf))?);
         }

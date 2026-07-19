@@ -45,7 +45,7 @@ const DEFAULT_UBATCH_SIZE: u32 = 512;
 const CAPTION_MAX_NEW_TOKENS: i32 = 512;
 const OBJECTS_MAX_NEW_TOKENS: i32 = 1024;
 const OCR_MAX_NEW_TOKENS: i32 = 4096;
-const LOCATION_BINS: f32 = 1000.0;
+const LOCATION_BINS: i32 = 1000;
 const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 const PROGRESS_MSG: &str = "Analyzing image...";
@@ -210,7 +210,7 @@ struct VisionRuntime {
     micro_batch_size: u32,
     gpu_offload_supported: bool,
     backend_devices: Vec<String>,
-    startup_ms: u128,
+    unreported_startup_ms: Option<u128>,
 }
 
 impl VisionRuntime {
@@ -269,7 +269,7 @@ impl VisionRuntime {
             micro_batch_size,
             gpu_offload_supported,
             backend_devices,
-            startup_ms: started.elapsed().as_millis(),
+            unreported_startup_ms: Some(started.elapsed().as_millis()),
         })
     }
 
@@ -359,6 +359,7 @@ pub(crate) fn analyze(
     let image_max_tokens = profile.image_max_tokens(model_request);
     let (raw, width, height, metrics) = with_runtime(image_max_tokens, |runtime| {
         let total_started = Instant::now();
+        let startup_ms = runtime.unreported_startup_ms.take().unwrap_or(0);
         let bitmap_started = Instant::now();
         let bitmap = match input {
             Input::Encoded(bytes) => MtmdBitmap::from_buffer(&runtime.mtmd, bytes, false)
@@ -384,7 +385,7 @@ pub(crate) fn analyze(
             micro_batch_size: runtime.micro_batch_size,
             gpu_offload_supported: runtime.gpu_offload_supported,
             backend_devices: runtime.backend_devices.clone(),
-            startup_ms: runtime.startup_ms,
+            startup_ms,
             bitmap_ms,
             tokenize_ms: generation.tokenize_ms,
             prefill_ms: generation.prefill_ms,
@@ -402,7 +403,7 @@ pub(crate) fn analyze(
         };
         Ok((raw, width, height, metrics))
     })?;
-    let mut analysis = parse_analysis(&raw, model_request, width, height);
+    let mut analysis = parse_analysis(&raw, model_request, width, height)?;
     if embedded_ocr.is_some() {
         analysis.ocr = embedded_ocr;
     }
@@ -539,7 +540,9 @@ fn decode_tokens(
     if had_errors {
         return Err(anyhow!("vision response ended with invalid UTF-8"));
     }
-    Ok((output, generated_tokens))
+    Err(anyhow!(
+        "vision response ended before completing JSON after {generated_tokens} tokens"
+    ))
 }
 
 struct GenerationMetrics {
@@ -627,10 +630,9 @@ pub(crate) fn benchmark(
     let mut runs = Vec::with_capacity(iterations);
     for _ in 0..iterations {
         let result = analyze(input, request, profile)?;
-        let mut metrics = result
+        let metrics = result
             .metrics
             .context("vision benchmark did not execute model inference")?;
-        metrics.startup_ms = 0;
         analysis = result.analysis;
         runs.push(metrics);
     }
@@ -710,22 +712,19 @@ struct ObjectJson {
     bbox: Vec<i32>,
 }
 
-#[derive(Default, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct CombinedJson {
     caption: Option<String>,
     objects: Option<Vec<ObjectJson>>,
     ocr: Option<String>,
 }
 
-fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analysis {
-    let parsed = extract_json(raw)
-        .and_then(|json| serde_json::from_str::<CombinedJson>(json).ok())
-        .unwrap_or_else(|| {
-            log::warn!("vision JSON parse failed, returning empty results");
-            CombinedJson::default()
-        });
+fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Result<Analysis> {
+    let json = extract_json(raw).context("vision response did not contain JSON")?;
+    let parsed =
+        serde_json::from_str::<CombinedJson>(json).context("parse vision JSON response")?;
 
-    Analysis {
+    Ok(Analysis {
         caption: request
             .caption
             .then(|| parsed.caption.map(|value| strip_special(&value)))
@@ -742,7 +741,7 @@ fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Analy
             .ocr
             .then(|| parsed.ocr.map(|value| strip_special(&value)))
             .flatten(),
-    }
+    })
 }
 
 fn build_objects(objects: Vec<ObjectJson>, width: u32, height: u32) -> Vec<DetectedObject> {
@@ -767,8 +766,8 @@ fn build_objects(objects: Vec<ObjectJson>, width: u32, height: u32) -> Vec<Detec
 }
 
 fn location_to_pixel(location: i32, dimension: u32) -> i32 {
-    let location = location.clamp(0, LOCATION_BINS as i32);
-    ((location as f32 + 0.5) / LOCATION_BINS * dimension as f32).round() as i32
+    let location = location.clamp(0, LOCATION_BINS);
+    (f64::from(location) / f64::from(LOCATION_BINS) * f64::from(dimension)).round() as i32
 }
 
 fn extract_json(raw: &str) -> Option<&str> {
