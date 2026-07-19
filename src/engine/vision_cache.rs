@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Content-addressed cache for image vision-analysis results under
-//! `.readseek/vision/`. Entries are keyed by the BLAKE3 hash of the image bytes
+//! `.readseek/vision/`. Entries are keyed by a BLAKE3 hash of the image content
 //! and hold the per-task results (caption/objects/OCR) independently, so
 //! a later request for a new task reuses tasks computed by earlier runs. A
 //! schema version guards against serving results produced by an incompatible
@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 const VISION_CACHE_DIR: &str = "vision";
 const CACHE_SCHEMA_VERSION: u32 = 7;
@@ -39,6 +39,13 @@ pub(crate) struct CacheEntry {
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
     pub(crate) ocr: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CacheVersion {
+    Missing,
+    File { len: u64, modified: SystemTime },
+    Unknown,
 }
 
 impl CacheEntry {
@@ -66,26 +73,32 @@ fn entry_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
         .join(format!("{}.json", &hash_hex[2..]))
 }
 
-/// Load and validate the cache entry for `hash_hex`. Returns `None` on a missing
-/// file, I/O or parse failure, or a schema/model mismatch; all failures are
-/// non-fatal so the caller falls through to fresh analysis.
-pub(crate) fn load(readseek_dir: &Path, hash_hex: &str) -> Option<CacheEntry> {
+/// Load and validate the cache entry for `hash_hex`, returning an empty entry on
+/// a miss and a version stamp used to avoid an unchanged-file reread at store.
+pub(crate) fn load(readseek_dir: &Path, hash_hex: &str) -> (CacheEntry, CacheVersion) {
     let path = entry_path(readseek_dir, hash_hex);
-    if !path.exists() {
-        return None;
+    let before = cache_version(&path);
+    if before == CacheVersion::Missing {
+        return (CacheEntry::new_empty(), before);
     }
     let data = match fs::read(&path) {
         Ok(data) => data,
         Err(error) => {
             log::warn!("vision cache read {}: {error}", path.display());
-            return None;
+            return (CacheEntry::new_empty(), CacheVersion::Unknown);
         }
+    };
+    let after = cache_version(&path);
+    let version = if before == after {
+        after
+    } else {
+        CacheVersion::Unknown
     };
     let entry: CacheEntry = match serde_json::from_slice(&data) {
         Ok(entry) => entry,
         Err(error) => {
             log::warn!("vision cache parse {}: {error}", path.display());
-            return None;
+            return (CacheEntry::new_empty(), version);
         }
     };
     if !entry.is_valid() {
@@ -93,15 +106,34 @@ pub(crate) fn load(readseek_dir: &Path, hash_hex: &str) -> Option<CacheEntry> {
             "vision cache schema/model mismatch in {}, treating as miss",
             path.display()
         );
-        return None;
+        return (CacheEntry::new_empty(), version);
     }
-    Some(entry)
+    (entry, version)
+}
+
+fn cache_version(path: &Path) -> CacheVersion {
+    match fs::metadata(path) {
+        Ok(metadata) => match metadata.modified() {
+            Ok(modified) => CacheVersion::File {
+                len: metadata.len(),
+                modified,
+            },
+            Err(_) => CacheVersion::Unknown,
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => CacheVersion::Missing,
+        Err(_) => CacheVersion::Unknown,
+    }
 }
 
 /// Persist `entry` atomically under `.readseek/vision/`, creating the shard
 /// directory if needed. Failures are logged and swallowed so the `detect`
 /// command is unaffected by a cache write error.
-pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
+pub(crate) fn store(
+    readseek_dir: &Path,
+    hash_hex: &str,
+    loaded_version: &CacheVersion,
+    entry: &CacheEntry,
+) {
     let path = entry_path(readseek_dir, hash_hex);
     if let Some(parent) = path.parent()
         && let Err(error) = fs::create_dir_all(parent)
@@ -116,7 +148,12 @@ pub(crate) fn store(readseek_dir: &Path, hash_hex: &str, entry: &CacheEntry) {
             return;
         }
     };
-    let mut merged = load(readseek_dir, hash_hex).unwrap_or_else(CacheEntry::new_empty);
+    let mut merged =
+        if *loaded_version != CacheVersion::Unknown && cache_version(&path) == *loaded_version {
+            entry.clone()
+        } else {
+            load(readseek_dir, hash_hex).0
+        };
     if merged.caption.is_none() {
         merged.caption.clone_from(&entry.caption);
     }

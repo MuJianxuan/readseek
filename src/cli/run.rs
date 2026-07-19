@@ -138,18 +138,23 @@ impl cli::DetectCommand {
 /// analysis with the requested fields populated (from cache or fresh); a task
 /// that fails is logged and left `None`.
 fn run_vision(
-    bytes: &[u8],
+    input: crate::engine::vision::Input<'_>,
     request: crate::engine::vision::Request,
 ) -> crate::engine::vision::Analysis {
     let readseek_dir = std::env::current_dir()
         .ok()
         .and_then(|cwd| repo::find_readseek_dir(&cwd));
-    let hash = crate::engine::hash::hash_bytes(bytes);
+    let hash = input.cache_hash();
 
-    let mut entry = readseek_dir
-        .as_deref()
-        .and_then(|dir| vision_cache::load(dir, &hash))
-        .unwrap_or_else(vision_cache::CacheEntry::new_empty);
+    let (mut entry, cache_version) = readseek_dir.as_deref().map_or_else(
+        || {
+            (
+                vision_cache::CacheEntry::new_empty(),
+                vision_cache::CacheVersion::Missing,
+            )
+        },
+        |dir| vision_cache::load(dir, &hash),
+    );
 
     let missing = crate::engine::vision::Request {
         caption: request.caption && entry.caption.is_none(),
@@ -157,7 +162,7 @@ fn run_vision(
         ocr: request.ocr && entry.ocr.is_none(),
     };
     if missing.caption || missing.objects || missing.ocr {
-        match crate::engine::vision::analyze(bytes, missing) {
+        match crate::engine::vision::analyze(input, missing) {
             Ok(analysis) => {
                 if missing.caption {
                     entry.caption = analysis.caption;
@@ -169,7 +174,7 @@ fn run_vision(
                     entry.ocr = analysis.ocr;
                 }
                 if let Some(dir) = readseek_dir.as_deref() {
-                    vision_cache::store(dir, &hash, &entry);
+                    vision_cache::store(dir, &hash, &cache_version, &entry);
                 }
             }
             Err(error) => log::warn!("vision skipped: {error:#}"),
@@ -210,7 +215,7 @@ impl cli::ReadCommand {
                 objects: matches!(mode, cli::ImageMode::All | cli::ImageMode::Objects),
                 ocr: matches!(mode, cli::ImageMode::All | cli::ImageMode::Ocr),
             };
-            let analysis = run_vision(bytes, request);
+            let analysis = run_vision(crate::engine::vision::Input::Encoded(bytes), request);
             let prepared = (mode == cli::ImageMode::None)
                 .then(|| crate::engine::image::preprocess(bytes))
                 .transpose()?;

@@ -10,6 +10,13 @@ readme = "README.md"
 rust-version = "1.89"
 version = "0.7.0"
 
+[features]
+cuda = ["llama-cpp-2/cuda"]
+metal = ["llama-cpp-2/metal"]
+opencl = ["llama-cpp-2/opencl"]
+rocm = ["llama-cpp-2/rocm"]
+vulkan = ["llama-cpp-2/vulkan"]
+
 [dependencies]
 anyhow = "1.0"
 arborium-meson = "2.18"

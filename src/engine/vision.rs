@@ -14,11 +14,11 @@
     clippy::cast_possible_wrap
 )]
 
+use std::cell::{OnceCell, RefCell};
 use std::ffi::CString;
 use std::io::IsTerminal as _;
 use std::num::NonZeroU32;
 use std::os::raw::{c_char, c_int, c_void};
-use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
@@ -78,6 +78,36 @@ pub(crate) struct Request {
     pub(crate) ocr: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Input<'a> {
+    Encoded(&'a [u8]),
+    Rgb {
+        width: u32,
+        height: u32,
+        pixels: &'a [u8],
+    },
+}
+
+impl Input<'_> {
+    pub(crate) fn cache_hash(self) -> String {
+        match self {
+            Self::Encoded(bytes) => crate::engine::hash::hash_bytes(bytes),
+            Self::Rgb {
+                width,
+                height,
+                pixels,
+            } => {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(b"readseek-rgb\0");
+                hasher.update(&width.to_le_bytes());
+                hasher.update(&height.to_le_bytes());
+                hasher.update(pixels);
+                hasher.finalize().to_string()
+            }
+        }
+    }
+}
+
 /// Results of the requested vision tasks.
 #[derive(Default)]
 pub(crate) struct Analysis {
@@ -88,13 +118,14 @@ pub(crate) struct Analysis {
 
 /// Loaded model state shared across image analyses in one process.
 ///
-/// Fields are declared in dependency drop order: mtmd before model, and model
-/// before the llama backend.
+/// Fields are declared in dependency drop order. The model is process-lifetime
+/// storage so the reusable context can safely borrow it.
 struct VisionRuntime {
+    context: LlamaContext<'static>,
     mtmd: MtmdContext,
     chat_template: LlamaChatTemplate,
-    model: LlamaModel,
-    backend: LlamaBackend,
+    model: &'static LlamaModel,
+    _backend: LlamaBackend,
 }
 
 impl VisionRuntime {
@@ -108,8 +139,18 @@ impl VisionRuntime {
         let mmproj_path = crate::engine::model::file(MMPROJ_FILE)?;
         let model = LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default())
             .context("load Qwen3-VL model")?;
+        let model = Box::leak(Box::new(model));
+        let threads = inference_threads()?;
+        let context_params = LlamaContextParams::default()
+            .with_n_threads(threads)
+            .with_n_threads_batch(threads)
+            .with_n_batch(BATCH_SIZE.try_into()?)
+            .with_n_ctx(Some(CONTEXT_SIZE_NONZERO));
+        let context = model
+            .new_context(&backend, context_params)
+            .context("create Qwen3-VL context")?;
         let params = MtmdContextParams {
-            use_gpu: false,
+            use_gpu: backend.supports_gpu_offload(),
             print_timings: false,
             n_threads: inference_threads()?,
             media_marker: CString::new(llama_cpp_2::mtmd::mtmd_default_marker())
@@ -117,41 +158,49 @@ impl VisionRuntime {
             image_min_tokens: -1,
             image_max_tokens: IMAGE_MAX_TOKENS,
         };
-        let mtmd = MtmdContext::init_from_file(&mmproj_path.to_string_lossy(), &model, &params)
+        let mtmd = MtmdContext::init_from_file(&mmproj_path.to_string_lossy(), model, &params)
             .context("load Qwen3-VL multimodal projector")?;
         let chat_template = model.chat_template(None)?;
         Ok(Self {
+            context,
             mtmd,
             chat_template,
             model,
-            backend,
+            _backend: backend,
         })
     }
 }
 
-fn runtime() -> Result<&'static Mutex<VisionRuntime>> {
-    static RUNTIME: OnceLock<Result<Mutex<VisionRuntime>, String>> = OnceLock::new();
-    match RUNTIME.get_or_init(|| {
-        VisionRuntime::load()
-            .map(Mutex::new)
-            .map_err(|error| error.to_string())
-    }) {
-        Ok(runtime) => Ok(runtime),
-        Err(error) => Err(anyhow!(error.clone())),
-    }
+thread_local! {
+    static RUNTIME: OnceCell<Result<RefCell<VisionRuntime>, String>> = const { OnceCell::new() };
+}
+
+fn with_runtime<T>(run: impl FnOnce(&mut VisionRuntime) -> Result<T>) -> Result<T> {
+    RUNTIME.with(|slot| {
+        let runtime = slot.get_or_init(|| {
+            VisionRuntime::load()
+                .map(RefCell::new)
+                .map_err(|error| error.to_string())
+        });
+        let runtime = runtime.as_ref().map_err(|error| anyhow!(error.clone()))?;
+        let mut runtime = runtime
+            .try_borrow_mut()
+            .map_err(|_| anyhow!("vision runtime is already in use"))?;
+        run(&mut runtime)
+    })
 }
 
 /// Run the selected tasks in one multimodal generation pass. The loaded model
 /// is reused by later images, which matters for PDFs containing several images.
-pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> {
+pub(crate) fn analyze(input: Input<'_>, request: Request) -> Result<Analysis> {
     if !request.caption && !request.objects && !request.ocr {
         return Ok(Analysis::default());
     }
 
-    let embedded_ocr = request
-        .ocr
-        .then(|| crate::engine::image::embedded_drawio_text(image_bytes))
-        .flatten();
+    let embedded_ocr = match input {
+        Input::Encoded(bytes) if request.ocr => crate::engine::image::embedded_drawio_text(bytes),
+        _ => None,
+    };
     let model_request = Request {
         caption: request.caption,
         objects: request.objects,
@@ -164,15 +213,22 @@ pub(crate) fn analyze(image_bytes: &[u8], request: Request) -> Result<Analysis> 
         });
     }
 
-    let runtime = runtime()?;
-    let runtime = runtime
-        .lock()
-        .map_err(|_| anyhow!("vision runtime mutex poisoned"))?;
-    let bitmap = MtmdBitmap::from_buffer(&runtime.mtmd, image_bytes, false)
-        .context("decode image for Qwen3-VL")?;
-    let width = bitmap.nx();
-    let height = bitmap.ny();
-    let raw = generate(&runtime, &bitmap, &build_prompt(model_request))?;
+    let (raw, width, height) = with_runtime(|runtime| {
+        let bitmap = match input {
+            Input::Encoded(bytes) => MtmdBitmap::from_buffer(&runtime.mtmd, bytes, false)
+                .context("decode image for Qwen3-VL")?,
+            Input::Rgb {
+                width,
+                height,
+                pixels,
+            } => MtmdBitmap::from_image_data(width, height, pixels)
+                .context("load RGB image for Qwen3-VL")?,
+        };
+        let width = bitmap.nx();
+        let height = bitmap.ny();
+        let raw = generate(runtime, &bitmap, &build_prompt(model_request))?;
+        Ok((raw, width, height))
+    })?;
     let mut analysis = parse_analysis(&raw, model_request, width, height);
     if embedded_ocr.is_some() {
         analysis.ocr = embedded_ocr;
@@ -199,18 +255,7 @@ fn build_prompt(request: Request) -> String {
 
 /// Greedily decode one response while keeping image, prompt, and output within
 /// the context window.
-fn generate(runtime: &VisionRuntime, bitmap: &MtmdBitmap, prompt: &str) -> Result<String> {
-    let threads = inference_threads()?;
-    let context_params = LlamaContextParams::default()
-        .with_n_threads(threads)
-        .with_n_threads_batch(threads)
-        .with_n_batch(BATCH_SIZE.try_into()?)
-        .with_n_ctx(Some(CONTEXT_SIZE_NONZERO));
-    let mut context = runtime
-        .model
-        .new_context(&runtime.backend, context_params)
-        .context("create Qwen3-VL context")?;
-
+fn generate(runtime: &mut VisionRuntime, bitmap: &MtmdBitmap, prompt: &str) -> Result<String> {
     let marker = llama_cpp_2::mtmd::mtmd_default_marker();
     let message = LlamaChatMessage::new("user".to_owned(), format!("{prompt}{marker}"))?;
     let formatted = runtime
@@ -224,10 +269,17 @@ fn generate(runtime: &VisionRuntime, bitmap: &MtmdBitmap, prompt: &str) -> Resul
     let chunks = runtime.mtmd.tokenize(input, &[bitmap])?;
 
     let mut progress = InferenceProgress::new();
-    let n_past = chunks.eval_chunks(&runtime.mtmd, &context, 0, 0, BATCH_SIZE, true)?;
+    runtime.context.clear_kv_cache();
+    let n_past = chunks.eval_chunks(&runtime.mtmd, &runtime.context, 0, 0, BATCH_SIZE, true)?;
     progress.maybe_reveal();
     let budget = (CONTEXT_SIZE as i32 - chunks.total_tokens() as i32).clamp(0, MAX_NEW_TOKENS);
-    decode_tokens(&runtime.model, &mut context, n_past, budget, &mut progress)
+    decode_tokens(
+        runtime.model,
+        &mut runtime.context,
+        n_past,
+        budget,
+        &mut progress,
+    )
 }
 
 fn decode_tokens(
@@ -240,7 +292,8 @@ fn decode_tokens(
     let mut batch = LlamaBatch::new(1, 1);
     let mut sampler = LlamaSampler::greedy();
     let mut decoder = UTF_8.new_decoder();
-    let mut output = String::new();
+    let mut output = String::with_capacity(budget as usize * 4);
+    let mut json = JsonCompletion::default();
 
     for position in (n_past..).take(budget as usize) {
         progress.maybe_reveal();
@@ -251,6 +304,9 @@ fn decode_tokens(
         }
         let piece = model.token_to_piece(token, &mut decoder, true, None)?;
         output.push_str(&piece);
+        if json.push(&piece) {
+            return Ok(output);
+        }
         batch.clear();
         batch.add(token, position, &[0], true)?;
         context.decode(&mut batch)?;
@@ -261,6 +317,48 @@ fn decode_tokens(
         return Err(anyhow!("vision response ended with invalid UTF-8"));
     }
     Ok(output)
+}
+
+#[derive(Default)]
+struct JsonCompletion {
+    depth: usize,
+    escaped: bool,
+    in_string: bool,
+    started: bool,
+}
+
+impl JsonCompletion {
+    fn push(&mut self, text: &str) -> bool {
+        for character in text.chars() {
+            if self.escaped {
+                self.escaped = false;
+                continue;
+            }
+            if self.in_string {
+                match character {
+                    '\\' => self.escaped = true,
+                    '"' => self.in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match character {
+                '"' if self.started => self.in_string = true,
+                '{' => {
+                    self.started = true;
+                    self.depth += 1;
+                }
+                '}' if self.started => {
+                    self.depth = self.depth.saturating_sub(1);
+                    if self.depth == 0 {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
 }
 
 #[derive(serde::Deserialize)]

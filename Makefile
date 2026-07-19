@@ -14,10 +14,10 @@ all:
 
 check:
 	$(CARGO) build
-	$(CARGO) clippy --all-targets --all-features
+	$(CARGO) clippy --all-targets
 
 clippy:
-	$(CARGO) clippy --all-targets --all-features
+	$(CARGO) clippy --all-targets
 
 install:
 	$(CARGO) build --release

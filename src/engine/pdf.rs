@@ -10,6 +10,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use pdf_oxide::extractors::images::{ImageData, PdfImage, PixelFormat};
 use pdf_oxide::{Destination, OutlineItem, PdfDocument, RegionRole};
 use serde::Serialize;
 
@@ -17,7 +18,7 @@ use crate::engine::document::{
     Asset, BoundingBox, Document, DocumentFormat, Node, NodeKind, SourceAnchor,
 };
 use crate::engine::output::ImageMode;
-use crate::engine::vision::{Analysis, DetectedObject, Request};
+use crate::engine::vision::{Analysis, DetectedObject, Input, Request};
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct PdfInfo {
@@ -436,11 +437,56 @@ fn selected_page_range(page: Option<usize>, pages: usize) -> Result<Range<usize>
     Ok(page - 1..page)
 }
 
+fn analyze_pdf_image(
+    image: &PdfImage,
+    width: u32,
+    height: u32,
+    page: usize,
+    mode: ImageMode,
+    request: Request,
+    analyze: &mut impl FnMut(Input<'_>, Request) -> Analysis,
+) -> Option<(Analysis, Option<crate::engine::image::PreparedImage>)> {
+    let encode_png = || match image.to_png_bytes() {
+        Ok(png) => Some(png),
+        Err(error) => {
+            log::warn!("PDF page {page} image skipped: {error}");
+            None
+        }
+    };
+    if mode == ImageMode::None {
+        let png = encode_png()?;
+        let prepared = match crate::engine::image::preprocess(&png) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                log::warn!("PDF page {page} image skipped: {error}");
+                return None;
+            }
+        };
+        return Some((Analysis::default(), Some(prepared)));
+    }
+    if let ImageData::Raw {
+        pixels,
+        format: PixelFormat::RGB,
+    } = image.data()
+        && image.icc_profile().is_none()
+        && pixels.len() == width as usize * height as usize * 3
+    {
+        let input = Input::Rgb {
+            width,
+            height,
+            pixels,
+        };
+        return Some((analyze(input, request), None));
+    }
+    let png = encode_png()?;
+    Some((analyze(Input::Encoded(&png), request), None))
+}
+
 pub(crate) fn read(
     bytes: &[u8],
     mode: ImageMode,
     page: Option<usize>,
-    mut analyze: impl FnMut(&[u8], Request) -> Analysis,
+    mut analyze: impl FnMut(Input<'_>, Request) -> Analysis,
 ) -> Result<ReadPdfOutput> {
     let document = PdfDocument::from_bytes(bytes.to_vec()).context("parse PDF")?;
     let pages = document.page_count().context("read PDF page count")?;
@@ -477,32 +523,15 @@ pub(crate) fn read(
                     continue;
                 }
             };
-            let png = match image.to_png_bytes() {
-                Ok(png) => png,
-                Err(error) => {
-                    log::warn!("PDF page {page} image skipped: {error}");
-                    continue;
-                }
-            };
             let request = Request {
                 caption: matches!(mode, ImageMode::All | ImageMode::Caption),
                 objects: matches!(mode, ImageMode::All | ImageMode::Objects),
                 ocr: matches!(mode, ImageMode::All | ImageMode::Ocr),
             };
-            let analysis = if mode == ImageMode::None {
-                Analysis::default()
-            } else {
-                analyze(&png, request)
-            };
-            let prepared = match (mode == ImageMode::None)
-                .then(|| crate::engine::image::preprocess(&png))
-                .transpose()
-            {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    log::warn!("PDF page {page} image skipped: {error}");
-                    continue;
-                }
+            let Some((analysis, prepared)) =
+                analyze_pdf_image(&image, width, height, page, mode, request, &mut analyze)
+            else {
+                continue;
             };
             let (mime, encoding, data) = if let Some(prepared) = prepared {
                 (prepared.mime, Some("base64"), Some(prepared.data))

@@ -24,6 +24,9 @@ make install
 Source builds require CMake, Clang/libclang, and a C++ compiler because image
 inference uses `llama-cpp-2`.
 
+GPU acceleration can be enabled at build time with the `cuda`, `metal`,
+`opencl`, `rocm`, or `vulkan` Cargo feature.
+
 ## Plugins
 
 ### Pi extension
