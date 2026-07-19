@@ -27,7 +27,8 @@ for (const packageName of packageNames) {
     ['view', `${packageName}@${version}`, 'dist', '--json'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
   );
-  const distribution = JSON.parse(output);
+  const metadata = JSON.parse(output);
+  const distribution = Array.isArray(metadata) ? metadata[0] : metadata;
   if (!distribution?.tarball || !distribution?.integrity?.startsWith('sha512-')) {
     throw new Error(`npm returned incomplete distribution metadata for ${packageName}@${version}`);
   }
