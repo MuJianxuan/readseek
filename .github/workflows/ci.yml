@@ -14,7 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2025]
+        include:
+          - os: ubuntu-latest
+            cargo_args: --features cuda
+          - os: macos-latest
+            cargo_args: --features metal
+          - os: windows-2025
+            cargo_args: ""
 
     steps:
       - name: Checkout
@@ -29,16 +35,29 @@ jobs:
 
       - name: Install native build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev nvidia-cuda-toolkit
+
+      - name: Configure CUDA libraries
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # llama-cpp's CUDA helper does not search Ubuntu's multiarch directory.
+          mkdir -p "$RUNNER_TEMP/cuda-libs"
+          ln -s /usr/lib/x86_64-linux-gnu/{libcudart_static.a,libcublas_static.a,libcublasLt_static.a,libculibos.a} "$RUNNER_TEMP/cuda-libs/"
+          echo "RUSTFLAGS=-Lnative=$RUNNER_TEMP/cuda-libs" >> "$GITHUB_ENV"
 
       - name: Build
         run: cargo build
+
+      - name: Check native backend
+        if: matrix.cargo_args != ''
+        run: cargo check ${{ matrix.cargo_args }}
 
       - name: Test (unit)
         run: cargo test
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets
 
       - name: Check Windows target
         if: runner.os == 'Windows'
@@ -46,7 +65,7 @@ jobs:
 
       - name: Clippy Windows target
         if: runner.os == 'Windows'
-        run: cargo clippy --target x86_64-pc-windows-msvc --all-targets --all-features
+        run: cargo clippy --target x86_64-pc-windows-msvc --all-targets
 
       - name: Format check
         run: cargo fmt --check
