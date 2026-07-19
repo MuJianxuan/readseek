@@ -236,4 +236,5 @@ EOF
 
 git tag -s "$next_ver" -F "$release_notes"
 
-echo "tagged $next_ver"
+printf 'tagged %s\n' "$next_ver"
+printf 'push the commit and tag, wait for CI, then run make publish\n'

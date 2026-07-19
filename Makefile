@@ -6,8 +6,11 @@ BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/share/man
 CARGO ?= cargo
 INSTALL ?= install
+GH ?= gh
+NODE ?= node
+NPM ?= npm
 
-.PHONY: all check clippy install uninstall clean
+.PHONY: all check clippy publish install uninstall clean
 
 all:
 	$(CARGO) build
@@ -18,6 +21,10 @@ check:
 
 clippy:
 	$(CARGO) clippy --all-targets
+
+publish:
+	CARGO="$(CARGO)" GH="$(GH)" NODE="$(NODE)" NPM="$(NPM)" \
+		./scripts/publish.sh "$(VERSION)"
 
 install:
 	$(CARGO) build --release

@@ -1,0 +1,225 @@
+name: Build release assets
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Validate metadata
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve release tag
+        id: version
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+
+          const tags = execFileSync('git', ['tag', '--list', '--sort=-v:refname'], {
+            encoding: 'utf8',
+          }).trim().split('\n').filter((tag) => /^\d+\.\d+\.\d+$/.test(tag));
+          const tag = process.env.GITHUB_REF_TYPE === 'tag'
+            ? process.env.GITHUB_REF_NAME
+            : tags[0];
+          if (!tag || !/^\d+\.\d+\.\d+$/.test(tag)) {
+            throw new Error('no release tag found');
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${tag}\n`);
+          console.log(`release tag: ${tag}`);
+          NODE
+
+      - name: Validate package metadata
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+
+          const tag = process.env.TAG_REF;
+
+          function readTagFile(file) {
+            return execFileSync('git', ['show', `${tag}:${file}`], {
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'inherit'],
+            });
+          }
+
+          const packageDirs = [
+            'npm/darwin-arm64',
+            'npm/linux-arm64',
+            'npm/linux-x64',
+            'npm/win32-x64',
+          ];
+          const root = JSON.parse(readTagFile('package.json'));
+          const cargoToml = readTagFile('Cargo.toml');
+          const cargoVersion = cargoToml.match(/^\s*version\s*=\s*"([^"]+)"/m)?.[1];
+
+          if (!cargoVersion) {
+            throw new Error('cannot find Cargo.toml package version');
+          }
+
+          if (root.version !== cargoVersion) {
+            throw new Error(`package.json version ${root.version} does not match Cargo.toml ${cargoVersion}`);
+          }
+
+          const tagVersion = process.env.TAG_VERSION;
+          if (root.version !== tagVersion) {
+            throw new Error(`package.json version ${root.version} does not match release tag ${tagVersion}`);
+          }
+
+          for (const packageDir of packageDirs) {
+            const data = JSON.parse(readTagFile(`${packageDir}/package.json`));
+            if (data.version !== root.version) {
+              throw new Error(`${packageDir}/package.json version ${data.version} does not match ${root.version}`);
+            }
+            if (root.optionalDependencies?.[data.name] !== root.version) {
+              throw new Error(`package.json optional dependency ${data.name} does not match ${root.version}`);
+            }
+          }
+
+          const piReadseek = JSON.parse(readTagFile('packages/pi-readseek/package.json'));
+          if (piReadseek.version !== root.version) {
+            throw new Error(`packages/pi-readseek/package.json version ${piReadseek.version} does not match ${root.version}`);
+          }
+          if (piReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
+            throw new Error('pi-readseek must depend on the synchronized readseek version');
+          }
+
+          const opencodeReadseek = JSON.parse(readTagFile('packages/opencode-readseek/package.json'));
+          if (opencodeReadseek.version !== root.version) {
+            throw new Error(`packages/opencode-readseek/package.json version ${opencodeReadseek.version} does not match ${root.version}`);
+          }
+          if (opencodeReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
+            throw new Error('opencode-readseek must depend on the synchronized readseek version');
+          }
+          NODE
+        env:
+          TAG_REF: ${{ steps.version.outputs.tag }}
+          TAG_VERSION: ${{ steps.version.outputs.version }}
+
+  build:
+    name: Build ${{ matrix.package }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: darwin-arm64
+            runner: macos-latest
+            package_dir: npm/darwin-arm64
+            binary: readseek
+          - package: linux-x64
+            runner: ubuntu-latest
+            package_dir: npm/linux-x64
+            binary: readseek
+            rust_target: x86_64-unknown-linux-gnu
+          - package: linux-arm64
+            runner: ubuntu-24.04-arm
+            package_dir: npm/linux-arm64
+            binary: readseek
+            rust_target: aarch64-unknown-linux-gnu
+          - package: win32-x64
+            runner: windows-2025
+            package_dir: npm/win32-x64
+            binary: readseek.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.tag }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+
+      - name: Build (Linux static glibc)
+        if: runner.os == 'Linux'
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target "${{ matrix.rust_target }}"
+
+      - name: Verify Linux static linkage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.rust_target }}/release/readseek"
+          description=$(file -b "$bin")
+          echo "$description"
+          if [[ "$description" != *"static-pie linked"* && "$description" != *"statically linked"* ]]; then
+            echo "Linux release is not statically linked" >&2
+            exit 1
+          fi
+          if readelf -l "$bin" 2>/dev/null | grep -q 'INTERP'; then
+            echo "Linux release declares a dynamic ELF interpreter" >&2
+            exit 1
+          fi
+          if readelf -d "$bin" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "Linux release has dynamic dependencies" >&2
+            exit 1
+          fi
+
+      - name: Build (macOS / Windows)
+        if: runner.os != 'Linux'
+        run: cargo build --release
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            bin_path="target/${{ matrix.rust_target }}/release/readseek"
+          else
+            bin_path="target/release/readseek"
+          fi
+          if [[ "${{ matrix.binary }}" == *.exe ]]; then
+            bin_path="target/release/readseek.exe"
+          fi
+          mkdir -p "${{ matrix.package_dir }}/bin"
+          cp "$bin_path" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          if [[ "${{ matrix.binary }}" != *.exe ]]; then
+            chmod 755 "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          fi
+          mkdir -p artifacts
+          tar -C "${{ matrix.package_dir }}/bin" -czf \
+            "artifacts/${{ matrix.package }}.tar.gz" "${{ matrix.binary }}"
+
+      # Smoke test the staged binary so a broken build (e.g. a half-static
+      # binary that segfaults at startup) fails here instead of publishing.
+      - name: Smoke test staged binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ matrix.package_dir }}/bin/${{ matrix.binary }}" --version
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: artifacts/${{ matrix.package }}.tar.gz
+          if-no-files-found: error
