@@ -34,6 +34,10 @@ as needed. File changes invalidate remembered anchors. Compaction context record
 paths with fresh anchors and summaries of pending dry-run rename plans. Text reads
 return at most 2,000 lines by default.
 
+The plugin also instructs OpenCode to prefer ReadSeek's anchored read, edit,
+write, and rename tools over built-in file mutation tools while leaving the
+built-ins available as fallbacks.
+
 ## Configuration
 
 `imageMode` defaults to `"auto"`: it exposes `none`, `all`, `ocr`, `caption`, and

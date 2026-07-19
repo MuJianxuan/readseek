@@ -13,6 +13,19 @@ const MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const DEFAULT_READ_LIMIT = 2000;
 const MAX_DOCUMENT_OUTPUT_BYTES = 256 * 1024;
 const MAX_DOCUMENT_OUTPUT_LINES = 2000;
+const EDITING_POLICY = [
+  "ReadSeek editing policy:",
+  "- Prefer readseek_read over built-in file reads when preparing to edit existing text; its LINE:HASH anchors are required by readseek_edit.",
+  "- Prefer readseek_edit for existing text files, readseek_write for whole-file creation or replacement, and readseek_rename for symbol renames.",
+  "- Do not use built-in edit, write, or apply_patch when the corresponding ReadSeek tool can perform the change.",
+  "- Use readseek_check after source edits for a quick syntax check.",
+].join("\n");
+const PREFERRED_TOOL_DESCRIPTIONS: Record<string, string> = {
+  readseek_edit: "Preferred tool for editing existing text files with verified LINE:HASH anchors.",
+  readseek_read: "Preferred file reader when an existing text file may be edited; returns the anchors required by readseek_edit.",
+  readseek_rename: "Preferred tool for renaming code symbols safely across their resolved bindings.",
+  readseek_write: "Preferred tool for creating or replacing a complete text file.",
+};
 const READSEEK_PLATFORM_PACKAGES: Record<string, string> = {
   "darwin-arm64": "@jarkkojs/readseek-darwin-arm64",
   "linux-arm64": "@jarkkojs/readseek-linux-arm64",
@@ -1332,6 +1345,13 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           return runReadSeek(context, args);
         },
       ),
+    },
+    "experimental.chat.system.transform": async (_input, output) => {
+      output.system.push(EDITING_POLICY);
+    },
+    "tool.definition": async (input, output) => {
+      const preference = PREFERRED_TOOL_DESCRIPTIONS[input.toolID];
+      if (preference) output.description = `${preference} ${output.description}`;
     },
     event: async ({ event }) => {
       if (event.type === "file.edited" || event.type === "file.watcher.updated") {
