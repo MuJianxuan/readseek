@@ -144,6 +144,20 @@ jobs:
       - name: Test
         run: npm test
 
+  readseek-vim:
+    name: Test readseek.vim
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/readseek.vim
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        run: vim -Nu NONE -n -i NONE -es -S test/readseek.vim
+
 
   opencode-readseek:
     name: Test opencode-readseek

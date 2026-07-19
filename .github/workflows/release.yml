@@ -112,6 +112,12 @@ jobs:
           if (opencodeReadseek.dependencies?.['@jarkkojs/readseek'] !== `^${root.version}`) {
             throw new Error('opencode-readseek must depend on the synchronized readseek version');
           }
+
+          const vimConfig = readTagFile('packages/readseek.vim/autoload/readseek/config.vim');
+          const vimVersion = vimConfig.match(/^export const PluginVersion = '([^']+)'$/m)?.[1];
+          if (vimVersion !== root.version) {
+            throw new Error(`readseek.vim version ${vimVersion} does not match ${root.version}`);
+          }
           NODE
         env:
           TAG_REF: ${{ steps.version.outputs.tag }}

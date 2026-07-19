@@ -39,6 +39,7 @@ release_files=(
 	packages/pi-readseek/package-lock.json
 	packages/opencode-readseek/package.json
 	packages/opencode-readseek/package-lock.json
+	packages/readseek.vim/autoload/readseek/config.vim
 )
 committed=0
 signing_check_tag=""
@@ -98,12 +99,20 @@ version_parts "$opencode_ver"
 	ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
 	|| die "$next_ver is not greater than opencode-readseek $opencode_ver"
 
-readseek_log="$(git log --first-parent --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- . ':(exclude)packages/pi-readseek' ':(exclude)packages/opencode-readseek')"
+vim_ver="$(sed -n "s/^export const PluginVersion = '\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)'$/\1/p" packages/readseek.vim/autoload/readseek/config.vim)"
+[[ -n "$vim_ver" ]] || die "cannot find readseek.vim version"
+version_parts "$vim_ver"
+ver_gt "$next_a" "$next_b" "$next_c" "$VERSION_A" "$VERSION_B" "$VERSION_C" \
+	|| die "$next_ver is not greater than readseek.vim $vim_ver"
+
+readseek_log="$(git log --first-parent --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- . ':(exclude)packages/pi-readseek' ':(exclude)packages/opencode-readseek' ':(exclude)packages/readseek.vim')"
 pi_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/pi-readseek)"
 opencode_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/opencode-readseek)"
+vim_log="$(git log --format='- %s (%an)' --no-merges "$core_ver"..HEAD -- packages/readseek.vim)"
 [[ -n "$readseek_log" ]] || readseek_log='- No source changes.'
 [[ -n "$pi_log" ]] || pi_log='- Merged pi-readseek into this repository.'
 [[ -n "$opencode_log" ]] || opencode_log='- Merged opencode-readseek into this repository.'
+[[ -n "$vim_log" ]] || vim_log='- Merged readseek.vim into this repository.'
 
 npm install --prefix packages/pi-readseek --package-lock=false --ignore-scripts
 npm install --prefix packages/opencode-readseek --package-lock=false --ignore-scripts
@@ -205,6 +214,11 @@ rm -f Cargo.toml.bak
 grep -q "^[[:space:]]*version = \"$next_ver\"" Cargo.toml \
 	|| die "failed to update version in Cargo.toml"
 
+sed -E -i.bak "s/^(export const PluginVersion = ')[^']+(')$/\1$next_ver\2/" packages/readseek.vim/autoload/readseek/config.vim
+rm -f packages/readseek.vim/autoload/readseek/config.vim.bak
+grep -q "^export const PluginVersion = '$next_ver'$" packages/readseek.vim/autoload/readseek/config.vim \
+	|| die "failed to update readseek.vim version"
+
 date="$(date '+%Y-%m-%d')"
 sed -E -i.bak 's/^(\.TH [^[:space:]]* [0-9][0-9]*) "[^"]*"/\1 "'"$date"'"/' man/man1/readseek.1
 sed -E -i.bak 's/"readseek [0-9][^"]*"/"readseek '"$next_ver"'"/' man/man1/readseek.1
@@ -219,6 +233,7 @@ npm --prefix packages/pi-readseek run typecheck
 npm --prefix packages/pi-readseek test
 npm --prefix packages/opencode-readseek run typecheck
 bun test packages/opencode-readseek/tests
+(cd packages/readseek.vim && vim -Nu NONE -n -i NONE -es -S test/readseek.vim)
 
 cargo build
 cargo test
@@ -243,6 +258,9 @@ $pi_log
 
 opencode-readseek:
 $opencode_log
+
+readseek.vim:
+$vim_log
 
 $sob
 EOF

@@ -57,6 +57,12 @@ Add the plugin to `opencode.json`:
 }
 ```
 
+### Vim plugin
+
+The bundled [readseek.vim plugin](packages/readseek.vim/README.md) provides
+structural navigation, search, references, and rename operations in Vim9. It
+installs the matching prebuilt ReadSeek release binary automatically.
+
 ## Common commands
 
 ```sh
@@ -162,7 +168,8 @@ Pass `--help` to any command for command-specific usage.
 
 The native `readseek` crate is licensed under `LGPL-2.1-or-later`. The
 `@jarkkojs/readseek` wrapper and platform packages declare
-`Apache-2.0 AND LGPL-2.1-or-later`.
+`Apache-2.0 AND LGPL-2.1-or-later`; the bundled plugins use Apache-2.0 or MIT as
+noted in their package directories.
 
 The downloaded `Qwen/Qwen3-VL-2B-Instruct-GGUF` model is licensed under
 `Apache-2.0`.

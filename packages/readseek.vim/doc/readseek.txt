@@ -1,0 +1,135 @@
+*readseek.txt*  Vim frontend for readseek
+
+readseek.vim                                                  *readseek.vim*
+
+Vim9 plugin frontend for the readseek CLI.
+
+Requirements~
+  Vim 9 with +job support. Unless |g:readseek_executable| is set, the plugin
+  installs or upgrades to the matching readseek release binary when it loads.
+Commands~
+                                                        *:ReadSeekCheckHealth*
+  :ReadSeekCheckHealth
+        Display a dashboard popup showing the readseek executable path,
+        detected version, and project root. Uses popup
+        styling with rounded borders and color-coded status indicators.
+
+                                                        *:ReadSeekHover*
+  :ReadSeekHover
+        Run readseek identify for the current buffer and cursor position. The
+        current buffer is sent through stdin, so unsaved changes are included.
+        Shows identifier context in a styled popup window with rounded
+        borders, scrollbar, and title bar showing the identifier name.
+
+                                                        *:ReadSeekDefinition*
+  :ReadSeekDefinition
+        Identify the symbol at the cursor, search for its name with readseek
+        def, and jump to the result. A single result is opened directly;
+        multiple results are loaded into the configured results list and opened.
+
+                                                        *:ReadSeekReferences*
+  :ReadSeekReferences
+        Identify the word at the cursor and run readseek refs --format plain
+        for the current project root. Results are loaded into the configured
+        results list and opened.
+
+                                                        *:ReadSeekRename*
+  :ReadSeekRename
+        Identify the binding at the cursor, prompt for a new name, and run
+        readseek rename --apply on the current file. The rename is binding-
+        accurate and scoped to the current file: every occurrence that resolves
+        to the same declaration is renamed, shadowed occurrences are left
+        untouched. The buffer must be saved (readseek reads and writes the file
+        on disk); unsaved buffers are refused. If readseek reports naming
+        conflicts the rename is not applied. The buffer is reloaded afterwards,
+        preserving cursor and view.
+
+                                                         *:ReadSeekSearch*
+  :ReadSeekSearch
+        Prompts for an AST search pattern, then runs readseek search across
+        the current project root. Results are loaded into the configured
+        results list. Pattern syntax follows ast-grep conventions: $NAME for
+        single-node captures, $$$NAME for zero-or-more sibling captures.
+
+                                                         *:ReadSeekMap*
+  :ReadSeekMap
+        Map the current buffer to symbols and load them into the configured
+        results list. Each symbol shows its kind and name; jump to
+        definitions with |:cnext|, |:cprev|.
+
+                                                         *:ReadSeekInit*
+  :ReadSeekInit
+        Initialize the readseek cache (.readseek/) for the current project
+        root, as selected by |g:readseek_root_markers|. Equivalent to running
+        readseek init in the project root. Re-running reinitializes an existing
+        cache.
+
+Options~
+
+Plug mappings are provided for users to bind to preferred keys:
+          <Plug>(ReadSeekDefinition)    :ReadSeekDefinition
+          <Plug>(ReadSeekReferences)    :ReadSeekReferences
+          <Plug>(ReadSeekHover)         :ReadSeekHover
+          <Plug>(ReadSeekRename)        :ReadSeekRename
+          <Plug>(ReadSeekSearch)        :ReadSeekSearch
+          <Plug>(ReadSeekMap)           :ReadSeekMap
+          <Plug>(ReadSeekInit)          :ReadSeekInit
+
+                                                        *g:readseek_root_markers*
+  g:readseek_root_markers
+        List of root marker files or directories. The nearest parent directory
+        containing a marker is used as the readseek project root. Default:
+        ['.git']
+
+                                                        *g:readseek_list_type*
+  g:readseek_list_type
+        Result list type for multiple definitions and references. Use
+        'quickfix' for |setqflist()| and |:copen| or 'location' for
+        |setloclist()| and |:lopen|. Default: 'quickfix'
+
+                                                        *g:readseek_executable*
+  g:readseek_executable
+        Optional path or command name for an externally managed readseek
+        executable. When unset, readseek.vim downloads the release binary whose
+        version matches the plugin.
+
+Highlight groups~
+                                                        *readseek-highlights*
+  ReadSeekOk       green   success notifications and health markers
+  ReadSeekInfo     blue    informational notifications and labels
+  ReadSeekWarn     yellow  warning notifications
+  ReadSeekError    red     error notifications and health markers
+  ReadSeekBorder   blue    popup border color
+  ReadSeekTitle    blue    popup title bar and labels (bold)
+  ReadSeekFloat    Normal  popup background (linked to Normal by default)
+
+Examples~
+>
+  let g:readseek_root_markers = ['.git', 'package.json']
+  let g:readseek_list_type = 'location'
+
+  nnoremap <silent> gd <Plug>(ReadSeekDefinition)
+  nnoremap <silent> gr <Plug>(ReadSeekReferences)
+  nnoremap <silent> K <Plug>(ReadSeekHover)
+  nnoremap <silent> ,rn <Plug>(ReadSeekRename)
+  nnoremap <silent> ,rs <Plug>(ReadSeekSearch)
+<
+
+Troubleshooting~
+  Run :ReadSeekCheckHealth first when commands fail. The dashboard popup
+  shows executable status, version, and project root
+  with color-coded indicators (✓ green, ✗ red).
+
+  If no definition or references are found, confirm the cursor is on an
+  identifier that readseek can recognize and that the project root selected by
+  |g:readseek_root_markers| includes the files to search.
+
+  Results use compact readseek locations: file, line, column, and text. With
+  quickfix output, use |:cnext|, |:cprev|, and |:cclose|. With location-list
+  output, use |:lnext|, |:lprev|, and |:lclose|.
+
+  Rename verifies line hashes before writing. If a rename reports that the
+  file changed since the plan was computed, reload the buffer and retry. Save
+  the buffer first: rename operates on the file on disk, not the buffer.
+
+vim:tw=78:ts=8:noet:ft=help:norl:
