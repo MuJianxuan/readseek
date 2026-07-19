@@ -1,4 +1,5 @@
 /target
 /artifacts
 /assets
+/node_modules
 /npm/*/bin
