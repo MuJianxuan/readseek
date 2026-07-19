@@ -22,17 +22,19 @@ binary automatically on supported platforms.
 
 - `readSeek_read`: reads text with `LINE:HASH` anchors; when image modes are
   enabled, images and PDFs can be returned as base64 or analyzed locally.
-  PDF reads return one selected page at a time by default.
+  PDF reads select one page by default and accept an explicit page.
 - `readSeek_edit`: edits existing text files using fresh `LINE:HASH` anchors.
 - `readSeek_grep`: searches text and returns edit-ready anchors.
 - `readSeek_search`: searches code by structural AST pattern.
 - `readSeek_refs`: finds identifier references with enclosing symbols.
-- `readSeek_rename`: plans or applies binding-aware renames; workspace matches are
-  name-based where binding support is unavailable.
+- `readSeek_rename`: applies a binding-aware verified rename by default;
+  `apply: false` returns a dry-run plan. Workspace matches are name-based where
+  binding support is unavailable.
 - `readSeek_hover`: identifies the cursor token and enclosing symbol.
 - `readSeek_def`: finds structural symbol definitions.
 - `readSeek_check`: checks a source file for parser errors and missing syntax.
-- `readSeek_view`: views an indexed PDF overview or narrows it by page, node, kind, or depth.
+- `readSeek_view`: creates or reuses a PDF index, returns its overview, or
+  narrows it by page, node, kind, or depth.
 - `readSeek_write`: creates or overwrites whole files and returns anchors.
 
 ## Settings

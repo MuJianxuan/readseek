@@ -1,6 +1,6 @@
 # readseek
 
-`readseek` is a structural source reader for scripts, editors, and coding agents.
+`readseek` is a structural source and PDF reader for scripts, editors, and coding agents.
 It emits compact JSON with stable line/hash anchors, structural symbol maps, parse
 diagnostics, AST search matches, references, and rename plans.
 
@@ -10,6 +10,12 @@ Install the npm wrapper and a prebuilt binary:
 
 ```sh
 npm install -g @jarkkojs/readseek
+```
+
+Install the native program from crates.io:
+
+```sh
+cargo install readseek
 ```
 
 Prebuilt binaries are available for macOS ARM64; Linux ARM64 and x64; and Windows
@@ -43,11 +49,21 @@ pi install npm:pi-readseek
 The [opencode-readseek plugin](packages/opencode-readseek/README.md) provides the
 same anchored and structural tools in OpenCode.
 
+Add the plugin to `opencode.json`:
+
+```json
+{
+  "plugin": ["opencode-readseek"]
+}
+```
+
 ## Common commands
 
 ```sh
 readseek detect src/main.rs
 readseek read src/main.rs:10 --end 20
+readseek read report.pdf --page 3
+readseek view report.pdf --page 3
 readseek map src/main.rs
 readseek check src/main.rs
 readseek symbol src/main.rs:run --name
@@ -86,9 +102,12 @@ readseek read photo.jpg --image ocr       # extracted text
 readseek read photo.jpg --image all       # caption, objects, and OCR in one pass
 ```
 
-PDF reads return page-tagged Markdown and page-associated embedded images. The
-same mode applies to each embedded image. Line/hash suffixes, `--end`, `--limit`,
-and `--language` do not apply to visual files.
+PDF reads return page-tagged Markdown and page-associated embedded images. Use
+`--page` to select one page; the same image mode applies to each embedded image.
+After initializing `.readseek/`, `view` creates or reuses a persistent structural
+PDF index and returns an overview that can be narrowed by page, node, kind, or
+depth. Line/hash suffixes, `--end`, `--limit`, and `--language` do not apply to
+visual files.
 
 The Qwen3-VL GGUF model and multimodal projector download lazily into the user
 cache and run through `llama-cpp-2` on the CPU. Captioning can take substantial
@@ -99,8 +118,9 @@ time.
 `readseek init [path]` creates and populates `.readseek/maps/` and
 `.readseek/def-index/`. Map-dependent commands update entries on demand and
 discover `.readseek/` by walking up from the target path, or use the directory
-passed by `--readseek-dir`. Image analysis caches results under the `.readseek/`
-found from the current working directory.
+passed by `--readseek-dir`. `view` creates PDF structure indexes and extracted
+assets under `.readseek/documents/` on demand. Image analysis caches results
+under the `.readseek/` found from the current working directory.
 
 ## Documentation
 

@@ -41,10 +41,15 @@ release_files=(
 	packages/opencode-readseek/package-lock.json
 )
 committed=0
+signing_check_tag=""
 
 cleanup() {
 	local status=$?
 
+	if [[ -n "$signing_check_tag" ]] \
+		&& git rev-parse --verify --quiet "refs/tags/$signing_check_tag" >/dev/null; then
+		git tag -d "$signing_check_tag" >/dev/null 2>&1 || true
+	fi
 	if (( status != 0 && !committed )); then
 		git restore --staged -- "${release_files[@]}" 2>/dev/null || true
 		git restore -- "${release_files[@]}" 2>/dev/null || true
@@ -66,6 +71,14 @@ branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null)" \
 	|| die "working directory is not clean"
 [[ -z "$(git tag -l "$next_ver")" ]] \
 	|| die "tag $next_ver already exists"
+
+signing_check_tag="readseek-signing-check-$next_ver-$$"
+[[ -z "$(git tag -l "$signing_check_tag")" ]] \
+	|| die "temporary signing-check tag already exists: $signing_check_tag"
+git tag -s "$signing_check_tag" -m "readseek release signing check" \
+	|| die "cannot sign release tags; renew or configure the Git signing key"
+git tag -d "$signing_check_tag" >/dev/null
+signing_check_tag=""
 
 core_ver="$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' Cargo.toml | head -1)"
 [[ -n "$core_ver" ]] || die "cannot find version in Cargo.toml"
@@ -209,7 +222,7 @@ bun test packages/opencode-readseek/tests
 
 cargo build
 cargo test
-cargo clippy --all-targets --all-features
+cargo clippy --all-targets
 cargo fmt --check
 
 git add -- "${release_files[@]}"

@@ -1,6 +1,6 @@
 .TH READSEEK 1 "2026-07-19" "readseek 0.7.0" "User Commands"
 .SH NAME
-readseek \- structural source-code reader with stable line hashing
+readseek \- structural source and PDF reader with stable line hashing
 .SH SYNOPSIS
 .nf
 \fBreadseek\fR [\fB\-h\fR|\fB--help\fR]
@@ -12,7 +12,12 @@ readseek \- structural source-code reader with stable line hashing
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR] \fItarget\fR
-\fBreadseek read\fR [\fB--image\fR \fBnone|all|caption|objects|ocr\fR] \fItarget\fR
+\fBreadseek read\fR [\fB--image\fR \fBnone|all|caption|objects|ocr\fR]
+    [\fB--page\fR \fIpage\fR] \fItarget\fR
+
+\fBreadseek view\fR [\fB--format\fR \fBplain|json\fR] [\fB--node\fR \fIid\fR]
+    [\fB--page\fR \fIpage\fR] [\fB--kind\fR \fIkind\fR] [\fB--depth\fR \fIn\fR]
+    [\fB--outline\fR] \fItarget\fR
 
 \fBreadseek map\fR [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR
@@ -38,7 +43,8 @@ readseek \- structural source-code reader with stable line hashing
 
 \fBreadseek rename\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR] \fB--to\fR \fIname\fR
     [\fB--workspace\fR \fIdir\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
-    [\fB\-i\fR|\fB--ignored\fR] [\fB--apply\fR] [\fB--language\fR \fIlanguage\fR] \fItarget\fR
+    [\fB\-i\fR|\fB--ignored\fR] [\fB--apply\fR] [\fB--plan-hash\fR \fIhash\fR]
+    [\fB--language\fR \fIlanguage\fR] \fItarget\fR
 
 \fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
     [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
@@ -152,6 +158,15 @@ with \fB--end\fR, \fB--limit\fR, or \fB--language\fR, and line or hash suffixes 
 not apply to visual files. The model runs through llama.cpp and downloads lazily
 (see \fBCACHE\fR).
 .TP
+.B view
+Create or reuse a persistent structural index for a PDF and print a bounded view.
+A \fI.readseek/\fR directory must already be available; run \fBinit\fR first or
+pass \fB--readseek-dir\fR. With no selector, the command prints a document
+overview. Narrow the result with \fB--page\fR, \fB--node\fR, \fB--kind\fR,
+\fB--depth\fR, or \fB--outline\fR. Plain output is the default; use
+\fB--format json\fR for the structured representation. Indexed embedded images
+are stored with the document cache.
+.TP
 .B map
 Print the structural source map: each extracted symbol's kind, name, qualified
 name, start and end line, boundary hashes, the symbol's \fIstart_byte\fR and
@@ -244,8 +259,8 @@ Print usage information and exit.
 Print the program version and exit.
 .TP
 \fB--output\fR \fIpath\fR
-Write JSON output to \fIpath\fR instead of standard output. It cannot be used with
-\fB--version\fR or \fBinit\fR.
+Write command output to \fIpath\fR instead of standard output. It cannot be used
+with \fB--version\fR or \fBinit\fR.
 .TP
 \fB--readseek-dir\fR \fIdir\fR
 Use \fIdir\fR as the \fI.readseek/\fR directory instead of discovering one by
@@ -260,10 +275,13 @@ Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64), \fIall\fR,
 \fIcaption\fR, \fIobjects\fR, or \fIocr\fR. See \fBread\fR under \fBCOMMANDS\fR.
 .TP
+\fB--page\fR \fIpage\fR
+For \fBread\fR, select a one-based PDF page. For \fBview\fR, restrict the
+structural view to a one-based source page.
+.TP
 \fB--format\fR \fIformat\fR
-For \fBdef\fR and \fBrefs\fR, select the output format: \fIjson\fR (default) for
-the command-specific JSON shape, or \fIplain\fR for flat \fIlocations\fR arrays
-with editor-friendly fields.
+For \fBdef\fR and \fBrefs\fR, select \fIjson\fR (default) or \fIplain\fR.
+For \fBview\fR, select \fIplain\fR (default) or \fIjson\fR.
 .TP
 \fB--line\fR \fIline\fR
 Cursor line for \fBrefs --scope\fR and \fBrename\fR.
@@ -290,11 +308,30 @@ For \fBrename\fR, expand the rename across \fIdir\fR. See \fBrename\fR under
 For \fBrename\fR, write the planned edits after checking conflicts and verifying
 each affected file and line hash.
 .TP
+\fB--plan-hash\fR \fIhash\fR
+For \fBrename --apply\fR, require the apply plan to match the hash emitted by an
+earlier dry-run plan.
+.TP
 \fB--end\fR \fIline\fR
 Last line to include when reading. Cannot be combined with \fB--limit\fR.
 .TP
 \fB--limit\fR \fIn\fR
 Maximum number of lines to include when reading. Cannot be combined with \fB--end\fR.
+.TP
+\fB--node\fR \fIid\fR
+For \fBview\fR, use the indexed node ID as the view root.
+.TP
+\fB--kind\fR \fIkind\fR
+For \fBview\fR, include only nodes of the selected kind: \fIartifact\fR,
+\fIfooter\fR, \fIheader\fR, \fIheading\fR, \fImarginal_label\fR, \fIpage\fR,
+\fIpage_number\fR, \fIparagraph\fR, \fIsection\fR, or
+\fIstructural_section\fR.
+.TP
+\fB--depth\fR \fIn\fR
+For \fBview\fR, limit output to this depth below the selected roots.
+.TP
+\fB--outline\fR
+For \fBview\fR, return outline nodes only.
 .TP
 \fB\-c\fR, \fB--cached\fR
 When searching a directory inside a Git repository, or expanding \fBrename
@@ -340,6 +377,10 @@ Binary source-map cache files keyed by file hash.
 .I .readseek/def-index/
 Sharded binary definition index keyed by symbol name, used by \fBdef\fR directory lookup.
 .TP
+.I .readseek/documents/
+Persistent PDF structural indexes and extracted embedded-image assets, keyed by
+PDF content hash.
+.TP
 .I .readseek/vision/
 Content-addressed cache of image caption, object-detection, and OCR results.
 .TP
@@ -366,12 +407,17 @@ readseek read src/main.rs:42 --limit 12
 
 Read unsaved buffer text from standard input:
 .EX
-printf '%s\n' 'fn main() {}' | readseek read stdin:scratch.rs
+printf '%s\en' 'fn main() {}' | readseek read stdin:scratch.rs
 .EE
 
 Build a structural map of a file:
 .EX
 readseek map src/main.rs
+.EE
+
+View the structure of an indexed PDF page:
+.EX
+readseek view report.pdf --page 3
 .EE
 
 Look up a symbol by name or by the line it's on:

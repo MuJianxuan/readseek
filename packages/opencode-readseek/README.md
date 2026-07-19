@@ -9,7 +9,7 @@ Add the plugin to `opencode.json`:
 
 ```json
 {
-  "plugin": [["opencode-readseek", { "imageMode": "auto" }]]
+  "plugin": ["opencode-readseek"]
 }
 ```
 
@@ -18,7 +18,8 @@ binary dependency with Bun at startup.
 
 ## Tools
 
-- `readseek_read`: read text with `LINE:HASH` anchors; image/PDF handling is explicit and PDFs default to one page.
+- `readseek_read`: read text with `LINE:HASH` anchors; PDFs select one page by
+  default and accept an explicit page.
 - `readseek_edit`: apply line, range, and insertion edits with fresh `LINE:HASH` anchors.
 - `readseek_write`: create or replace a complete text file.
 - `readseek_grep`: plain-text or regular-expression search with anchored results.
@@ -27,7 +28,8 @@ binary dependency with Bun at startup.
 - `readseek_def`, `readseek_refs`, `readseek_hover`: symbol navigation.
 - `readseek_rename`: apply a verified rename by default; `apply: false` returns a dry-run plan.
 - `readseek_check`: parse diagnostics.
-- `readseek_view`: view an indexed PDF overview or narrow it by page, node, kind, or depth.
+- `readseek_view`: create or reuse a PDF index, return its overview, or narrow
+  it by page, node, kind, or depth.
 
 The plugin requests OpenCode read, grep, external-directory, and edit permissions
 as needed. File changes invalidate remembered anchors. Compaction context records
@@ -39,6 +41,14 @@ write, and rename tools over built-in file mutation tools while leaving the
 built-ins available as fallbacks.
 
 ## Configuration
+
+Pass options with OpenCode's plugin tuple form:
+
+```json
+{
+  "plugin": [["opencode-readseek", { "imageMode": "auto" }]]
+}
+```
 
 `imageMode` defaults to `"auto"`: it exposes `none`, `all`, `ocr`, `caption`, and
 `objects`. `"on"` omits `none`; `"off"` skips image/PDF files. Omitting
