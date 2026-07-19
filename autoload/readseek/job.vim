@@ -5,29 +5,38 @@ vim9script
 
 import autoload 'readseek/config.vim'
 
-# Run readseek and decode its JSON output before invoking Callback.
 export def Run(argv: list<string>, stdin: string, Callback: func)
   RunRaw(argv, stdin, (result: dict<any>) => {
     if !result.ok
       Callback(result)
       return
     endif
-
     try
       result.json = json_decode(result.stdout)
     catch
       result.ok = false
       result.error = $'failed to decode readseek JSON output: {v:exception}'
     endtry
-
     Callback(result)
   })
 enddef
 
-# Run readseek and hand the raw stdout/stderr to Callback without decoding.
 export def RunRaw(argv: list<string>, stdin: string, Callback: func)
   var stdout: list<string> = []
   var stderr: list<string> = []
+  var completed = false
+  var timeout_id = 0
+
+  def Finish(result: dict<any>)
+    if completed
+      return
+    endif
+    completed = true
+    if timeout_id > 0
+      timer_stop(timeout_id)
+    endif
+    Callback(result)
+  enddef
 
   def OnStdout(channel: channel, message: string)
     add(stdout, message)
@@ -40,31 +49,22 @@ export def RunRaw(argv: list<string>, stdin: string, Callback: func)
   def OnExit(job: job, status: number)
     var out = join(stdout, "\n")
     var err = join(stderr, "\n")
-    var result: dict<any> = {
-      ok: status == 0,
-      status: status,
-      stdout: out,
-      stderr: err,
-    }
-
+    var result: dict<any> = {ok: status == 0, status: status, stdout: out, stderr: err}
     if status != 0
       result.error = empty(err) ? $'readseek exited with status {status}' : err
     endif
-
-    Callback(result)
+    Finish(result)
   enddef
 
-  var command = [config.ExecutablePath()] + argv
-  var job = job_start(command, {
+  var process = job_start([config.ExecutablePath()] + argv, {
     out_cb: OnStdout,
     err_cb: OnStderr,
     exit_cb: OnExit,
     out_mode: 'nl',
     err_mode: 'nl',
   })
-
-  if job_status(job) == 'fail'
-    Callback({
+  if job_status(process) == 'fail'
+    Finish({
       ok: false,
       status: -1,
       stdout: '',
@@ -74,7 +74,23 @@ export def RunRaw(argv: list<string>, stdin: string, Callback: func)
     return
   endif
 
-  var channel = job_getchannel(job)
+  def OnTimeout(timer_id: number)
+    if completed
+      return
+    endif
+    job_stop(process)
+    Finish({
+      ok: false,
+      status: -1,
+      stdout: join(stdout, "\n"),
+      stderr: join(stderr, "\n"),
+      error: $'readseek timed out after {config.JobTimeout()}ms',
+    })
+  enddef
+
+  timeout_id = timer_start(config.JobTimeout(), OnTimeout)
+
+  var channel = job_getchannel(process)
   if !empty(stdin)
     ch_sendraw(channel, stdin)
   endif

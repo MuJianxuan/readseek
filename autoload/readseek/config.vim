@@ -6,6 +6,43 @@ vim9script
 export const PluginVersion = '0.7.6'
 const HealthCacheKey = 'readseek_health'
 
+export def Initialize()
+  SetDefault('readseek_root_markers', ['.git'])
+  SetDefault('readseek_list_type', 'quickfix')
+  SetDefault('readseek_auto_install', false)
+  SetDefault('readseek_auto_open_results', true)
+  SetDefault('readseek_job_timeout_ms', 30000)
+  SetDefault('readseek_notification_timeout_ms', 4000)
+  Validate()
+enddef
+
+def SetDefault(name: string, value: any)
+  if !exists($'g:{name}')
+    g:[name] = value
+  endif
+enddef
+
+export def Validate()
+  if type(get(g:, 'readseek_root_markers', [])) != v:t_list
+    throw 'readseek.vim: g:readseek_root_markers must be a list'
+  endif
+  if index(['quickfix', 'location'], get(g:, 'readseek_list_type', '')) < 0
+    throw 'readseek.vim: g:readseek_list_type must be quickfix or location'
+  endif
+  if type(get(g:, 'readseek_auto_install', false)) != v:t_bool
+    throw 'readseek.vim: g:readseek_auto_install must be a boolean'
+  endif
+  if type(get(g:, 'readseek_auto_open_results', true)) != v:t_bool
+    throw 'readseek.vim: g:readseek_auto_open_results must be a boolean'
+  endif
+  if type(get(g:, 'readseek_job_timeout_ms', 0)) != v:t_number || g:readseek_job_timeout_ms <= 0
+    throw 'readseek.vim: g:readseek_job_timeout_ms must be a positive number'
+  endif
+  if type(get(g:, 'readseek_notification_timeout_ms', 0)) != v:t_number || g:readseek_notification_timeout_ms <= 0
+    throw 'readseek.vim: g:readseek_notification_timeout_ms must be a positive number'
+  endif
+enddef
+
 export def LocalBinaryPath(): string
   if has('win32')
     return expand('$APPDATA') .. '\readseek.vim\bin\readseek.exe'
@@ -29,18 +66,36 @@ export def IsExecutableAvailable(): bool
   return executable(ExecutablePath()) == 1
 enddef
 
+export def JobTimeout(): number
+  return g:readseek_job_timeout_ms
+enddef
+
+export def AutoOpenResults(): bool
+  return g:readseek_auto_open_results
+enddef
+
+export def NotificationTimeout(): number
+  return g:readseek_notification_timeout_ms
+enddef
+
+export def AutoInstall(): bool
+  return g:readseek_auto_install
+enddef
+
 export def InvalidateHealthCache()
   unlet! g:[HealthCacheKey]
 enddef
 
-export def Version(): string
-  var output = systemlist(shellescape(ExecutablePath()) .. ' --version')
+export def VersionAt(path: string): string
+  var output = systemlist(shellescape(path) .. ' --version')
   if v:shell_error != 0 || empty(output)
     return ''
   endif
+  return matchstr(output[0], '\\v\\d+\\.\\d+\\.\\d+')
+enddef
 
-  var match = matchstr(output[0], '\v\d+\.\d+\.\d+')
-  return match
+export def Version(): string
+  return VersionAt(ExecutablePath())
 enddef
 
 export def IsHealthCached(): bool
@@ -56,7 +111,6 @@ export def CheckHealth(): dict<any>
   if IsHealthCached()
     return {ok: true, message: 'readseek.vim: readseek health check already passed'}
   endif
-
   if !IsExecutableAvailable()
     return {ok: false, message: 'readseek.vim: binary not installed'}
   endif

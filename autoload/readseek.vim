@@ -277,6 +277,39 @@ export def Map()
   })
 enddef
 
+export def Check()
+  var path = buffer.Path()
+  Status($'checking {fnamemodify(path, ":t")}...')
+  job.Run(['check', $'stdin:{path}'], buffer.Stdin(), (result: dict<any>) => {
+    if !result.ok
+      Notify(get(result, 'error', 'readseek check failed'), 'error')
+      return
+    endif
+    var locations = DiagnosticsLocations(result.json, path)
+    if empty(locations)
+      Notify('no parser diagnostics', 'ok')
+      return
+    endif
+    quickfix.SetLocations(locations, $'readseek check: {fnamemodify(path, ":t")}')
+    Notify($'{len(locations)} {Plural(len(locations), "diagnostic")} found', 'warn')
+  })
+enddef
+
+export def DiagnosticsLocations(json: dict<any>, path: string): list<any>
+  var locations: list<any> = []
+  for diagnostic in get(json, 'diagnostics', [])
+    var kind = get(diagnostic, 'kind', 'error')
+    var start_line = get(diagnostic, 'start_line', 1)
+    add(locations, {
+      file: path,
+      line: start_line,
+      column: 1,
+      text: $'[{kind}] parser diagnostic',
+    })
+  endfor
+  return locations
+enddef
+
 export def Init()
   var project_root = root.Find()
   Status($'initializing cache in {project_root}...')
@@ -290,6 +323,22 @@ export def Init()
     var message = trim(result.stdout)
     Notify(empty(message) ? $'cache initialized in {project_root}' : message, 'ok')
   })
+enddef
+
+export def InstallComplete(result: dict<any>)
+  if !get(result, 'ok', false)
+    Notify(get(result, 'error', 'readseek install failed'), 'error')
+    return
+  endif
+  if !get(result, 'changed', false)
+    Notify('readseek is already installed', 'info')
+    return
+  endif
+  if has_key(result, 'path')
+    Notify($'readseek {get(result, "version", "")} installed at {result.path}', 'ok')
+    return
+  endif
+  Notify('readseek removed', 'ok')
 enddef
 
 export def Identify(Callback: func)
@@ -496,7 +545,7 @@ def Notify(message: string, level: string = 'info')
 
   popup_notification($' readseek.vim: {message} ', {
     highlight: highlight,
-    time: 4000,
+    time: config.NotificationTimeout(),
     pos: 'topright',
     line: 1,
     col: 1,

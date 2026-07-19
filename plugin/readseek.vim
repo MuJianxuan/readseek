@@ -6,14 +6,24 @@ vim9script
 if exists('g:loaded_readseek')
   finish
 endif
-g:loaded_readseek = true
 
-if !exists('g:readseek_root_markers')
-  g:readseek_root_markers = ['.git']
+if !has('vim9script') || !has('job') || !has('channel') || !has('popupwin') || !has('textprop')
+  echoerr 'readseek.vim requires Vim9 with +job, +channel, +popupwin, and +textprop'
+  finish
 endif
-if !exists('g:readseek_list_type')
-  g:readseek_list_type = 'quickfix'
-endif
+
+
+import autoload 'readseek/config.vim'
+import autoload 'readseek/install.vim'
+
+try
+  config.Initialize()
+catch
+  echoerr v:exception
+  finish
+endtry
+
+g:loaded_readseek = true
 
 command! ReadSeekCheckHealth readseek#CheckHealth()
 command! ReadSeekHover readseek#Hover()
@@ -22,7 +32,11 @@ command! ReadSeekReferences readseek#References()
 command! ReadSeekRename readseek#Rename()
 command! ReadSeekSearch readseek#Search()
 command! ReadSeekMap readseek#Map()
+command! ReadSeekCheck readseek#Check()
 command! ReadSeekInit readseek#Init()
+command! ReadSeekInstall install.Install((result: dict<any>) => readseek#InstallComplete(result), false)
+command! ReadSeekUpdate install.Install((result: dict<any>) => readseek#InstallComplete(result), true)
+command! ReadSeekUninstall install.Uninstall((result: dict<any>) => readseek#InstallComplete(result))
 
 def MapPlugDefault(lhs: string, rhs: string)
   if !empty(maparg(lhs, 'n'))
@@ -37,6 +51,7 @@ MapPlugDefault('<Plug>(ReadSeekHover)', '<ScriptCmd>ReadSeekHover<CR>')
 MapPlugDefault('<Plug>(ReadSeekRename)', '<ScriptCmd>ReadSeekRename<CR>')
 MapPlugDefault('<Plug>(ReadSeekSearch)', '<ScriptCmd>ReadSeekSearch<CR>')
 MapPlugDefault('<Plug>(ReadSeekMap)', '<ScriptCmd>ReadSeekMap<CR>')
+MapPlugDefault('<Plug>(ReadSeekCheck)', '<ScriptCmd>ReadSeekCheck<CR>')
 MapPlugDefault('<Plug>(ReadSeekInit)', '<ScriptCmd>ReadSeekInit<CR>')
 
 highlight default ReadSeekOk ctermfg=green guifg=#00d700
@@ -47,12 +62,6 @@ highlight default ReadSeekBorder ctermfg=blue guifg=#5f87af
 highlight default ReadSeekTitle cterm=bold ctermfg=blue gui=bold guifg=#5f87af
 highlight default link ReadSeekFloat Normal
 
-import autoload 'readseek/config.vim'
-import autoload 'readseek/install.vim'
-
-def OnAutoInstall(result: dict<any>)
-enddef
-
-if empty(get(g:, 'readseek_executable', '')) && (!config.IsExecutableAvailable() || config.Version() !=# config.PluginVersion)
-  install.Install(OnAutoInstall)
+if config.AutoInstall() && empty(get(g:, 'readseek_executable', '')) && !config.IsExecutableAvailable()
+  install.Install((result: dict<any>) => readseek#InstallComplete(result), false)
 endif

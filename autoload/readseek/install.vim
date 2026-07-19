@@ -7,7 +7,12 @@ import autoload 'readseek/config.vim'
 
 const GithubRepo = 'jarkkojs/readseek'
 
-export def Install(Callback: func)
+export def Install(Callback: func, force: bool = false)
+  if !empty(get(g:, 'readseek_executable', ''))
+    Callback({ok: false, error: 'g:readseek_executable is externally managed'})
+    return
+  endif
+
   var platform = Platform()
   if empty(platform)
     Callback({ok: false, error: 'unsupported platform'})
@@ -15,33 +20,35 @@ export def Install(Callback: func)
   endif
 
   var version = config.PluginVersion
-  var asset = $'readseek-{version}-{platform}.tar.gz'
-  var url = $'https://github.com/{GithubRepo}/releases/download/{version}/{asset}'
-  var dest_dir = config.LocalBinaryDir()
+  var dest = config.LocalBinaryPath()
+  if !force && filereadable(dest) && config.VersionAt(dest) ==# version
+    Callback({ok: true, path: dest, version: version, changed: false})
+    return
+  endif
 
+  var dest_dir = config.LocalBinaryDir()
   if !isdirectory(dest_dir)
     mkdir(dest_dir, 'p')
   endif
 
-  var tmpfile = tempname() .. '.tar.gz'
-
-  Download(url, tmpfile, (ok: bool, err: string) => {
+  var asset = $'readseek-{version}-{platform}.tar.gz'
+  var url = $'https://github.com/{GithubRepo}/releases/download/{version}/{asset}'
+  var archive = tempname() .. '.tar.gz'
+  Download(url, archive, (ok: bool, err: string) => {
     if !ok
-      delete(tmpfile)
+      delete(archive)
       Callback({ok: false, error: $'download failed: {err}'})
       return
     endif
 
-    var binary_name = has('win32') ? 'readseek.exe' : 'readseek'
-    var dest = config.LocalBinaryPath()
-    var tmpdir = $'{dest_dir}/.install-{getpid()}-{localtime()}'
-    mkdir(tmpdir, 'p')
-    var extract_out = system($'tar -xzf {shellescape(tmpfile)} -C {shellescape(tmpdir)} {shellescape(binary_name)}')
-    delete(tmpfile)
-    var staged = tmpdir .. '/' .. binary_name
-
+    var binary = has('win32') ? 'readseek.exe' : 'readseek'
+    var stage_dir = $'{dest_dir}/.readseek-install-{getpid()}-{localtime()}'
+    mkdir(stage_dir, 'p')
+    var extract_out = system($'tar -xzf {shellescape(archive)} -C {shellescape(stage_dir)} {shellescape(binary)}')
+    delete(archive)
+    var staged = stage_dir .. '/' .. binary
     if v:shell_error != 0 || !filereadable(staged)
-      delete(tmpdir, 'rf')
+      delete(stage_dir, 'rf')
       Callback({ok: false, error: $'extraction failed: {trim(extract_out)}'})
       return
     endif
@@ -49,17 +56,52 @@ export def Install(Callback: func)
     if !has('win32')
       setfperm(staged, 'rwxr-xr-x')
     endif
-    delete(dest)
-    if rename(staged, dest) != 0
-      delete(tmpdir, 'rf')
-      Callback({ok: false, error: 'failed to install release binary'})
+    if config.VersionAt(staged) !=# version
+      delete(stage_dir, 'rf')
+      Callback({ok: false, error: 'staged binary does not match the plugin version'})
       return
     endif
-    delete(tmpdir, 'rf')
 
+    var backup = $'{dest}.previous-{getpid()}'
+    var had_existing = filereadable(dest)
+    if had_existing && rename(dest, backup) != 0
+      delete(stage_dir, 'rf')
+      Callback({ok: false, error: 'failed to preserve the existing readseek binary'})
+      return
+    endif
+    if rename(staged, dest) != 0
+      if had_existing
+        rename(backup, dest)
+      endif
+      delete(stage_dir, 'rf')
+      Callback({ok: false, error: 'failed to activate the staged readseek binary'})
+      return
+    endif
+
+    delete(backup)
+    delete(stage_dir, 'rf')
     config.InvalidateHealthCache()
-    Callback({ok: true, path: dest, version: version})
+    Callback({ok: true, path: dest, version: version, changed: true})
   })
+enddef
+
+export def Uninstall(Callback: func)
+  if !empty(get(g:, 'readseek_executable', ''))
+    Callback({ok: false, error: 'g:readseek_executable is externally managed'})
+    return
+  endif
+
+  var dest = config.LocalBinaryPath()
+  if !filereadable(dest)
+    Callback({ok: true, changed: false})
+    return
+  endif
+  if delete(dest) != 0
+    Callback({ok: false, error: $'failed to remove {dest}'})
+    return
+  endif
+  config.InvalidateHealthCache()
+  Callback({ok: true, changed: true})
 enddef
 
 export def Platform(): string
@@ -90,18 +132,11 @@ def Download(url: string, dest: string, Callback: func)
   endif
 
   var stderr_lines: list<string> = []
-
   def OnStderr(channel: channel, message: string)
     add(stderr_lines, message)
   enddef
-
   def OnExit(job_obj: job, status: number)
     Callback(status == 0, join(stderr_lines, "\n"))
   enddef
-
-  job_start(cmd, {
-    err_cb: OnStderr,
-    exit_cb: OnExit,
-    err_mode: 'nl',
-  })
+  job_start(cmd, {err_cb: OnStderr, exit_cb: OnExit, err_mode: 'nl'})
 enddef

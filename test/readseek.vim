@@ -388,6 +388,57 @@ def TestSearchLocations()
   Check('search empty key yields nothing', empty(readseek#SearchLocations({}, '/proj')))
 enddef
 
+def TestDiagnosticsLocations()
+  var locations = readseek#DiagnosticsLocations({
+    diagnostics: [
+      {kind: 'error', start_line: 4, end_line: 4},
+      {kind: 'missing', start_line: 9, end_line: 11},
+    ],
+  }, '/project/file.rs')
+  Check('diagnostic location count', len(locations) == 2)
+  Check('diagnostic error location', locations[0].file ==# '/project/file.rs' && locations[0].line == 4)
+  Check('diagnostic error text', locations[0].text ==# '[error] parser diagnostic')
+  Check('diagnostic missing text', locations[1].text ==# '[missing] parser diagnostic')
+enddef
+
+def TestPluginConfiguration()
+  Check('auto install defaults off', !g:readseek_auto_install)
+  Check('auto open results defaults on', g:readseek_auto_open_results)
+  Check('job timeout defaults positive', g:readseek_job_timeout_ms > 0)
+  Check('check command exists', exists(':ReadSeekCheck') == 2)
+  var check_plug = maparg('<Plug>(ReadSeekCheck)', 'n', false, true)
+  Check('check plug mapping', !empty(check_plug) && check_plug.rhs ==# '<ScriptCmd>ReadSeekCheck<CR>')
+enddef
+
+def TestJobTimeout()
+  var base = tempname()
+  mkdir(base, 'p')
+  var executable = base .. '/readseek-slow'
+  writefile(['#!/bin/sh', 'sleep 1', 'printf ''{}\\n'''], executable)
+  setfperm(executable, 'rwx------')
+
+  var save_executable = g:readseek_executable
+  var save_timeout = g:readseek_job_timeout_ms
+  g:readseek_executable = executable
+  g:readseek_job_timeout_ms = 25
+  var done = false
+  var callbacks = 0
+  var timed_out = false
+  readseek#job#RunRaw(['check', 'stdin:slow.rs'], '', (result: dict<any>) => {
+    callbacks += 1
+    timed_out = !result.ok && get(result, 'error', '') =~# 'timed out'
+    done = true
+  })
+
+  Check('job timeout completes', WaitFor((): bool => done))
+  sleep 100m
+  Check('job timeout reports failure', timed_out)
+  Check('job timeout invokes callback once', callbacks == 1)
+  g:readseek_executable = save_executable
+  g:readseek_job_timeout_ms = save_timeout
+  delete(base, 'rf')
+enddef
+
 TestQuickfixItems()
 TestResultLists()
 TestMappings()
@@ -404,6 +455,9 @@ TestHoverLines()
 TestMap()
 TestInit()
 TestSearchLocations()
+TestDiagnosticsLocations()
+TestPluginConfiguration()
+TestJobTimeout()
 
 if !empty(failures)
   writefile(failures, 'test-readseek-failures.log')

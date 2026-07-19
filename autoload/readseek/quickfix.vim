@@ -3,19 +3,25 @@
 
 vim9script
 
+import autoload 'readseek/config.vim'
+
 export def SetLocations(locations: list<any>, title: string)
   var items = ToItems(locations)
   var source_window = CurrentWindow()
   if get(g:, 'readseek_list_type', 'quickfix') ==# 'location'
     setloclist(0, [], 'r', {title: title, items: items})
-    lopen
-    RestoreWindow(source_window)
+    if config.AutoOpenResults()
+      lopen
+      RestoreWindow(source_window)
+    endif
     return
   endif
 
   setqflist([], 'r', {title: title, items: items})
-  copen
-  RestoreWindow(source_window)
+  if config.AutoOpenResults()
+    copen
+    RestoreWindow(source_window)
+  endif
 enddef
 
 export def ToItems(locations: list<any>): list<dict<any>>
@@ -38,22 +44,15 @@ def ItemText(location: dict<any>): string
   if empty(kind) || empty(name)
     return text
   endif
-
   return $'[{kind}] {name}: {text}'
 enddef
 
 def CurrentWindow(): number
-  if !exists('*win_getid') || !exists('*win_gotoid')
-    return 0
-  endif
-
   return win_getid()
 enddef
 
 def RestoreWindow(window: number)
-  if window <= 0 || !exists('*win_gotoid')
-    return
+  if window > 0
+    win_gotoid(window)
   endif
-
-  win_gotoid(window)
 enddef

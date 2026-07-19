@@ -59,11 +59,12 @@ Add the plugin to `opencode.json`:
 
 ### Vim plugin
 
-The bundled `readseek.vim` plugin provides structural navigation, search,
-references, and rename operations in Vim9. The runtime directories are at the
-repository root, so install it directly with a Vim plugin manager, for example
-`Plug 'jarkkojs/readseek'`. It installs the matching prebuilt ReadSeek release
-binary automatically.
+The bundled `readseek.vim` plugin is a Vim9-only frontend with structural
+navigation, parser diagnostics, search, references, and rename operations. It
+requires Vim9 with `+job`, `+channel`, `+popupwin`, and `+textprop`; Neovim is
+not supported. Install it directly with a Vim plugin manager, for example
+`Plug 'jarkkojs/readseek'`. Run `:ReadSeekInstall` to install the matching
+prebuilt ReadSeek release binary; installation is explicit by default.
 
 ## Common commands
 

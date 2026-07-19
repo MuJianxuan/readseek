@@ -5,8 +5,9 @@ readseek.vim                                                  *readseek.vim*
 Vim9 plugin frontend for the readseek CLI.
 
 Requirements~
-  Vim 9 with +job support. Unless |g:readseek_executable| is set, the plugin
-  installs or upgrades to the matching readseek release binary when it loads.
+  Vim9 with +job, +channel, +popupwin, and +textprop. Neovim and Vim builds
+  without these features are not supported. Downloads are disabled by default;
+  use |:ReadSeekInstall| to install the managed binary explicitly.
 Commands~
                                                         *:ReadSeekCheckHealth*
   :ReadSeekCheckHealth
@@ -64,6 +65,25 @@ Commands~
         readseek init in the project root. Re-running reinitializes an existing
         cache.
 
+                                                        *:ReadSeekCheck*
+  :ReadSeekCheck
+        Check the current buffer through stdin and place parser diagnostics in
+        the configured results list. Unsaved changes are included.
+
+                                                        *:ReadSeekInstall*
+  :ReadSeekInstall
+        Download and activate the ReadSeek release matching this plugin. An
+        externally managed |g:readseek_executable| is never replaced.
+
+                                                        *:ReadSeekUpdate*
+  :ReadSeekUpdate
+        Reinstall the matching release after staging and validating the new
+        binary. A prior managed executable is restored on failure.
+
+                                                        *:ReadSeekUninstall*
+  :ReadSeekUninstall
+        Remove the managed executable. External executables are never removed.
+
 Options~
 
 Plug mappings are provided for users to bind to preferred keys:
@@ -74,6 +94,7 @@ Plug mappings are provided for users to bind to preferred keys:
           <Plug>(ReadSeekSearch)        :ReadSeekSearch
           <Plug>(ReadSeekMap)           :ReadSeekMap
           <Plug>(ReadSeekInit)          :ReadSeekInit
+          <Plug>(ReadSeekCheck)         :ReadSeekCheck
 
                                                         *g:readseek_root_markers*
   g:readseek_root_markers
@@ -90,9 +111,27 @@ Plug mappings are provided for users to bind to preferred keys:
                                                         *g:readseek_executable*
   g:readseek_executable
         Optional path or command name for an externally managed readseek
-        executable. When unset, readseek.vim downloads the release binary whose
-        version matches the plugin.
+        executable. When unset, use |:ReadSeekInstall| to download the release
+        binary whose version matches the plugin.
 
+                                                        *g:readseek_auto_install*
+  g:readseek_auto_install
+        When true, install a missing managed executable during plugin load.
+        Default: false.
+
+                                                        *g:readseek_auto_open_results*
+  g:readseek_auto_open_results
+        When true, open the configured result list after populating it.
+        Default: true.
+
+                                                        *g:readseek_job_timeout_ms*
+  g:readseek_job_timeout_ms
+        Maximum duration for a ReadSeek command before it is stopped. Default:
+        30000.
+
+                                                        *g:readseek_notification_timeout_ms*
+  g:readseek_notification_timeout_ms
+        Duration in milliseconds for popup notifications. Default: 4000.
 Highlight groups~
                                                         *readseek-highlights*
   ReadSeekOk       green   success notifications and health markers
