@@ -1,5 +1,7 @@
 # opencode-readseek
 
+<img alt="Screenshot of OpenCode running opencode-readseek" src="screenshot.png" width="800">
+
 `opencode-readseek` exposes ReadSeek's hash-anchored text tools and structural
 code navigation as OpenCode tools.
 
