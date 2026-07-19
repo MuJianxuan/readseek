@@ -308,6 +308,10 @@ pub(crate) struct RenameCommand {
     #[argh(switch)]
     pub(crate) apply: bool,
 
+    /// require the apply plan to match this dry-run plan hash
+    #[argh(option)]
+    pub(crate) plan_hash: Option<String>,
+
     /// language override
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,

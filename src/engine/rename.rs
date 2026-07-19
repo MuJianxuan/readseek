@@ -16,6 +16,7 @@
 
 use crate::engine::binding::{self, OccurrenceKind};
 use crate::engine::flags::GitFlags;
+use crate::engine::hash::hash_bytes;
 use crate::engine::lang::Language;
 use crate::engine::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
@@ -39,6 +40,7 @@ pub(crate) struct Request {
     pub(crate) to: String,
     pub(crate) workspace: Option<PathBuf>,
     pub(crate) apply: bool,
+    pub(crate) expected_plan_hash: Option<String>,
     pub(crate) language: Option<Language>,
     pub(crate) flags: GitFlags,
 }
@@ -128,6 +130,19 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     };
 
     let others = workspace_others(request, &old_name, is_binding)?;
+    let plan_hash = rename_plan_hash(
+        request,
+        &old_name,
+        &source.file_hash,
+        &edits,
+        &conflicts,
+        &others,
+    )?;
+    if let Some(expected) = request.expected_plan_hash.as_deref()
+        && expected != plan_hash
+    {
+        bail!("refusing to apply: rename plan changed since permission was granted");
+    }
 
     let applied = if request.apply {
         apply_all(
@@ -150,11 +165,34 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
         file_hash: source.file_hash.clone(),
         old_name,
         new_name: request.to.clone(),
+        plan_hash,
         applied,
         conflicts,
         edits,
         others,
     })
+}
+
+fn rename_plan_hash(
+    request: &Request,
+    old_name: &str,
+    target_hash: &str,
+    edits: &[RenameEdit],
+    conflicts: &[RenameConflict],
+    others: &[RenameFileOutput],
+) -> Result<String> {
+    let serialized = serde_json::to_vec(&(
+        request.target.as_path(),
+        request.workspace.as_deref(),
+        old_name,
+        request.to.as_str(),
+        target_hash,
+        edits,
+        conflicts,
+        others,
+    ))
+    .context("serialize rename plan")?;
+    Ok(hash_bytes(&serialized))
 }
 
 /// The cursor file is excluded. Lexical binding targets use

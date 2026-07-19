@@ -384,6 +384,7 @@ pub(crate) struct RenameOutput {
     pub(crate) file_hash: String,
     pub(crate) old_name: String,
     pub(crate) new_name: String,
+    pub(crate) plan_hash: String,
     pub(crate) applied: bool,
     pub(crate) conflicts: Vec<RenameConflict>,
     pub(crate) edits: Vec<RenameEdit>,

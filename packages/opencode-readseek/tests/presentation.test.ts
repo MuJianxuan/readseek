@@ -84,7 +84,7 @@ describe("OpenCode presentation", () => {
     const rename = (await ReadSeekPlugin({} as never)).tool?.readseek_rename;
     if (!rename) throw new Error("plugin did not register readseek_rename");
 
-    const result = presented(await rename.execute({ path: "a.ts", line: 3, to: "after" }, context([])));
+    const result = presented(await rename.execute({ path: "a.ts", line: 3, to: "after", apply: false }, context([])));
 
     expect(result.title).toBe("Plan before -> after");
     expect(result.metadata).toEqual({ edits: 3, conflicts: 3, others: 1 });

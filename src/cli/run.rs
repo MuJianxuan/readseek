@@ -403,6 +403,7 @@ impl cli::RenameCommand {
             to: self.to,
             workspace: self.workspace,
             apply: self.apply,
+            expected_plan_hash: self.plan_hash,
             language: self.language,
             flags,
         };

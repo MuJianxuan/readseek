@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) Jarkko Sakkinen 2026
 
-import { lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -259,22 +259,31 @@ function readSeekBinaryPath(): string {
   return path.join(path.dirname(packageJson), "bin", process.platform === "win32" ? "readseek.exe" : "readseek");
 }
 
-async function runReadSeek(context: ToolContext, args: string[]): Promise<unknown> {
+async function runReadSeek(
+  context: ToolContext,
+  args: string[],
+  options: { cancelable?: boolean } = {},
+): Promise<unknown> {
   context.abort.throwIfAborted();
-  const child = Bun.spawn([readSeekBinaryPath(), ...args], {
+  const cancelable = options.cancelable !== false;
+  const spawnOptions = {
     cwd: context.directory,
-    killSignal: "SIGKILL",
     maxBuffer: MAX_OUTPUT_BYTES,
-    signal: context.abort,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+    stderr: "pipe" as const,
+    stdout: "pipe" as const,
+  };
+  const child = Bun.spawn(
+    [readSeekBinaryPath(), ...args],
+    cancelable
+      ? { ...spawnOptions, killSignal: "SIGKILL" as const, signal: context.abort }
+      : spawnOptions,
+  );
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  context.abort.throwIfAborted();
+  if (cancelable) context.abort.throwIfAborted();
   if (exitCode !== 0) throw new Error(stderr.trim() || `readseek exited with status ${exitCode}`);
 
   try {
@@ -310,10 +319,70 @@ type AnchorEdit =
   | { replace_lines: { start_anchor: string; end_anchor: string; new_text: string } }
   | { insert_after: { anchor: string; new_text: string } };
 
+type TextSnapshot = {
+  exists: boolean;
+  content: string;
+};
+
+const fileMutationTails = new Map<string, Promise<void>>();
+const MAX_PERMISSION_DIFF_BYTES = 32 * 1024;
+
+async function withFileMutationQueue<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+  const key = path.resolve(filePath);
+  const previous = fileMutationTails.get(key);
+  let release = () => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fileMutationTails.set(key, current);
+  if (previous) await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (fileMutationTails.get(key) === current) fileMutationTails.delete(key);
+  }
+}
+
+function validateAnchorEdits(value: unknown): asserts value is AnchorEdit[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("edits must contain at least one edit");
+  const fields = {
+    set_line: ["anchor", "new_text"],
+    replace_lines: ["end_anchor", "new_text", "start_anchor"],
+    insert_after: ["anchor", "new_text"],
+  } as const;
+  for (const [index, item] of value.entries()) {
+    if (!item || typeof item !== "object") throw new Error(`edits[${index}] must be an edit object`);
+    const keys = Object.keys(item);
+    const variant = keys[0] as keyof typeof fields;
+    if (keys.length !== 1 || !Object.hasOwn(fields, variant)) {
+      throw new Error(`edits[${index}] must contain exactly one of: set_line, replace_lines, insert_after`);
+    }
+    const payload = (item as Record<string, unknown>)[variant];
+    if (!payload || typeof payload !== "object") throw new Error(`edits[${index}].${variant} must be an object`);
+    const expectedFields = fields[variant];
+    const actualFields = Object.keys(payload).sort();
+    if (actualFields.length !== expectedFields.length || actualFields.some((field, fieldIndex) => field !== expectedFields[fieldIndex])) {
+      throw new Error(`edits[${index}].${variant} contains invalid fields`);
+    }
+    const values = payload as Record<string, unknown>;
+    for (const field of expectedFields) {
+      if (typeof values[field] !== "string") {
+        throw new Error(`edits[${index}].${variant}.${field} must be a string`);
+      }
+    }
+    for (const field of expectedFields.filter((field) => field.endsWith("anchor"))) {
+      parseAnchor(values[field] as string);
+    }
+  }
+}
+
 function parseAnchor(anchor: string): { line: number; hash: string } {
   const match = /^(\d+):([0-9a-fA-F]{3})$/.exec(anchor.trim());
   if (!match) throw new Error(`invalid LINE:HASH anchor: ${anchor}`);
-  return { line: Number(match[1]), hash: match[2].toLowerCase() };
+  const line = Number(match[1]);
+  if (line === 0) throw new Error(`anchor line must be greater than zero: ${anchor}`);
+  return { line, hash: match[2].toLowerCase() };
 }
 
 function anchorRefs(edit: AnchorEdit): { line: number; hash: string }[] {
@@ -341,11 +410,55 @@ async function verifyAnchors(context: ToolContext, filePath: string, edits: Anch
   }
 }
 
+type EditableLine = {
+  text: string;
+  ending: "\r\n" | "\n" | "\r" | "";
+};
+
+function parseEditableLines(content: string): EditableLine[] {
+  const lines: EditableLine[] = [];
+  let start = 0;
+  for (let index = 0; index < content.length; index++) {
+    const character = content[index];
+    if (character !== "\r" && character !== "\n") continue;
+    const ending = character === "\r" && content[index + 1] === "\n" ? "\r\n" : character;
+    lines.push({ text: content.slice(start, index), ending });
+    if (ending === "\r\n") index++;
+    start = index + 1;
+  }
+  if (start < content.length || content.length === 0) lines.push({ text: content.slice(start), ending: "" });
+  return lines;
+}
+
+function detectLineEnding(lines: EditableLine[]): "\r\n" | "\n" | "\r" {
+  const counts = new Map<"\r\n" | "\n" | "\r", number>([
+    ["\r\n", 0],
+    ["\n", 0],
+    ["\r", 0],
+  ]);
+  for (const line of lines) {
+    if (line.ending !== "") counts.set(line.ending, (counts.get(line.ending) ?? 0) + 1);
+  }
+  let selected: "\r\n" | "\n" | "\r" = "\n";
+  for (const ending of ["\r\n", "\r"] as const) {
+    if ((counts.get(ending) ?? 0) > (counts.get(selected) ?? 0)) selected = ending;
+  }
+  return selected;
+}
+
+function normalizeToLf(content: string): string {
+  return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function replacementLines(text: string): string[] {
+  if (text === "") return [];
+  return normalizeToLf(text).replace(/\n$/, "").split("\n");
+}
+
 function applyAnchorEdits(content: string, edits: AnchorEdit[]): string {
-  const newline = content.includes("\r\n") ? "\r\n" : "\n";
-  const trailingNewline = content.endsWith("\n");
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  if (trailingNewline) lines.pop();
+  const bom = content.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const lines = parseEditableLines(bom ? content.slice(1) : content);
+  const newline = detectLineEnding(lines);
   const planned = edits.map((edit) => {
     if ("set_line" in edit) {
       const { line } = parseAnchor(edit.set_line.anchor);
@@ -372,15 +485,85 @@ function applyAnchorEdits(content: string, edits: AnchorEdit[]): string {
     if (edit.start < 0 || edit.start > lines.length || edit.start + edit.deleteCount > lines.length) {
       throw new Error("anchor line is outside the file");
     }
-    const replacement = edit.text === "" ? [] : edit.text.replace(/\r\n/g, "\n").split("\n");
+    const removed = lines.slice(edit.start, edit.start + edit.deleteCount);
+    const replacement = replacementLines(edit.text).map((text): EditableLine => ({ text, ending: newline }));
+    if (edit.deleteCount === 0 && edit.start === lines.length && replacement.length > 0) {
+      const previous = lines.at(-1);
+      const terminalEnding = previous?.ending ?? "";
+      if (previous?.ending === "") previous.ending = newline;
+      replacement[replacement.length - 1].ending = terminalEnding;
+    } else if (edit.deleteCount > 0) {
+      const terminalEnding = removed.at(-1)?.ending ?? "";
+      if (replacement.length > 0) {
+        replacement[replacement.length - 1].ending = terminalEnding;
+      } else if (edit.start + edit.deleteCount === lines.length && edit.start > 0) {
+        lines[edit.start - 1].ending = terminalEnding;
+      }
+    }
     lines.splice(edit.start, edit.deleteCount, ...replacement);
   }
-  return lines.join(newline) + (trailingNewline ? newline : "");
+  return bom + lines.map((line) => line.text + line.ending).join("");
 }
 
-async function writeText(filePath: string, content: string): Promise<void> {
+async function readTextSnapshot(filePath: string): Promise<TextSnapshot> {
+  try {
+    return { exists: true, content: await readFile(filePath, "utf8") };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { exists: false, content: "" };
+    throw error;
+  }
+}
+
+async function writeHandle(handle: Awaited<ReturnType<typeof open>>, content: string): Promise<void> {
+  const data = Buffer.from(content, "utf8");
+  await handle.truncate(0);
+  let offset = 0;
+  while (offset < data.length) {
+    const { bytesWritten } = await handle.write(data, offset, data.length - offset, offset);
+    if (bytesWritten === 0) throw new Error("write made no progress");
+    offset += bytesWritten;
+  }
+}
+
+async function writeText(filePath: string, expected: TextSnapshot, content: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, content, "utf8");
+  if (!expected.exists) {
+    let handle: Awaited<ReturnType<typeof open>>;
+    try {
+      handle = await open(filePath, "wx+");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(`refusing to overwrite changed file: ${filePath}`);
+      }
+      throw error;
+    }
+    try {
+      await writeHandle(handle, content);
+    } finally {
+      await handle.close();
+    }
+    return;
+  }
+
+  const pathInfo = await lstat(filePath);
+  if (pathInfo.isSymbolicLink()) throw new Error(`refusing to modify symbolic link: ${filePath}`);
+  const handle = await open(filePath, "r+");
+  try {
+    const handleInfo = await handle.stat();
+    const currentPathInfo = await lstat(filePath);
+    if (
+      currentPathInfo.isSymbolicLink() ||
+      currentPathInfo.dev !== handleInfo.dev ||
+      currentPathInfo.ino !== handleInfo.ino
+    ) {
+      throw new Error(`refusing to overwrite changed file: ${filePath}`);
+    }
+    const current = (await handle.readFile()).toString("utf8");
+    if (current !== expected.content) throw new Error(`refusing to overwrite changed file: ${filePath}`);
+    if (current !== content) await writeHandle(handle, content);
+  } finally {
+    await handle.close();
+  }
 }
 
 function renameFiles(value: unknown): string[] {
@@ -394,9 +577,109 @@ function renameFiles(value: unknown): string[] {
   return files;
 }
 
+function diffLines(content: string): string[] {
+  if (content === "") return [];
+  const lines = normalizeToLf(content).split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function diffRange(start: number, count: number): string {
+  return count === 0 ? `${start},0` : `${start + 1},${count}`;
+}
+
+function utf8Prefix(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.length <= maxBytes) return value;
+  let end = maxBytes;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  while (end > 0) {
+    try {
+      return decoder.decode(bytes.subarray(0, end));
+    } catch {
+      end--;
+    }
+  }
+  return "";
+}
+
+function previewDiffLine(prefix: string, line: string): string {
+  const value = `${prefix}${line}`;
+  const maxBytes = 256;
+  if (Buffer.byteLength(value) <= maxBytes) return value;
+  return `${utf8Prefix(value, maxBytes - Buffer.byteLength("…"))}…`;
+}
+
+function sampleDiffLines(lines: string[], start: number, end: number, prefix: string): string[] {
+  const sampleSize = 20;
+  const count = end - start;
+  if (count <= sampleSize * 2) {
+    return lines.slice(start, end).map((line) => previewDiffLine(prefix, line));
+  }
+  return [
+    ...lines.slice(start, start + sampleSize).map((line) => previewDiffLine(prefix, line)),
+    ` ${count - sampleSize * 2} ${prefix === "-" ? "removed" : "added"} lines omitted`,
+    ...lines.slice(end - sampleSize, end).map((line) => previewDiffLine(prefix, line)),
+  ];
+}
+
 function simpleDiff(filePath: string, before: string, after: string): string {
   if (before === after) return "";
-  return `--- ${filePath}\n+++ ${filePath}\n@@ full file @@\n-${before}\n+${after}`;
+  const oldLines = diffLines(before);
+  const newLines = diffLines(after);
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) suffix++;
+  if (prefix === oldLines.length && prefix === newLines.length) {
+    prefix = Math.max(0, prefix - 1);
+    suffix = 0;
+  }
+
+  const oldChangeEnd = oldLines.length - suffix;
+  const newChangeEnd = newLines.length - suffix;
+  const oldStart = Math.max(0, prefix - 3);
+  const newStart = Math.max(0, prefix - 3);
+  const oldEnd = Math.min(oldLines.length, oldChangeEnd + 3);
+  const newEnd = Math.min(newLines.length, newChangeEnd + 3);
+  const safePath = utf8Prefix(filePath.replace(/[\r\n]/g, ""), 1024);
+  const header = [
+    `--- ${safePath}`,
+    `+++ ${safePath}`,
+    `@@ -${diffRange(oldStart, oldEnd - oldStart)} +${diffRange(newStart, newEnd - newStart)} @@`,
+  ];
+  const fullDiff = [...header];
+  let fullDiffBytes = Buffer.byteLength(header.join("\n"));
+  let complete = true;
+  const ranges: Array<[string[], number, number, string]> = [
+    [oldLines, oldStart, prefix, " "],
+    [oldLines, prefix, oldChangeEnd, "-"],
+    [newLines, prefix, newChangeEnd, "+"],
+    [newLines, newChangeEnd, newEnd, " "],
+  ];
+  outer: for (const [lines, start, end, marker] of ranges) {
+    for (let index = start; index < end; index++) {
+      const lineBytes = 2 + Buffer.byteLength(lines[index]);
+      if (fullDiffBytes + lineBytes > MAX_PERMISSION_DIFF_BYTES) {
+        complete = false;
+        break outer;
+      }
+      fullDiff.push(`${marker}${lines[index]}`);
+      fullDiffBytes += lineBytes;
+    }
+  }
+  if (complete) return fullDiff.join("\n");
+
+  return [
+    ...header,
+    ` diff truncated: ${oldChangeEnd - prefix} removed, ${newChangeEnd - prefix} added lines`,
+    ...sampleDiffLines(oldLines, prefix, oldChangeEnd, "-"),
+    ...sampleDiffLines(newLines, prefix, newChangeEnd, "+"),
+  ].join("\n");
 }
 
 function identifiedName(value: unknown): string | undefined {
@@ -792,17 +1075,12 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           const plan = await runReadSeek(context, args);
           if (input.apply === false) return plan;
           const files = renameFiles(plan);
-          if (input.workspace) {
-            await context.ask({
-              permission: "edit",
-              patterns: ["**"],
-              always: ["**"],
-              metadata: { filepath: files.join(", "), diff: "" },
-            });
-          } else {
-            await authorizeEdit(context, files);
+          const planHash = record(plan).plan_hash;
+          if (typeof planHash !== "string" || planHash.length === 0) {
+            throw new Error("readseek rename plan did not include a plan hash");
           }
-          return runReadSeek(context, [...args, "--apply"]);
+          await authorizeEdit(context, files);
+          return runReadSeek(context, [...args, "--plan-hash", planHash, "--apply"], { cancelable: false });
         },
       ),
       readseek_edit: readseekTool(
@@ -810,24 +1088,38 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         {
           path: tool.schema.string().describe("Path relative to the project directory"),
           edits: tool.schema.array(tool.schema.union([
-            tool.schema.object({ set_line: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
-            tool.schema.object({ replace_lines: tool.schema.object({ start_anchor: tool.schema.string(), end_anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
-            tool.schema.object({ insert_after: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }) }),
+            tool.schema.object({
+              set_line: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }).strict(),
+            }).strict(),
+            tool.schema.object({
+              replace_lines: tool.schema.object({
+                start_anchor: tool.schema.string(),
+                end_anchor: tool.schema.string(),
+                new_text: tool.schema.string(),
+              }).strict(),
+            }).strict(),
+            tool.schema.object({
+              insert_after: tool.schema.object({ anchor: tool.schema.string(), new_text: tool.schema.string() }).strict(),
+            }).strict(),
           ])).min(1).describe("Anchored edits to apply"),
         },
         "edit",
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
-          await authorizeRead(context, filePath);
-          await rejectSymlinkMutation(filePath);
-          const edits = input.edits as AnchorEdit[];
-          const before = await readFile(filePath, "utf8");
-          await verifyAnchors(context, filePath, edits);
-          const after = applyAnchorEdits(before, edits);
-          await authorizeEdit(context, [filePath], simpleDiff(filePath, before, after), false);
-          if (await readFile(filePath, "utf8") !== before) throw new Error(`refusing to edit changed file: ${filePath}`);
-          if (before !== after) await writeText(filePath, after);
-          return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)]);
+          validateAnchorEdits(input.edits);
+          return withFileMutationQueue(filePath, async () => {
+            context.abort.throwIfAborted();
+            await authorizeRead(context, filePath);
+            await rejectSymlinkMutation(filePath);
+            const edits = input.edits;
+            const before = await readFile(filePath, "utf8");
+            await verifyAnchors(context, filePath, edits);
+            const after = applyAnchorEdits(before, edits);
+            await authorizeEdit(context, [filePath], simpleDiff(filePath, before, after), false);
+            context.abort.throwIfAborted();
+            if (before !== after) await writeText(filePath, { exists: true, content: before }, after);
+            return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)], { cancelable: false });
+          });
         },
       ),
       readseek_write: readseekTool(
@@ -840,15 +1132,17 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
         async (input, context) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeExternal(context, filePath);
-          await rejectSymlinkMutation(filePath);
-          const before = await readFile(filePath, "utf8").catch(() => "");
-          const content = input.content as string;
-          if (content.includes("\0")) throw new Error("write content must be text");
-          await authorizeEdit(context, [filePath], simpleDiff(filePath, before, content), false);
-          const current = await readFile(filePath, "utf8").catch(() => "");
-          if (current !== before) throw new Error(`refusing to overwrite changed file: ${filePath}`);
-          if (before !== content) await writeText(filePath, content);
-          return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)]);
+          return withFileMutationQueue(filePath, async () => {
+            context.abort.throwIfAborted();
+            await rejectSymlinkMutation(filePath);
+            const before = await readTextSnapshot(filePath);
+            const content = input.content as string;
+            if (content.includes("\0")) throw new Error("write content must be text");
+            await authorizeEdit(context, [filePath], simpleDiff(filePath, before.content, content), false);
+            context.abort.throwIfAborted();
+            await writeText(filePath, before, content);
+            return runReadSeek(context, ["read", filePath, "--end", String(DEFAULT_READ_LIMIT)], { cancelable: false });
+          });
         },
       ),
       readseek_check: readseekTool(
