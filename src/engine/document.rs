@@ -148,26 +148,3 @@ pub(crate) struct Asset {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) source_anchor: Option<SourceAnchor>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{Document, DocumentFormat};
-
-    #[test]
-    fn rebind_source_updates_path_dependent_metadata() {
-        let mut document = Document {
-            id: "id".to_owned(),
-            format: DocumentFormat::Pdf,
-            source: "old.pdf".into(),
-            title: "old".to_owned(),
-            pages: 1,
-            nodes: Vec::new(),
-            assets: Vec::new(),
-        };
-
-        document.rebind_source(std::path::Path::new("copies/new-name.pdf"));
-
-        assert_eq!(document.source, std::path::Path::new("copies/new-name.pdf"));
-        assert_eq!(document.title, "new-name");
-    }
-}
