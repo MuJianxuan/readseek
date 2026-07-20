@@ -10,10 +10,14 @@ use anyhow::{Context, Result, bail};
 use crc::CRC_32_ISO_HDLC;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::mem::offset_of;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
 use zerocopy::byteorder::{LittleEndian, U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -139,6 +143,7 @@ struct UpdatePathResult {
 }
 
 static DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 /// Pin the `.readseek` directory, bypassing ancestor discovery (`--readseek-dir`).
 pub(crate) fn set_dir_override(path: PathBuf) {
@@ -175,10 +180,10 @@ pub(crate) struct InitResult {
 
 pub(crate) fn init(dir: &Path) -> Result<InitResult> {
     let canonical = dir.canonicalize().context("resolve init path")?;
-    let (readseek_dir, canonical_readseek) = match dir_override() {
-        Some(dir) => (dir.to_path_buf(), dir.to_path_buf()),
-        None => (dir.join(READSEEK_DIR), canonical.join(READSEEK_DIR)),
-    };
+    let (readseek_dir, canonical_readseek) = dir_override().map_or_else(
+        || (dir.join(READSEEK_DIR), canonical.join(READSEEK_DIR)),
+        |dir| (dir.to_path_buf(), dir.to_path_buf()),
+    );
     let reinitialized = canonical_readseek.exists();
     let maps_dir = canonical_readseek.join(MAPS_DIR);
     fs::create_dir_all(&maps_dir).with_context(|| format!("create {}", maps_dir.display()))?;
@@ -567,17 +572,38 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
 
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     use std::time::{SystemTime, UNIX_EPOCH};
+
     let dir = path.parent().context("map path has no parent")?;
-    let ts = SystemTime::now()
+    let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
     let pid = std::process::id();
-    let tmp = dir.join(format!(".tmp-{pid}-{ts:x}"));
-    fs::write(&tmp, data).with_context(|| format!("write {}", tmp.display()))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
-    Ok(())
+
+    for _ in 0..64 {
+        let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let tmp = dir.join(format!(".tmp-{pid}-{timestamp:x}-{sequence:x}"));
+        let file = match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error).with_context(|| format!("create {}", tmp.display())),
+        };
+        let write_result = {
+            let mut file = file;
+            file.write_all(data)
+        };
+        if let Err(error) = write_result {
+            let _ = fs::remove_file(&tmp);
+            return Err(error).with_context(|| format!("write {}", tmp.display()));
+        }
+        return fs::rename(&tmp, path)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()));
+    }
+
+    bail!(
+        "could not create a unique temporary file in {}",
+        dir.display()
+    )
 }
 
 pub(crate) fn update(dir: &Path, flags: GitFlags) -> Result<UpdateStats> {

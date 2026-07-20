@@ -146,19 +146,16 @@ impl cli::DetectCommand {
     }
 }
 
-/// Run the requested vision tasks against `input`, reusing cached results from
-/// `.readseek/vision/` and storing any newly computed ones.
+/// Run the requested vision tasks, reusing cached results from `readseek_dir`.
 fn run_vision(
     input: crate::engine::qwen::VisionInput<'_>,
     request: crate::engine::vision::Request,
     level: crate::engine::vision::VisionLevel,
+    readseek_dir: Option<&Path>,
 ) -> Result<crate::engine::vision::Analysis> {
-    let readseek_dir = std::env::current_dir()
-        .ok()
-        .and_then(|cwd| repo::find_readseek_dir(&cwd));
     let hash = input.cache_hash();
 
-    let (mut entry, cache_version) = readseek_dir.as_deref().map_or_else(
+    let (mut entry, cache_version) = readseek_dir.map_or_else(
         || {
             (
                 vision_cache::CacheEntry::new_empty(level),
@@ -211,7 +208,7 @@ fn run_vision(
         if missing.ocr {
             entry.ocr = analysis.ocr;
         }
-        if let Some(dir) = readseek_dir.as_deref() {
+        if let Some(dir) = readseek_dir {
             vision_cache::store(dir, &hash, &cache_version, &entry);
         }
     }
@@ -227,8 +224,9 @@ fn run_pdf_vision(
     input: crate::engine::qwen::VisionInput<'_>,
     request: crate::engine::vision::Request,
     level: crate::engine::vision::VisionLevel,
+    readseek_dir: Option<&Path>,
 ) -> crate::engine::vision::Analysis {
-    match run_vision(input, request, level) {
+    match run_vision(input, request, level, readseek_dir) {
         Ok(analysis) => analysis,
         Err(error) => {
             tracing::warn!("vision skipped: {error:#}");
@@ -240,9 +238,13 @@ fn run_pdf_vision(
 impl cli::ReadCommand {
     fn run(&self) -> Result<String> {
         let (target, source) = load_source(self.target.as_deref(), false, self.language)?;
+        let readseek_dir = repo::find_readseek_dir(&source.path).or_else(|| {
+            env::current_dir()
+                .ok()
+                .and_then(|cwd| repo::find_readseek_dir(&cwd))
+        });
         let vision_options = self.vision_level.is_some();
         let level = self.vision_level.unwrap_or_default();
-
         if matches!(
             source.detection.category,
             crate::engine::source::ContentCategory::Image(_)
@@ -273,6 +275,7 @@ impl cli::ReadCommand {
                 crate::engine::qwen::VisionInput::Encoded(bytes),
                 request,
                 level,
+                readseek_dir.as_deref(),
             )?;
             let prepared = (mode == cli::ImageMode::None)
                 .then(|| crate::engine::image::preprocess(bytes))
@@ -300,7 +303,7 @@ impl cli::ReadCommand {
                 bail!("missing PDF bytes for {}", source.path.display());
             };
             let pdf = crate::engine::pdf::read(bytes, mode, self.page, |input, request| {
-                run_pdf_vision(input, request, level)
+                run_pdf_vision(input, request, level, readseek_dir.as_deref())
             })?;
             return Ok(serde_json::to_string(&output::ReadOutput::Pdf(pdf))?);
         }

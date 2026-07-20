@@ -159,10 +159,10 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     };
 
     Ok(RenameOutput {
-        file: source.path.clone(),
+        file: source.path,
         language: source.detection.language,
         engine: source.detection.engine,
-        file_hash: source.file_hash.clone(),
+        file_hash: source.file_hash,
         old_name,
         new_name: request.to.clone(),
         plan_hash,
@@ -378,7 +378,7 @@ fn apply_all(
             fs::read_to_string(path).with_context(|| format!("re-read {}", path.display()))?;
         let current = source_from_text(
             path,
-            raw_text,
+            raw_text.clone(),
             request.language,
             ContentCategory::Text,
             None,
@@ -401,8 +401,8 @@ fn apply_all(
                 );
             }
         }
-        let new_text = rewrite(&current.text, edits, old_name, &request.to)?;
-        writes.push((path, current.text, new_text));
+        let new_text = rewrite(&raw_text, edits, old_name, &request.to)?;
+        writes.push((path, raw_text, new_text));
     }
 
     // All files verified: write them, restoring on any failure.
