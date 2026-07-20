@@ -1,8 +1,14 @@
 # readseek
 
+<img alt="Screencast of readseek captioning an image" src="screencast.gif" width="1024">
+
+
 `readseek` reads source files and PDFs for scripts, editors, and coding agents.
-It returns compact JSON with stable line/hash anchors, symbol maps, parse diagnostics,
-AST matches, references, and rename plans.
+It returns compact JSON with stable line/hash anchors, symbol maps, parse
+diagnostics, AST matches, references, and rename plans.
+
+The screencast above was recorded with a very modest AMD Ryzen 5 PRO 4650 laptop
+CPU, and demonstrates the tailored inference engine for Qwen3-VL-2B.
 
 ## Installation
 
