@@ -19,7 +19,7 @@ cargo install readseek
 ```
 
 Prebuilt binaries are available for macOS ARM64; Linux ARM64 and x64; and Windows
-x64. The Linux binaries are static glibc PIE executables.
+x64. The Linux binaries are statically linked with musl.
 
 To build and install from source:
 

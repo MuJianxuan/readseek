@@ -139,12 +139,12 @@ jobs:
             runner: ubuntu-latest
             package_dir: npm/linux-x64
             binary: readseek
-            rust_target: x86_64-unknown-linux-gnu
+            rust_target: x86_64-unknown-linux-musl
           - package: linux-arm64
             runner: ubuntu-24.04-arm
             package_dir: npm/linux-arm64
             binary: readseek
-            rust_target: aarch64-unknown-linux-gnu
+            rust_target: aarch64-unknown-linux-musl
           - package: win32-x64
             runner: windows-2025
             package_dir: npm/win32-x64
@@ -159,10 +159,21 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build (Linux static glibc)
+      - name: Install musl toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "${{ matrix.rust_target }}"
+
+      - name: Build (Linux static musl)
         if: runner.os == 'Linux'
         env:
-          RUSTFLAGS: "-C target-feature=+crt-static"
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+          CC_x86_64_unknown_linux_musl: musl-gcc
         run: cargo build --release --target "${{ matrix.rust_target }}"
 
       - name: Verify Linux static linkage
@@ -174,15 +185,15 @@ jobs:
           description=$(file -b "$bin")
           echo "$description"
           if [[ "$description" != *"static-pie linked"* && "$description" != *"statically linked"* ]]; then
-            echo "Linux release is not statically linked" >&2
+            echo "Linux musl release is not statically linked" >&2
             exit 1
           fi
           if readelf -l "$bin" 2>/dev/null | grep -q 'INTERP'; then
-            echo "Linux release declares a dynamic ELF interpreter" >&2
+            echo "Linux musl release declares a dynamic ELF interpreter" >&2
             exit 1
           fi
           if readelf -d "$bin" 2>/dev/null | grep -q '(NEEDED)'; then
-            echo "Linux release has dynamic dependencies" >&2
+            echo "Linux musl release has dynamic dependencies" >&2
             exit 1
           fi
 

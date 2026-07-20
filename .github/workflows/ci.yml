@@ -65,18 +65,24 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
 
-      - name: Build static binary
+      - name: Install musl toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add aarch64-unknown-linux-musl
+
+      - name: Build static musl binary
         env:
-          RUSTFLAGS: "-C target-feature=+crt-static"
-        run: cargo build --release --target aarch64-unknown-linux-gnu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --target aarch64-unknown-linux-musl
 
       - name: Test npm wrapper
         run: |
           mkdir -p npm/linux-arm64/bin
-          cp target/aarch64-unknown-linux-gnu/release/readseek npm/linux-arm64/bin/readseek
+          cp target/aarch64-unknown-linux-musl/release/readseek npm/linux-arm64/bin/readseek
           chmod 755 npm/linux-arm64/bin/readseek
           npm install --package-lock=false --ignore-scripts --no-save ./npm/linux-arm64
           node bin/readseek.js --version
