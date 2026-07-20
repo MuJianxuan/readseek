@@ -93,38 +93,34 @@ printf '%s\n' 'fn main() {}' | readseek identify stdin:scratch.rs:1 --column 4
 ## Images and PDFs
 
 `detect` reports image metadata and PDF page counts. `read` returns bounded base64
-images by default; select local analysis with `--image`:
+images by default; select local analysis with `--vision-mode`:
 
 ```sh
-readseek read photo.jpg                   # default: bounded base64 image
-readseek read photo.jpg --image caption   # detailed natural-language caption
-readseek read photo.jpg --image objects   # object labels + bounding boxes
-readseek read photo.jpg --image ocr       # extracted text
-readseek read photo.jpg --image all       # caption, objects, and OCR in one pass
+readseek read photo.jpg                         # default: bounded base64 image
+readseek read photo.jpg --vision-mode caption   # detailed natural-language caption
+readseek read photo.jpg --vision-mode objects   # object labels + bounding boxes
+readseek read photo.jpg --vision-mode ocr       # extracted text
+readseek read photo.jpg --vision-mode all       # caption, objects, and OCR in one pass
 ```
 
-Vision analysis uses the `balanced` profile by default. Choose `fast` for lower
-latency or `accurate` for dense OCR and small objects:
+Vision analysis uses the `low` level by default. Start at `low`, then increase to
+`medium` or `high` only when additional detail is needed:
 
 ```sh
-readseek read photo.jpg --image caption --vision-profile fast
-readseek read scan.png --image ocr --vision-profile accurate
+readseek read photo.jpg --vision-mode caption --vision-level low
+readseek read scan.png --vision-mode ocr --vision-level high
 ```
 
-`--vision-diagnostics` writes cache status, devices, token counts, timings,
-throughput, and peak RSS as JSON to stderr. `--vision-benchmark N` runs one warmup
-and `N` measured iterations for an image file:
+Set `RUST_LOG=tracing` to emit vision cache and inference traces on standard error.
 
-```sh
-readseek read fixture.png --image all --vision-benchmark 5 \
-  >result.json 2>benchmark.json
-```
+Run `cargo bench --features vision-bench --bench vision` for data-driven comparisons
+defined in `benches/vision.txt`.
 
 Set `READSEEK_VISION_THREADS` to a positive integer to override Rayon's worker
 count. More workers may improve throughput at the cost of CPU and memory.
 
 PDF reads return page-tagged Markdown and embedded images. Use `--page` to select a
-page; `--image` applies to each embedded image. After `readseek init`, `view` creates
+page; `--vision-mode` applies to each embedded image. After `readseek init`, `view` creates
 or reuses a structural PDF index that can be narrowed by page, node, kind, or depth.
 Line/hash suffixes, `--end`, `--limit`, and `--language` do not apply to visual files.
 
@@ -138,7 +134,7 @@ can be slow.
 Map-dependent commands update them on demand and find `.readseek/` by walking up
 from the target; `--readseek-dir` selects one explicitly. PDF indexes and extracted
 assets live in `.readseek/documents/`, while image analysis results are cached under
-`.readseek/vision/`. Image cache entries are profile-specific.
+`.readseek/vision/`. Image cache entries are level-specific.
 
 ## Documentation
 

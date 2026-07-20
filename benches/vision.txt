@@ -1,0 +1,6 @@
+# Vision benchmarks. See benches/vision.rs for the field syntax.
+# Each case invokes readseek with tests/sonicware.jpg as %s.
+
+name=low caption | args=read %s --vision-mode caption --vision-level low
+name=medium caption | args=read %s --vision-mode caption --vision-level medium
+name=high caption | args=read %s --vision-mode caption --vision-level high

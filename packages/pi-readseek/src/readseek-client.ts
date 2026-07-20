@@ -887,7 +887,7 @@ export async function readSeekDetect(
 
 /**
  * Analyze an image with each requested vision mode and merge the payloads into
- * a single detection. readseek accepts one `--image` mode per invocation, so
+ * a single detection. readseek accepts one `--vision-mode` per invocation, so
  * modes that fail are dropped as long as at least one produced a payload;
  * otherwise the first failure is rethrown.
  */
@@ -899,7 +899,7 @@ export async function readSeekImage(
 	const requestedModes = modes.length > 1 ? ["all"] : modes;
 	const results = await Promise.allSettled(
 		requestedModes.map(async (mode) =>
-			parseDetectOutput(await runReadSeekVision(["read", "--image", mode, filePath], { signal: options.signal })),
+			parseDetectOutput(await runReadSeekVision(["read", "--vision-mode", mode, filePath], { signal: options.signal })),
 		),
 	);
 
@@ -927,7 +927,7 @@ export async function readSeekPreparedImage(
 	filePath: string,
 	options: { signal?: AbortSignal } = {},
 ): Promise<ReadSeekPreparedImage> {
-	const output = parseDetectOutput(await runReadSeek(["read", "--image", "none", filePath], { signal: options.signal }));
+	const output = parseDetectOutput(await runReadSeek(["read", "--vision-mode", "none", filePath], { signal: options.signal }));
 	if (output.kind !== "image" || output.encoding !== "base64" || output.data === undefined || output.mime === undefined) {
 		throw new Error(`readseek returned no prepared image for ${filePath}`);
 	}
@@ -973,7 +973,7 @@ export async function readSeekPdf(
 	options: { page?: number; signal?: AbortSignal } = {},
 ): Promise<ReadSeekPdfOutput> {
 	const run = mode === "none" ? runReadSeek : runReadSeekVision;
-	const args = ["read", "--image", mode, filePath];
+	const args = ["read", "--vision-mode", mode, filePath];
 	if (options.page !== undefined) args.push("--page", String(options.page));
 	return parsePdfOutput(await run(args, { signal: options.signal }));
 }

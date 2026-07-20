@@ -10,20 +10,23 @@ readme = "README.md"
 rust-version = "1.89"
 version = "0.7.9"
 
+[features]
+vision-bench = []
+
 [dependencies]
 anyhow = "1.0"
 arborium-meson = "2.18"
 argh = "0.1.13"
 base64 = "0.22"
 blake3 = "1.8"
-env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 git2 = { version = "0.20", default-features = false }
 hex = "0.4"
 imagesize = "0.14"
 dirs = "6"
 infer = "0.19"
 indicatif = "0.17"
-log = "0.4"
 memchr = "2.7"
 memmap2 = "0.9"
 pdf_oxide = { version = "0.3.74", default-features = false }
@@ -86,6 +89,11 @@ duct = "1"
 [[test]]
 name = "data"
 harness = false
+
+[[bench]]
+name = "vision"
+harness = false
+required-features = ["vision-bench"]
 
 [profile.release]
 lto = "thin"

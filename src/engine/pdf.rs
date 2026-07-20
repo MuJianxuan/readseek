@@ -129,7 +129,8 @@ fn append_page_assets(
         let image = match handle.decode() {
             Ok(image) => image,
             Err(error) => {
-                log::warn!(
+                tracing::debug!(
+                    target: "tracing",
                     "skip undecodable PDF image {} on page {page}: {error}",
                     handle.paint_order
                 );
@@ -140,7 +141,8 @@ fn append_page_assets(
             Ok(png) if !png.is_empty() => png,
             Ok(_) => continue,
             Err(error) => {
-                log::warn!(
+                tracing::debug!(
+                    target: "tracing",
                     "skip PDF image {} on page {page}: {error}",
                     handle.paint_order
                 );
@@ -457,13 +459,13 @@ fn analyze_pdf_image(
     } = image.data()
         && rgb_data_len(width, height) != Some(pixels.len())
     {
-        log::warn!("PDF page {page} image skipped: invalid RGB dimensions");
+        tracing::debug!(target: "tracing", "PDF page {page} image skipped: invalid RGB dimensions");
         return None;
     }
     let encode_png = || match image.to_png_bytes() {
         Ok(png) => Some(png),
         Err(error) => {
-            log::warn!("PDF page {page} image skipped: {error}");
+            tracing::debug!(target: "tracing", "PDF page {page} image skipped: {error}");
             None
         }
     };
@@ -472,7 +474,7 @@ fn analyze_pdf_image(
         let prepared = match crate::engine::image::preprocess(&png) {
             Ok(prepared) => prepared,
             Err(error) => {
-                log::warn!("PDF page {page} image skipped: {error}");
+                tracing::debug!(target: "tracing", "PDF page {page} image skipped: {error}");
                 return None;
             }
         };
@@ -532,7 +534,7 @@ pub(crate) fn read(
             let image = match handle.decode() {
                 Ok(image) => image,
                 Err(error) => {
-                    log::warn!("PDF page {page} image skipped: {error}");
+                    tracing::debug!(target: "tracing", "PDF page {page} image skipped: {error}");
                     continue;
                 }
             };

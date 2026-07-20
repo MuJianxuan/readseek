@@ -228,7 +228,7 @@ pub(crate) fn load_map(
     let data = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
 
     if data.len() < HEADER_SIZE {
-        log::warn!("truncated map file: {}", path.display());
+        tracing::debug!(target: "tracing", "truncated map file: {}", path.display());
         return Ok(None);
     }
 
@@ -236,11 +236,12 @@ pub(crate) fn load_map(
         .map_err(|e| anyhow::anyhow!("parse header of {}: {e}", path.display()))?;
 
     if header.magic != MAGIC {
-        log::warn!("invalid magic in {}", path.display());
+        tracing::debug!(target: "tracing", "invalid magic in {}", path.display());
         return Ok(None);
     }
     if header.version.get() != SCHEMA_VERSION {
-        log::warn!(
+        tracing::debug!(
+            target: "tracing",
             "unsupported schema version {} in {}",
             header.version.get(),
             path.display()
@@ -250,14 +251,14 @@ pub(crate) fn load_map(
 
     let expected_hash = hex_hash_to_raw(file_hash)?;
     if header.file_hash != expected_hash {
-        log::warn!("hash mismatch in {}", path.display());
+        tracing::debug!(target: "tracing", "hash mismatch in {}", path.display());
         return Ok(None);
     }
 
     let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
     let computed = crc32.checksum(&data[HEADER_SIZE..]);
     if header.checksum.get() != computed {
-        log::warn!("checksum mismatch in {}", path.display());
+        tracing::debug!(target: "tracing", "checksum mismatch in {}", path.display());
         return Ok(None);
     }
 
@@ -308,7 +309,7 @@ pub(crate) fn load_map(
         .context("map string table size overflow")?;
 
     if data.len() < strtab_end {
-        log::warn!("truncated data in {}", path.display());
+        tracing::debug!(target: "tracing", "truncated data in {}", path.display());
         return Ok(None);
     }
 
@@ -472,17 +473,18 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
     }
     let data = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
     if data.len() < INDEX_HEADER_SIZE {
-        log::warn!("truncated def-index file: {}", path.display());
+        tracing::debug!(target: "tracing", "truncated def-index file: {}", path.display());
         return Ok(None);
     }
     let header = IndexHeader::ref_from_bytes(&data[..INDEX_HEADER_SIZE])
         .map_err(|e| anyhow::anyhow!("parse def-index header of {}: {e}", path.display()))?;
     if header.magic != INDEX_MAGIC {
-        log::warn!("invalid magic in {}", path.display());
+        tracing::debug!(target: "tracing", "invalid magic in {}", path.display());
         return Ok(None);
     }
     if header.version.get() != INDEX_SCHEMA_VERSION {
-        log::warn!(
+        tracing::debug!(
+            target: "tracing",
             "unsupported def-index schema version {} in {}",
             header.version.get(),
             path.display()
@@ -491,7 +493,7 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
     }
     let crc32 = crc::Crc::<u32>::new(&CRC_32_ISO_HDLC);
     if header.checksum.get() != crc32.checksum(&data[INDEX_HEADER_SIZE..]) {
-        log::warn!("checksum mismatch in {}", path.display());
+        tracing::debug!(target: "tracing", "checksum mismatch in {}", path.display());
         return Ok(None);
     }
     let name_count = header.name_count.get() as usize;
@@ -514,7 +516,7 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
         .checked_add(strtab_sz)
         .context("strtab end overflow")?;
     if data.len() < strtab_end {
-        log::warn!("truncated def-index data in {}", path.display());
+        tracing::debug!(target: "tracing", "truncated def-index data in {}", path.display());
         return Ok(None);
     }
     let name_bytes = &data[name_start..name_end];
@@ -538,11 +540,11 @@ pub(crate) fn load_index(readseek_dir: &Path, name: &str) -> Result<Option<Vec<P
                 let first = entry.first_path.get() as usize;
                 let count = entry.path_count.get() as usize;
                 let Some(end) = first.checked_add(count) else {
-                    log::warn!("invalid def-index path range in {}", path.display());
+                    tracing::debug!(target: "tracing", "invalid def-index path range in {}", path.display());
                     return Ok(None);
                 };
                 if end > path_count {
-                    log::warn!("invalid def-index path range in {}", path.display());
+                    tracing::debug!(target: "tracing", "invalid def-index path range in {}", path.display());
                     return Ok(None);
                 }
                 let mut paths = Vec::with_capacity(count);

@@ -13,7 +13,14 @@ mod cli;
 mod engine;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::level_filters::LevelFilter::WARN.into())
+                .from_env_lossy(),
+        )
+        .with_writer(std::io::stderr)
+        .init();
     if env::args_os().len() == 1 {
         match Cli::from_args(&["readseek"], &["--help"]) {
             Err(early_exit) => eprintln!("{}", early_exit.output),

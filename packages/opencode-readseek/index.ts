@@ -1037,7 +1037,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
             args.push("--end", String((input.offset ?? 1) + ((input.limit as number | undefined) ?? DEFAULT_READ_LIMIT) - 1));
           }
           if (input.language) args.push("--language", input.language as string);
-          if (image !== undefined) args.push("--image", image);
+          if (image !== undefined) args.push("--vision-mode", image);
           if (pdf) args.push("--page", String(input.page ?? 1));
           return runReadSeek(context, args);
         },

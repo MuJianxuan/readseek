@@ -75,7 +75,7 @@ describe("readseek_read", () => {
     await read.execute({ path: "figure.png", image: "none" }, createContext());
 
     expect((spawn.mock.calls[1]?.[0] as string[]).slice(1)).toEqual([
-      "read", "/repo/figure.png", "--image", "none",
+      "read", "/repo/figure.png", "--vision-mode", "none",
     ]);
   });
 

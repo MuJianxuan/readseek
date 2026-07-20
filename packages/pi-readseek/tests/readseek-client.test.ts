@@ -120,7 +120,7 @@ const IMAGE_MODE_PAYLOADS: Record<string, Record<string, unknown>> = {
 
 function mockImageModes(options: { failing?: string[] } = {}) {
 	spawnMock.mockImplementation((_bin: string, args: string[]) => {
-		const imageIndex = args.indexOf("--image");
+		const imageIndex = args.indexOf("--vision-mode");
 		if (imageIndex === -1) return spawnResult("");
 		const mode = args[imageIndex + 1] as string;
 		if (options.failing?.includes(mode)) return spawnFailure(`error: ${mode} model unavailable`);
@@ -143,7 +143,7 @@ function mockImageModes(options: { failing?: string[] } = {}) {
 function imageCallArgs(): string[][] {
 	return spawnMock.mock.calls
 		.map((call) => call[1] as string[])
-		.filter((args) => args.includes("--image"));
+		.filter((args) => args.includes("--vision-mode"));
 }
 
 const readSeekBinaryPattern = /[\\/]bin[\\/]readseek(\.exe)?$/;
@@ -367,7 +367,7 @@ describe("readseek client parsing", () => {
 
 		const detection = await readSeekImage("/tmp/image.png", ["ocr", "caption", "objects"]);
 
-		expect(imageCallArgs()).toEqual([["read", "--image", "all", "/tmp/image.png"]]);
+		expect(imageCallArgs()).toEqual([["read", "--vision-mode", "all", "/tmp/image.png"]]);
 		expect(detection.kind).toBe("image");
 		if (detection.kind === "image") {
 			expect(detection.ocr).toBe("OCR TEXT");
@@ -487,7 +487,7 @@ describe("readseek client parsing", () => {
 
 	it("rejects invalid image object bounding boxes", async () => {
 		spawnMock.mockImplementation((_bin: string, args: string[]) =>
-			args.includes("--image")
+			args.includes("--vision-mode")
 				? spawnResult(
 					JSON.stringify({
 						type: "image/png",

@@ -5,7 +5,7 @@ use crate::engine::flags::GitFlags;
 use crate::engine::lang::{LANGUAGE_SPECS, Language};
 use crate::engine::output::ImageMode;
 use crate::engine::target::{Target, TargetAddress};
-use crate::engine::vision::VisionProfile;
+use crate::engine::vision::VisionLevel;
 use anyhow::{Context, Result, bail};
 use argh::FromArgs;
 use std::path::PathBuf;
@@ -85,21 +85,13 @@ pub(crate) struct ReadCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// image mode: none (default), all, caption, objects, or ocr
-    #[argh(option, from_str_fn(parse_image_mode))]
-    pub(crate) image: Option<ImageMode>,
-
-    /// vision inference profile: fast, balanced (default), or accurate
-    #[argh(option, from_str_fn(parse_vision_profile))]
-    pub(crate) vision_profile: Option<VisionProfile>,
-
-    /// emit vision inference diagnostics as JSON on stderr
-    #[argh(switch)]
-    pub(crate) vision_diagnostics: bool,
-
-    /// benchmark vision inference for this many measured iterations after warmup
+    /// vision mode: none (default), all, caption, objects, or ocr
     #[argh(option)]
-    pub(crate) vision_benchmark: Option<usize>,
+    pub(crate) vision_mode: Option<ImageMode>,
+
+    /// vision inference level: low (default), medium, or high
+    #[argh(option)]
+    pub(crate) vision_level: Option<VisionLevel>,
 }
 
 /// view an indexed document
@@ -402,31 +394,6 @@ pub(crate) fn parse_language(value: &str) -> std::result::Result<Language, Strin
         })
         .ok_or_else(|| format!("unknown language `{value}`"))
 }
-
-pub(crate) fn parse_image_mode(value: &str) -> std::result::Result<ImageMode, String> {
-    match value {
-        "none" => Ok(ImageMode::None),
-        "all" => Ok(ImageMode::All),
-        "caption" => Ok(ImageMode::Caption),
-        "objects" => Ok(ImageMode::Objects),
-        "ocr" => Ok(ImageMode::Ocr),
-        _ => Err(format!(
-            "unknown image mode `{value}`; expected none, all, caption, objects, or ocr"
-        )),
-    }
-}
-
-pub(crate) fn parse_vision_profile(value: &str) -> std::result::Result<VisionProfile, String> {
-    match value {
-        "fast" => Ok(VisionProfile::Fast),
-        "balanced" => Ok(VisionProfile::Balanced),
-        "accurate" => Ok(VisionProfile::Accurate),
-        _ => Err(format!(
-            "unknown vision profile `{value}`; expected fast, balanced, or accurate"
-        )),
-    }
-}
-
 pub(crate) fn parse_target(value: &str, name_mode: bool) -> Result<Target> {
     if value.is_empty() {
         bail!("target must not be empty");

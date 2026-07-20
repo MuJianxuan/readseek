@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use anyhow::{Context, Result, bail};
-use serde::Serialize;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+use serde::Serialize;
 
 use crate::engine::hash::LineHash;
 use crate::engine::image::{ImageInfo, PreparedImage};
@@ -186,7 +188,8 @@ impl From<&SourceFile> for SourceHeader {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum ImageMode {
     #[default]
     None,
@@ -196,18 +199,20 @@ pub(crate) enum ImageMode {
     Ocr,
 }
 
-impl Serialize for ImageMode {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(match self {
-            Self::None => "none",
-            Self::All => "all",
-            Self::Caption => "caption",
-            Self::Objects => "objects",
-            Self::Ocr => "ocr",
-        })
+impl FromStr for ImageMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "none" => Ok(Self::None),
+            "all" => Ok(Self::All),
+            "caption" => Ok(Self::Caption),
+            "objects" => Ok(Self::Objects),
+            "ocr" => Ok(Self::Ocr),
+            _ => Err(format!(
+                "unknown vision mode `{value}`; expected none, all, caption, objects, or ocr"
+            )),
+        }
     }
 }
 

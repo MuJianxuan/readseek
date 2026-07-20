@@ -17,6 +17,7 @@
 use std::cell::{OnceCell, RefCell};
 use std::env;
 use std::io::IsTerminal as _;
+use std::str::FromStr;
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -45,19 +46,34 @@ const FIELD_OCR: &str =
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum VisionProfile {
-    Fast,
+pub(crate) enum VisionLevel {
     #[default]
-    Balanced,
-    Accurate,
+    Low,
+    Medium,
+    High,
 }
 
-impl VisionProfile {
+impl FromStr for VisionLevel {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            _ => Err(format!(
+                "unknown vision level `{value}`; expected low, medium, or high"
+            )),
+        }
+    }
+}
+
+impl VisionLevel {
     fn image_max_tokens(self, request: Request) -> usize {
         let (caption, objects, ocr) = match self {
-            Self::Fast => (512, 768, 1024),
-            Self::Balanced => (768, 1024, 1536),
-            Self::Accurate => return 2048,
+            Self::Low => (512, 768, 1024),
+            Self::Medium => (768, 1024, 1536),
+            Self::High => return 2048,
         };
         [
             request.caption.then_some(caption),
@@ -72,57 +88,11 @@ impl VisionProfile {
 
     fn spatial_reduction(self) -> SpatialReduction {
         match self {
-            Self::Fast => SpatialReduction::MergeHalf,
-            Self::Balanced => SpatialReduction::PruneQuarter,
-            Self::Accurate => SpatialReduction::None,
+            Self::Low => SpatialReduction::MergeHalf,
+            Self::Medium => SpatialReduction::PruneQuarter,
+            Self::High => SpatialReduction::None,
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct InferenceMetrics {
-    profile: VisionProfile,
-    image_max_tokens: usize,
-    image_tokens_before_reduction: usize,
-    image_tokens_after_reduction: usize,
-    prompt_tokens: usize,
-    generated_tokens: usize,
-    threads: usize,
-    batch_size: u32,
-    micro_batch_size: u32,
-    gpu_offload_supported: bool,
-    backend_devices: Vec<String>,
-    startup_ms: u128,
-    vision_encode_ms: u128,
-    bitmap_ms: u128,
-    tokenize_ms: u128,
-    text_prefill_ms: u128,
-    prefill_ms: u128,
-    decode_ms: u128,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prefill_tokens_per_second: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    decode_tokens_per_second: Option<f64>,
-    total_ms: u128,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    peak_rss_bytes: Option<u64>,
-}
-
-pub(crate) struct InferenceResult {
-    pub(crate) analysis: Analysis,
-    pub(crate) metrics: Option<InferenceMetrics>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct BenchmarkReport {
-    kind: &'static str,
-    profile: VisionProfile,
-    request: Request,
-    iterations: usize,
-    warmup: InferenceMetrics,
-    runs: Vec<InferenceMetrics>,
-    p50_ms: u128,
-    p95_ms: u128,
 }
 
 /// A detected object with its category label and bounding box `[x1,y1,x2,y2]`.
@@ -133,7 +103,7 @@ pub(crate) struct DetectedObject {
 }
 
 /// Which vision tasks to run against an image.
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Request {
     pub(crate) caption: bool,
     pub(crate) objects: bool,
@@ -229,13 +199,10 @@ fn with_runtime<T>(run: impl FnOnce(&mut VisionRuntime) -> Result<T>) -> Result<
 pub(crate) fn analyze(
     input: VisionInput<'_>,
     request: Request,
-    profile: VisionProfile,
-) -> Result<InferenceResult> {
+    level: VisionLevel,
+) -> Result<Analysis> {
     if !request.caption && !request.objects && !request.ocr {
-        return Ok(InferenceResult {
-            analysis: Analysis::default(),
-            metrics: None,
-        });
+        return Ok(Analysis::default());
     }
 
     let embedded_ocr = match input {
@@ -250,17 +217,14 @@ pub(crate) fn analyze(
         ocr: request.ocr && embedded_ocr.is_none(),
     };
     if !model_request.caption && !model_request.objects && !model_request.ocr {
-        return Ok(InferenceResult {
-            analysis: Analysis {
-                ocr: embedded_ocr,
-                ..Analysis::default()
-            },
-            metrics: None,
+        return Ok(Analysis {
+            ocr: embedded_ocr,
+            ..Analysis::default()
         });
     }
 
-    let image_max_tokens = profile.image_max_tokens(model_request);
-    let (raw, width, height, metrics) = with_runtime(|runtime| {
+    let image_max_tokens = level.image_max_tokens(model_request);
+    let (raw, width, height) = with_runtime(|runtime| {
         let total_started = Instant::now();
         let startup_ms = runtime.unreported_startup_ms.take().unwrap_or(0);
         let _progress = InferenceProgress::new();
@@ -268,50 +232,41 @@ pub(crate) fn analyze(
         let (width, height) = input.dimensions()?;
         let embedding = runtime
             .vision
-            .encode_input(input, image_max_tokens, profile.spatial_reduction())
+            .encode_input(input, image_max_tokens, level.spatial_reduction())
             .context("encode image for Qwen3-VL")?;
         let vision_encode_ms = vision_started.elapsed().as_millis();
         let (raw, generation) = generate(runtime, &embedding, model_request)?;
-        let metrics = InferenceMetrics {
-            profile,
+        let prefill_tokens_per_second =
+            tokens_per_second(generation.prompt_tokens, generation.prefill_ms);
+        let decode_tokens_per_second =
+            tokens_per_second(generation.generated_tokens, generation.decode_ms);
+        tracing::trace!(
+            target: "tracing",
+            vision_level = ?level,
             image_max_tokens,
-            image_tokens_before_reduction: embedding.original_token_count,
-            image_tokens_after_reduction: embedding.token_count,
-            prompt_tokens: generation.prompt_tokens,
-            generated_tokens: generation.generated_tokens,
-            threads: runtime.threads,
-            batch_size: 1,
-            micro_batch_size: 1,
-            gpu_offload_supported: false,
-            backend_devices: vec!["custom CPU".to_owned()],
+            image_tokens_before_reduction = embedding.original_token_count,
+            image_tokens_after_reduction = embedding.token_count,
+            prompt_tokens = generation.prompt_tokens,
+            generated_tokens = generation.generated_tokens,
+            threads = runtime.threads,
             startup_ms,
             vision_encode_ms,
-            bitmap_ms: vision_encode_ms,
-            tokenize_ms: generation.tokenize_ms,
-            text_prefill_ms: generation.prefill_ms,
-            prefill_ms: generation.prefill_ms,
-            decode_ms: generation.decode_ms,
-            prefill_tokens_per_second: tokens_per_second(
-                generation.prompt_tokens,
-                generation.prefill_ms,
-            ),
-            decode_tokens_per_second: tokens_per_second(
-                generation.generated_tokens,
-                generation.decode_ms,
-            ),
-            total_ms: total_started.elapsed().as_millis(),
-            peak_rss_bytes: peak_rss_bytes(),
-        };
-        Ok((raw, width, height, metrics))
+            tokenize_ms = generation.tokenize_ms,
+            prefill_ms = generation.prefill_ms,
+            decode_ms = generation.decode_ms,
+            prefill_tokens_per_second = ?prefill_tokens_per_second,
+            decode_tokens_per_second = ?decode_tokens_per_second,
+            total_ms = total_started.elapsed().as_millis(),
+            peak_rss_bytes = ?peak_rss_bytes(),
+            "vision inference completed"
+        );
+        Ok((raw, width, height))
     })?;
     let mut analysis = parse_analysis(&raw, model_request, width, height)?;
     if embedded_ocr.is_some() {
         analysis.ocr = embedded_ocr;
     }
-    Ok(InferenceResult {
-        analysis,
-        metrics: Some(metrics),
-    })
+    Ok(analysis)
 }
 
 fn build_prompt(request: Request) -> String {
@@ -378,55 +333,6 @@ fn max_new_tokens(request: Request) -> usize {
     .flatten()
     .max()
     .unwrap_or(0)
-}
-
-pub(crate) fn benchmark(
-    input: VisionInput<'_>,
-    request: Request,
-    profile: VisionProfile,
-    iterations: usize,
-) -> Result<(Analysis, BenchmarkReport)> {
-    if iterations == 0 {
-        return Err(anyhow!(
-            "vision benchmark iterations must be greater than zero"
-        ));
-    }
-    let warmup = analyze(input, request, profile)?;
-    let warmup_metrics = warmup
-        .metrics
-        .context("vision benchmark did not execute model inference")?;
-    let mut analysis = warmup.analysis;
-    let mut runs = Vec::with_capacity(iterations);
-    for _ in 0..iterations {
-        let result = analyze(input, request, profile)?;
-        let metrics = result
-            .metrics
-            .context("vision benchmark did not execute model inference")?;
-        analysis = result.analysis;
-        runs.push(metrics);
-    }
-    let mut totals: Vec<u128> = runs.iter().map(|metrics| metrics.total_ms).collect();
-    totals.sort_unstable();
-    let p50_ms = percentile(&totals, 50);
-    let p95_ms = percentile(&totals, 95);
-    Ok((
-        analysis,
-        BenchmarkReport {
-            kind: "readseek_vision_benchmark",
-            profile,
-            request,
-            iterations,
-            warmup: warmup_metrics,
-            runs,
-            p50_ms,
-            p95_ms,
-        },
-    ))
-}
-
-fn percentile(sorted: &[u128], percentile: usize) -> u128 {
-    let index = (sorted.len() * percentile).div_ceil(100).saturating_sub(1);
-    sorted[index]
 }
 
 fn tokens_per_second(tokens: usize, milliseconds: u128) -> Option<f64> {

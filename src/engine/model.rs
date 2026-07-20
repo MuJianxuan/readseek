@@ -63,7 +63,7 @@ pub(crate) fn file(name: &str) -> Result<PathBuf> {
     let target = dir.join(local);
     let _lock = ModelLock::acquire(&target.with_extension("file-lock"))?;
     if let Err(error) = remove_stale_parts(&target) {
-        log::warn!("stale model download cleanup skipped: {error:#}");
+        tracing::debug!(target: "tracing", "stale model download cleanup skipped: {error:#}");
     }
     if valid_cached_file(&target, size, sha256) {
         return Ok(target);
@@ -148,7 +148,7 @@ fn download(remote: &str, local: &str, target: &PathBuf) -> Result<()> {
     fs::rename(&part, target)
         .with_context(|| format!("rename {} -> {}", part.display(), target.display()))?;
     if let Err(error) = write_verified(target, expected_size, expected_sha256) {
-        log::warn!("model verification marker {}: {error:#}", target.display());
+        tracing::debug!(target: "tracing", "model verification marker {}: {error:#}", target.display());
     }
     Ok(())
 }
@@ -200,7 +200,7 @@ fn valid_cached_file(path: &Path, expected_size: u64, expected_sha256: &str) -> 
         return false;
     }
     if let Err(error) = write_verified(path, expected_size, expected_sha256) {
-        log::warn!("model verification marker {}: {error:#}", marker.display());
+        tracing::debug!(target: "tracing", "model verification marker {}: {error:#}", marker.display());
     }
     true
 }

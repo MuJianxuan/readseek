@@ -18,10 +18,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::hash;
-use crate::engine::vision::{DetectedObject, VisionProfile};
+use crate::engine::vision::{DetectedObject, VisionLevel};
 
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 10;
+const CACHE_SCHEMA_VERSION: u32 = 11;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
@@ -38,7 +38,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CacheEntry {
     schema_version: u32,
-    profile: VisionProfile,
+    level: VisionLevel,
     pub(crate) caption: Option<String>,
     pub(crate) objects: Option<Vec<DetectedObject>>,
     pub(crate) ocr: Option<String>,
@@ -53,19 +53,19 @@ pub(crate) enum CacheVersion {
 
 impl CacheEntry {
     /// A fresh entry with no tasks completed, stamped with the current schema.
-    pub(crate) fn new_empty(profile: VisionProfile) -> Self {
+    pub(crate) fn new_empty(level: VisionLevel) -> Self {
         Self {
             schema_version: CACHE_SCHEMA_VERSION,
-            profile,
+            level,
             caption: None,
             objects: None,
             ocr: None,
         }
     }
 
-    /// Whether this entry was produced by the current cache format and profile.
-    fn is_valid(&self, profile: VisionProfile) -> bool {
-        self.schema_version == CACHE_SCHEMA_VERSION && self.profile == profile
+    /// Whether this entry was produced by the current cache format and level.
+    fn is_valid(&self, level: VisionLevel) -> bool {
+        self.schema_version == CACHE_SCHEMA_VERSION && self.level == level
     }
 }
 
@@ -82,18 +82,18 @@ fn entry_path(readseek_dir: &Path, hash_hex: &str) -> PathBuf {
 pub(crate) fn load(
     readseek_dir: &Path,
     hash_hex: &str,
-    profile: VisionProfile,
+    level: VisionLevel,
 ) -> (CacheEntry, CacheVersion) {
     let path = entry_path(readseek_dir, hash_hex);
     let before = cache_version(&path);
     if before == CacheVersion::Missing {
-        return (CacheEntry::new_empty(profile), before);
+        return (CacheEntry::new_empty(level), before);
     }
     let data = match fs::read(&path) {
         Ok(data) => data,
         Err(error) => {
-            log::warn!("vision cache read {}: {error}", path.display());
-            return (CacheEntry::new_empty(profile), CacheVersion::Unknown);
+            tracing::debug!(target: "tracing", "vision cache read {}: {error}", path.display());
+            return (CacheEntry::new_empty(level), CacheVersion::Unknown);
         }
     };
     let after = cache_version(&path);
@@ -105,16 +105,17 @@ pub(crate) fn load(
     let entry: CacheEntry = match serde_json::from_slice(&data) {
         Ok(entry) => entry,
         Err(error) => {
-            log::warn!("vision cache parse {}: {error}", path.display());
-            return (CacheEntry::new_empty(profile), version);
+            tracing::debug!(target: "tracing", "vision cache parse {}: {error}", path.display());
+            return (CacheEntry::new_empty(level), version);
         }
     };
-    if !entry.is_valid(profile) {
-        log::warn!(
-            "vision cache schema/model/profile mismatch in {}, treating as miss",
+    if !entry.is_valid(level) {
+        tracing::debug!(
+            target: "tracing",
+            "vision cache schema/model/level mismatch in {}, treating as miss",
             path.display()
         );
-        return (CacheEntry::new_empty(profile), version);
+        return (CacheEntry::new_empty(level), version);
     }
     (entry, version)
 }
@@ -146,13 +147,13 @@ pub(crate) fn store(
     if let Some(parent) = path.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
-        log::warn!("vision cache mkdir {}: {error}", parent.display());
+        tracing::debug!(target: "tracing", "vision cache mkdir {}: {error}", parent.display());
         return;
     }
     let _lock = match CacheLock::acquire(&path.with_extension("json.file-lock")) {
         Ok(lock) => lock,
         Err(error) => {
-            log::warn!("vision cache lock {}: {error}", path.display());
+            tracing::debug!(target: "tracing", "vision cache lock {}: {error}", path.display());
             return;
         }
     };
@@ -160,7 +161,7 @@ pub(crate) fn store(
         if *loaded_version != CacheVersion::Unknown && cache_version(&path) == *loaded_version {
             entry.clone()
         } else {
-            load(readseek_dir, hash_hex, entry.profile).0
+            load(readseek_dir, hash_hex, entry.level).0
         };
     if merged.caption.is_none() {
         merged.caption.clone_from(&entry.caption);
@@ -174,12 +175,12 @@ pub(crate) fn store(
     let data = match serde_json::to_vec(&merged) {
         Ok(data) => data,
         Err(error) => {
-            log::warn!("vision cache serialize: {error}");
+            tracing::debug!(target: "tracing", "vision cache serialize: {error}");
             return;
         }
     };
     if let Err(error) = crate::engine::repo::write_atomic(&path, &data) {
-        log::warn!("vision cache write {}: {error}", path.display());
+        tracing::debug!(target: "tracing", "vision cache write {}: {error}", path.display());
     }
 }
 

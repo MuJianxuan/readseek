@@ -332,21 +332,22 @@ pub(crate) fn source_map_with_dir(
                 if language == source.detection.language {
                     return Ok(source_map);
                 }
-                log::warn!(
+                tracing::debug!(
+                    target: "tracing",
                     "cache language mismatch for {}: cached {language}, current {}",
                     source.path.display(),
                     source.detection.language
                 );
             }
             Ok(None) => {}
-            Err(error) => log::warn!("cache load error: {error:#}"),
+            Err(error) => tracing::debug!(target: "tracing", "cache load error: {error:#}"),
         }
 
         let source_map = symbols::parse_source_map(source)?;
         if let Err(error) =
             crate::engine::repo::store_map(readseek_dir, &source.file_hash, source, &source_map)
         {
-            log::warn!("cache store error: {error:#}");
+            tracing::debug!(target: "tracing", "cache store error: {error:#}");
         }
 
         return Ok(source_map);

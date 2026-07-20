@@ -12,9 +12,8 @@ readseek \- structural source and PDF reader with stable line hashing
 
 \fBreadseek read\fR [\fB--language\fR \fIlanguage\fR]
     [\fB--end\fR \fIline\fR|\fB--limit\fR \fIn\fR] \fItarget\fR
-\fBreadseek read\fR [\fB--image\fR \fBnone|all|caption|objects|ocr\fR]
-    [\fB--vision-profile\fR \fBfast|balanced|accurate\fR] [\fB--vision-diagnostics\fR]
-    [\fB--vision-benchmark\fR \fIiterations\fR] [\fB--page\fR \fIpage\fR] \fItarget\fR
+\fBreadseek read\fR [\fB--vision-mode\fR \fBnone|all|caption|objects|ocr\fR]
+    [\fB--vision-level\fR \fBlow|medium|high\fR] [\fB--page\fR \fIpage\fR] \fItarget\fR
 
 \fBreadseek view\fR [\fB--format\fR \fBplain|json\fR] [\fB--node\fR \fIid\fR]
     [\fB--page\fR \fIpage\fR] [\fB--kind\fR \fIkind\fR] [\fB--depth\fR \fIn\fR]
@@ -144,13 +143,14 @@ returned. A line or hash target suffix sets the first line. \fB--end\fR selects 
 last line (inclusive); \fB--limit\fR selects a count. They cannot be combined.
 .IP
 Visual files use a separate result shape. Images return bounded base64 by default;
-\fB--image\fR selects all analyses or one of captioning, object detection, and OCR.
+\fB--vision-mode\fR selects all analyses or one of captioning, object detection, and OCR.
 PDFs return page-tagged Markdown and embedded images using the same mode. The
-\fIfast\fR profile reduces visual tokens, \fIbalanced\fR is the default, and
-\fIaccurate\fR retains more detail. Vision options cannot be combined with
-\fB--end\fR, \fB--limit\fR, or \fB--language\fR; line and hash suffixes do not apply.
-Analyzed files use a lazily downloaded Qwen3-VL-2B Q8_0 model and multimodal
-projector with ReadSeek's built-in CPU engine.
+\fIlow\fR level is the default; increase to \fImedium\fR or \fIhigh\fR only when
+additional detail is needed. Vision options cannot be combined with \fB--end\fR,
+\fB--limit\fR, or \fB--language\fR; line and hash suffixes do not apply. Analyzed
+files use a lazily downloaded Qwen3-VL-2B Q8_0 model and multimodal projector with
+ReadSeek's built-in CPU engine. Set \fBRUST_LOG=tracing\fR to emit cache and
+inference traces on standard error.
 .TP
 .B view
 Create or reuse a persistent PDF index and print a bounded view. A
@@ -238,23 +238,13 @@ directory is created.
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
 .TP
-\fB--image\fR \fImode\fR
+\fB--vision-mode\fR \fImode\fR
 For \fBread\fR on images or PDFs: \fInone\fR (default, bounded base64), \fIall\fR,
 \fIcaption\fR, \fIobjects\fR, or \fIocr\fR. See \fBread\fR under \fBCOMMANDS\fR.
 .TP
-\fB--vision-profile\fR \fIprofile\fR
-For analyzed images or PDFs, select \fIfast\fR, \fIbalanced\fR (default), or
-\fIaccurate\fR. Fast reduces visual-token work; accurate retains more detail.
-.TP
-\fB--vision-diagnostics\fR
-Write cache status, devices, token counts, timings, throughput, and peak resident
-memory as one JSON object on standard error. Cached results may omit inference
-data.
-.TP
-\fB--vision-benchmark\fR \fIiterations\fR
-For an analyzed image, run one warmup followed by the requested positive number of
-measured iterations. Write the benchmark JSON to standard error. PDFs are not
-supported.
+\fB--vision-level\fR \fIlevel\fR
+For analyzed images or PDFs, select \fIlow\fR (default), \fImedium\fR, or
+\fIhigh\fR. Start at low and increase the level only when more detail is needed.
 .TP
 \fB--page\fR \fIpage\fR
 For \fBread\fR, select a one-based PDF page. For \fBview\fR, restrict the
@@ -442,14 +432,9 @@ Rename a symbol across the repository after verifying every affected file:
 readseek rename src/main.rs --line 42 --column 8 --to renamed --workspace . --apply
 .EE
 
-Benchmark five warm inference iterations and save the normal result separately:
+Run captioning with four inference threads:
 .EX
-readseek read fixture.png --image all --vision-benchmark 5 >result.json 2>benchmark.json
-.EE
-
-Run low-latency captioning with four inference threads:
-.EX
-READSEEK_VISION_THREADS=4 readseek read photo.jpg --image caption --vision-profile fast
+READSEEK_VISION_THREADS=4 readseek read photo.jpg --vision-mode caption --vision-level low
 .EE
 
 .SH BUILDING

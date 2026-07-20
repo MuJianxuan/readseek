@@ -27,7 +27,8 @@ pub(crate) fn command_paths(target: &Path, flags: GitFlags) -> Result<Vec<PathBu
     }
 
     if flags.has_any() {
-        log::debug!(
+        tracing::debug!(
+            target: "tracing",
             "ignoring Git file selection flags outside repository: {}",
             target.display()
         );
