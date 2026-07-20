@@ -55,27 +55,21 @@ readseek \- structural source and PDF reader with stable line hashing
 .fi
 .SH DESCRIPTION
 .B readseek
-is a command-line tool whose source-processing commands output compact JSON.
-It is designed for scripts, editors, and coding agents that need stable, addressable
-source context.
-
-Commands that return source lines represent them as hashline records containing a
-line number, a short 3-character hash, and the original text. Unchanged lines
-retain the same hash.
-
-Operational errors are written to standard error, making JSON output safe to pipe
-into other programs.
+outputs compact JSON for scripts, editors, and coding agents that need stable,
+addressable source context.
+.PP
+Source lines are emitted as hashline records: a line number, a 3-character hash,
+and the original text. Unchanged lines retain their hashes. Operational errors go
+to standard error, so JSON output remains safe to pipe.
 
 .SH INPUTS AND TARGETS
 
-Most commands take a file or directory \fItarget\fR on the command line.
-The \fBdetect\fR, \fBread\fR, \fBmap\fR, \fBcheck\fR, \fBsymbol\fR, and \fBidentify\fR
-commands can read from standard input by prefixing the target with \fBstdin:\fR.
-The remainder after the prefix is an optional detection path. For \fBread\fR,
-\fBsymbol\fR, and \fBidentify\fR it may carry a line or hash address, e.g.
-\fBstdin:scratch.rs:42\fR reads stdin, detects the language from the \fI.rs\fR
-extension, and targets line 42. If the path is omitted (\fBstdin::42\fR) language
-detection falls back to content and shebang analysis.
+Most commands take a file or directory \fItarget\fR. The \fBdetect\fR, \fBread\fR,
+\fBmap\fR, \fBcheck\fR, \fBsymbol\fR, and \fBidentify\fR commands accept standard input
+when the target starts with \fBstdin:\fR. The remainder is an optional path used for
+language detection and may include a line or hash address. For example,
+\fBstdin:scratch.rs:42\fR detects Rust from the extension and selects line 42;
+\fBstdin::42\fR falls back to content and shebang detection.
 A target path may carry a suffix that selects a specific line:
 .nf
 .RS
@@ -83,17 +77,16 @@ A target path may carry a suffix that selects a specific line:
 \fIfile\fR:\fIhash\fR
 .RE
 .fi
-Line numbers are one-based. A hash suffix is a 3-character string that was
-previously emitted by \fBread\fR, \fBmap\fR, or \fBsearch\fR output.
+Line numbers are one-based. A hash suffix is a 3-character hash previously emitted
+by \fBread\fR, \fBmap\fR, or \fBsearch\fR.
 
 For \fBsymbol\fR, the \fB--name\fR flag treats the target suffix as a
 qualified or unqualified symbol name. If the name matches more than one symbol,
 the command reports an error.
 .SH LANGUAGES
 
-.B readseek
- detects the language from the file name, extension, shebang line, and syntax hints.
-Commands that parse source accept \fB--language\fR to force a specific language.
+\fBreadseek\fR detects languages from file names, extensions, shebangs, and syntax.
+Parsing commands accept \fB--language\fR to override detection.
 
 The following language identifiers are accepted:
 \fBassembly\fR,
@@ -141,45 +134,39 @@ parser-based features.
 .SH COMMANDS
 .TP
 .B detect
-Print detection metadata as JSON. \fBtype\fR is the detected MIME type, or
-\fBtext/plain\fR when unknown. Source files include language and parser metadata;
+Print detection metadata as JSON. Source files include language and parser data;
 images include format, dimensions, and animation status; PDFs include page count.
+Unknown input uses \fBtext/plain\fR.
 .TP
 .B read
-Print line numbers, hashes, and text for a range of lines. Without any range
-options the entire file is returned. Use a line or hash suffix on the target
-path to set the first line.
-Use \fB--end\fR for the last line (inclusive) or \fB--limit\fR for a count;
-the two cannot be combined.
+Print line numbers, hashes, and text. Without range options, the entire file is
+returned. A line or hash target suffix sets the first line. \fB--end\fR selects the
+last line (inclusive); \fB--limit\fR selects a count. They cannot be combined.
+.IP
 Visual files use a separate result shape. Images return bounded base64 by default;
-\fB--image none|all|caption|objects|ocr\fR selects bounded base64, all analyses,
-or one Qwen3-VL analysis mode. PDFs return page-tagged Markdown plus
-page-associated embedded images with the same mode. The \fIfast\fR vision profile
-reduces visual tokens, \fIbalanced\fR is the default, and \fIaccurate\fR retains
-more visual detail for dense OCR and small objects. Vision options cannot be combined
-with \fB--end\fR, \fB--limit\fR, or \fB--language\fR, and line or hash suffixes do
-not apply to visual files. The model runs through llama.cpp and downloads lazily
-(see \fBCACHE\fR).
+\fB--image\fR selects all analyses or one of captioning, object detection, and OCR.
+PDFs return page-tagged Markdown and embedded images using the same mode. The
+\fIfast\fR profile reduces visual tokens, \fIbalanced\fR is the default, and
+\fIaccurate\fR retains more detail. Vision options cannot be combined with
+\fB--end\fR, \fB--limit\fR, or \fB--language\fR; line and hash suffixes do not apply.
+Analyzed files use a lazily downloaded Qwen3-VL-2B Q8_0 model and multimodal
+projector with ReadSeek's built-in CPU engine.
 .TP
 .B view
-Create or reuse a persistent structural index for a PDF and print a bounded view.
-A \fI.readseek/\fR directory must already be available; run \fBinit\fR first or
-pass \fB--readseek-dir\fR. With no selector, the command prints a document
-overview. Narrow the result with \fB--page\fR, \fB--node\fR, \fB--kind\fR,
-\fB--depth\fR, or \fB--outline\fR. Plain output is the default; use
-\fB--format json\fR for the structured representation. Indexed embedded images
-are stored with the document cache.
+Create or reuse a persistent PDF index and print a bounded view. A
+\fI.readseek/\fR directory must exist; run \fBinit\fR or pass \fB--readseek-dir\fR.
+With no selector, print an overview. Narrow it with \fB--page\fR, \fB--node\fR,
+\fB--kind\fR, \fB--depth\fR, or \fB--outline\fR. Output is plain by default;
+\fB--format json\fR emits the structured representation.
 .TP
 .B map
-Print the structural source map: each extracted symbol's kind, name, qualified
-name, start and end line, boundary hashes, the symbol's \fIstart_byte\fR and
-\fIend_byte\fR span, and the \fIname_byte\fR offset of its name token. For languages
-that do not support symbol extraction the output contains an empty symbol list.
+Print each extracted symbol's kind, name, qualified name, line range, boundary
+hashes, byte span, and name-token offset. Unsupported languages return an empty
+symbol list.
 .TP
 .B check
-Print parse diagnostics: the counts of tree-sitter \fIERROR\fR and \fIMISSING\fR
-nodes and a list of each diagnostic's kind and start and end line. For languages
-without a tree-sitter parser the output contains zero counts and an empty list.
+Print tree-sitter \fIERROR\fR and \fIMISSING\fR counts and locations. Languages
+without a parser return zero counts and an empty list.
 .TP
 .B symbol
 Print the source range for one symbol. With \fB--name\fR, the target suffix is
@@ -187,71 +174,49 @@ treated as a qualified or unqualified symbol name. Without \fB--name\fR, a line
 or hash suffix selects the symbol containing that location.
 .TP
 .B identify
-Print the requested cursor line, its hash, the identifier at the cursor position,
-and the enclosing mapped symbol. If \fB--column\fR is omitted, column 1 is used.
-Columns are one-based byte offsets and must be within the selected line. The
-identifier token is resolved with the language parser when available, falling
-back to an ASCII identifier scan otherwise. Identifier ranges in the JSON use a
-one-based inclusive start column and a one-based exclusive end column, plus
-\fIstart_byte\fR and \fIend_byte\fR file offsets that mark the exact token span.
+Print the selected line, its hash, the identifier at the cursor, and the enclosing
+symbol. The default column is 1. Columns are one-based byte offsets. Parser-based
+identifier lookup falls back to an ASCII identifier scan. JSON ranges include
+one-based, inclusive-start/exclusive-end columns and exact byte offsets.
 .TP
 .B def
-Find definitions of a mapped symbol in a file or directory. The \fIname\fR argument
-matches a fully qualified or unqualified symbol name. Directory search follows
-the same file-selection rules as \fBsearch\fR.
-Use \fB--format plain\fR to emit quickfix-friendly location entries instead of full
-definition objects.
+Find mapped symbol definitions in a file or directory. \fIname\fR may be qualified
+or unqualified. Directory selection follows \fBsearch\fR. \fB--format plain\fR emits
+quickfix-friendly locations instead of definition objects.
 .TP
 .B refs
-Find all occurrences of an identifier in a file or directory. Output is a flat
-list of locations with file, line, column, line hash, line text, and the enclosing
-symbol when available. Directory search rules are the same as for \fBsearch\fR.
-Use \fB--format plain\fR to flatten symbol metadata into each location entry.
-
-With \fB--scope\fR and \fB--line\fR/\fB--column\fR, resolution is restricted to the
-lexical binding under the cursor within a single file. Each reported location then
-carries an \fIoccurrence\fR field of \fBdefinition\fR or \fBreference\fR, and
-same-named occurrences that resolve to a different binding are excluded. Scope
-resolution is available for \fBrust\fR, \fBc\fR, \fBcpp\fR, \fBpython\fR, \fBgo\fR,
-\fBjava\fR, \fBjavascript\fR, \fBjsx\fR, \fBtypescript\fR, \fBtsx\fR, \fBcsharp\fR,
-\fBswift\fR, and \fBvimscript\fR; other languages report no resolvable binding.
+Find identifier occurrences in a file or directory. Results include file, line,
+column, line hash, text, and the enclosing symbol when available. Directory
+selection follows \fBsearch\fR. \fB--format plain\fR flattens symbol metadata.
+.IP
+With \fB--scope\fR and a cursor location, restrict results to the lexical binding in
+one file and label occurrences as \fBdefinition\fR or \fBreference\fR. Scope resolution
+supports Rust, C, C++, Python, Go, Java, JavaScript, JSX, TypeScript, TSX, C#,
+Swift, and Vim script. Other languages report no resolvable binding.
 .TP
 .B rename
-Plan a binding-accurate rename of the lexical binding under \fB--line\fR/\fB--column\fR
-within a single file. The output is an edit plan: \fIold_name\fR, \fInew_name\fR,
-any \fIconflicts\fR the new name would introduce, and an \fIedits\fR array with the
-line, column range, byte range, occurrence kind, line hash, and text for each
-edit. Without \fB--apply\fR the command does not modify files; it emits the plan for
-a caller to apply. With \fB--apply\fR the edits are written to the file, but only
-after refusing on any conflict and re-verifying that every edited line's hash still
-matches the plan, so a file that changed since planning is rejected rather than
-corrupted. The reported \fIapplied\fR field indicates whether the file was written.
-Rename uses the same scope resolution as \fBrefs --scope\fR and is available for the
-same languages.
+Plan a binding-aware rename at the cursor. The plan includes names, conflicts, and
+hash-anchored edits. Without \fB--apply\fR, no files are changed. Applying refuses
+conflicts and stale line hashes before writing. The \fIapplied\fR field reports
+whether changes were written. Rename supports the same languages as
+\fBrefs --scope\fR.
 .IP
-With \fB--workspace\fR the rename expands across the given directory or repository.
-The cursor file stays binding-accurate; every other file is matched by name, the
-same way \fBrefs\fR matches, and the additional files appear in an \fIothers\fR array
-of per-file plans. Because readseek has no cross-file symbol resolver, an occurrence
-in another file is renamed only when it does not resolve to a local declaration
-there, so a same-named local binding is left untouched; files in languages without
-binding support are matched by name alone. Directory selection honors the same
-\fB\-c\fR/\fB\-o\fR/\fB\-i\fR Git flags as \fBrefs\fR. With \fB--apply\fR every file is
-verified before writing begins. If a write fails, readseek attempts to restore
-files already written.
+\fB--workspace\fR extends the plan across a directory or repository. The cursor file
+remains binding-aware; other files use name matching. Occurrences that resolve to
+local declarations are excluded when the language supports bindings. Other
+languages are matched by name. File selection honors the same Git flags as
+\fBrefs\fR. All files are verified before writing; if a write fails, readseek
+attempts to restore files already changed.
 .TP
 .B search
-Run an AST pattern against a file or every supported source file under a directory.
-Files that cannot be parsed or are in unsupported languages are skipped.
-Pattern variables use \fB$\fR\fINAME\fR to match a single node and
-\fB$$$\fR\fINAME\fR to match zero or more sibling nodes.
-Output is grouped by file and includes the file hash, matched ranges, captures,
-boundary hashes, and hashlines for each match.
+Run an AST pattern against a file or supported source files under a directory.
+Unparseable and unsupported files are skipped. \fB$\fR\fINAME\fR matches one node;
+\fB$$$\fR\fINAME\fR matches zero or more sibling nodes. Results are grouped by file
+and include hashes, ranges, captures, and matched hashlines.
 .TP
 .B init
-Initialize a \fI.readseek/\fR directory under \fIpath\fR (defaults to the current
-directory) and populate its map cache and definition index. If the directory
-already exists, \fBinit\fR refreshes the caches.
+Create \fI.readseek/\fR under \fIpath\fR (the current directory by default), then
+populate its map cache and definition index. Existing caches are refreshed.
 
 .SH OPTIONS
 .TP
@@ -262,14 +227,13 @@ Print usage information and exit.
 Print the program version and exit.
 .TP
 \fB--output\fR \fIpath\fR
-Write command output to \fIpath\fR instead of standard output. It cannot be used
-with \fB--version\fR or \fBinit\fR.
+Write command output to \fIpath\fR instead of standard output. Not valid with
+\fB--version\fR or \fBinit\fR.
 .TP
 \fB--readseek-dir\fR \fIdir\fR
-Use \fIdir\fR as the \fI.readseek/\fR directory instead of discovering one by
-walking up from the target, analogous to \fBgit\fR's \fB--git-dir\fR. This global
-option must precede the command. For \fBinit\fR it controls where the directory is
-created; map-dependent commands update entries for files they process.
+Use \fIdir\fR instead of discovering \fI.readseek/\fR by walking up from the target.
+This global option must precede the command. With \fBinit\fR, it selects where the
+directory is created.
 .TP
 \fB--language\fR \fIlanguage\fR
 Force a specific language instead of auto-detection. See \fBLANGUAGES\fR above.
@@ -283,14 +247,14 @@ For analyzed images or PDFs, select \fIfast\fR, \fIbalanced\fR (default), or
 \fIaccurate\fR. Fast reduces visual-token work; accurate retains more detail.
 .TP
 \fB--vision-diagnostics\fR
-Emit cache status, backend devices, token counts, per-stage timings, throughput, and
-peak resident memory as one JSON object on standard error. Cached results may omit
-inference fields because no model inference ran.
+Write cache status, devices, token counts, timings, throughput, and peak resident
+memory as one JSON object on standard error. Cached results may omit inference
+data.
 .TP
 \fB--vision-benchmark\fR \fIiterations\fR
-For an analyzed image file, run one unmeasured warmup followed by the positive number
-of measured iterations. Emit a JSON benchmark report on standard error. PDF
-benchmarking is not supported.
+For an analyzed image, run one warmup followed by the requested positive number of
+measured iterations. Write the benchmark JSON to standard error. PDFs are not
+supported.
 .TP
 \fB--page\fR \fIpage\fR
 For \fBread\fR, select a one-based PDF page. For \fBview\fR, restrict the
@@ -322,8 +286,8 @@ For \fBrename\fR, expand the rename across \fIdir\fR. See \fBrename\fR under
 \fBCOMMANDS\fR for cross-file matching and Git file selection.
 .TP
 \fB--apply\fR
-For \fBrename\fR, write the planned edits after checking conflicts and verifying
-each affected file and line hash.
+Apply planned edits after checking conflicts and verifying affected files and line
+hashes.
 .TP
 \fB--plan-hash\fR \fIhash\fR
 For \fBrename --apply\fR, require the apply plan to match the hash emitted by an
@@ -351,12 +315,12 @@ For \fBview\fR, limit output to this depth below the selected roots.
 For \fBview\fR, return outline nodes only.
 .TP
 \fB\-c\fR, \fB--cached\fR
-When searching a directory inside a Git repository, or expanding \fBrename
---workspace\fR, search tracked and indexed files.
+For Git-aware directory searches and workspace renames, include tracked and indexed
+files.
 .TP
 \fB\-o\fR, \fB--others\fR
-When searching a directory inside a Git repository, or expanding \fBrename
---workspace\fR, search untracked files that are not ignored.
+For Git-aware directory searches and workspace renames, include untracked,
+non-ignored files.
 .TP
 \fB\-i\fR, \fB--ignored\fR
 With \fB--others\fR, also include ignored untracked files. Inside a Git repository
@@ -364,28 +328,14 @@ With \fB--others\fR, also include ignored untracked files. Inside a Git reposito
 .SH ENVIRONMENT
 .TP
 .B READSEEK_VISION_THREADS
-Positive llama.cpp inference thread count. The default is the available logical CPU
-count.
-.TP
-.B READSEEK_VISION_BATCH
-Positive logical prompt batch size. The default is 2048.
-.TP
-.B READSEEK_VISION_UBATCH
-Positive physical micro-batch size. The default is 512 and it cannot exceed
-\fBREADSEEK_VISION_BATCH\fR. Larger batches can improve prompt prefill while
-increasing peak memory.
+Positive Rayon worker count for CPU inference. Rayon chooses the default.
 
 .SH DIRECTORY SEARCH
 
-The \fBdef\fR, \fBrefs\fR, and \fBsearch\fR commands accept either
-a single file or a directory. A file is searched as-is; a directory is searched
-recursively.
-
-Inside a Git work tree, directory searches are Git-aware. Without any selection
-flags, \fBreadseek\fR searches both tracked/indexed files and untracked,
-non-ignored files. Pass \fB--cached\fR or \fB--others\fR to restrict to one group.
-Outside a Git work tree the selection flags are ignored and a normal recursive
-walk is used.
+\fBdef\fR, \fBrefs\fR, and \fBsearch\fR accept a file or recursively search a
+directory. Inside a Git work tree, the default includes tracked/indexed and
+untracked, non-ignored files. \fB--cached\fR or \fB--others\fR restricts the set.
+Outside Git, selection flags are ignored and a normal recursive walk is used.
 
 .SH EXIT STATUS
 .TP
@@ -412,11 +362,12 @@ Persistent PDF structural indexes and extracted embedded-image assets, keyed by
 PDF content hash.
 .TP
 .I .readseek/vision/
-Content-addressed, profile-specific cache of image caption, object-detection, and OCR results.
+Content-addressed, profile-specific cache of image captions, object detection, and
+OCR results.
 .TP
 .I user cache directory/readseek/models/
-The Qwen3-VL quantized GGUF model and Q8_0 multimodal projector, downloaded lazily
-and checksum-verified on first use of \fBread --image all|caption|objects|ocr\fR.
+The Qwen3-VL-2B Q8_0 model and multimodal projector, downloaded lazily and
+checksum-verified for analyzed image modes.
 
 .SH EXAMPLES
 
@@ -507,9 +458,7 @@ Build from source:
 .EX
 cargo build --release
 .EE
-The included Makefile also provides install and uninstall targets.
-CPU builds can enable llama.cpp OpenMP support with \fB--features openmp\fR. GPU
-builds can enable \fBmetal\fR, \fBopencl\fR, \fBrocm\fR, or \fBvulkan\fR.
+The Makefile also provides install and uninstall targets.
 
 .SH LICENSE
 

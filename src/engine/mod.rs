@@ -16,6 +16,7 @@ pub(crate) mod model;
 pub(crate) mod output;
 pub(crate) mod paths;
 pub(crate) mod pdf;
+pub(crate) mod qwen;
 pub(crate) mod refs;
 pub(crate) mod rename;
 pub(crate) mod repo;

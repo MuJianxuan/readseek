@@ -8,18 +8,20 @@
 //! schema version guards against serving results produced by an incompatible
 //! cache format or a different vision model; bump it whenever either changes.
 
-use crate::engine::hash;
-use crate::engine::vision::{DetectedObject, VisionProfile};
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+
+use crate::engine::hash;
+use crate::engine::vision::{DetectedObject, VisionProfile};
+
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 8;
+const CACHE_SCHEMA_VERSION: u32 = 9;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;

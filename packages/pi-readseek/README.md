@@ -1,13 +1,8 @@
 # pi-readseek
 
-`pi-readseek` is a Pi extension for ReadSeek-backed file reading, hash-anchored
-editing, anchored grep, structural maps, symbol navigation, and structural search.
-Pi's built-in tools remain unchanged by default. `replacedTools` can register the
-corresponding ReadSeek implementations under built-in names.
-
-When the ReadSeek binary is available, the extension adds model guidance that
-prefers its anchored read, edit, write, rename, and syntax-check workflow while
-leaving Pi's built-ins available as fallbacks.
+`pi-readseek` adds ReadSeek's anchored file tools, structural search, and symbol
+navigation to Pi. Built-in tools remain unchanged unless `replacedTools` maps
+`read`, `edit`, `write`, or `grep` to the ReadSeek implementation.
 
 ## Installation
 
@@ -15,37 +10,28 @@ leaving Pi's built-ins available as fallbacks.
 pi install npm:pi-readseek
 ```
 
-`pi-readseek` depends on `@jarkkojs/readseek`; installation includes the native
-binary automatically on supported platforms.
+The extension depends on `@jarkkojs/readseek`, which installs the native binary on
+supported platforms.
 
 ## Tools
 
-- `readSeek_read`: reads text with `LINE:HASH` anchors; when image modes are
-  enabled, images and PDFs can be returned as base64 or analyzed locally.
-  PDF reads select one page by default and accept an explicit page.
-- `readSeek_edit`: edits existing text files using fresh `LINE:HASH` anchors.
+- `readSeek_read`: reads anchored text by range, symbol, or structural map; it can
+  also read or analyze images and PDFs.
+- `readSeek_edit`: applies hash-verified edits to existing text files.
+- `readSeek_write`: creates or replaces complete files and returns anchors.
 - `readSeek_grep`: searches text and returns edit-ready anchors.
-- `readSeek_search`: searches code by structural AST pattern.
-- `readSeek_refs`: finds identifier references with enclosing symbols.
-- `readSeek_rename`: applies a binding-aware verified rename by default;
-  `apply: false` returns a dry-run plan. Workspace matches are name-based where
-  binding support is unavailable.
-- `readSeek_hover`: identifies the cursor token and enclosing symbol.
-- `readSeek_def`: finds structural symbol definitions.
-- `readSeek_check`: checks a source file for parser errors and missing syntax.
-- `readSeek_view`: creates or reuses a PDF index, returns its overview, or
-  narrows it by page, node, kind, or depth.
-- `readSeek_write`: creates or overwrites whole files and returns anchors.
+- `readSeek_search`: searches code with structural AST patterns.
+- `readSeek_def`, `readSeek_refs`, `readSeek_hover`: navigate symbols.
+- `readSeek_rename`: applies binding-aware renames by default. Set `apply: false`
+  for a dry run; workspace matches are name-based where binding support is unavailable.
+- `readSeek_check`: reports parser errors and missing syntax.
+- `readSeek_view`: indexes a PDF or narrows an existing index by page, node, kind,
+  or depth.
 
 ## Settings
 
-`pi-readseek` reads optional JSON settings from:
-
-- `~/.pi/agent/settings.json` — global settings.
-- `.pi/settings.json` — project settings.
-
-Project settings override global settings. The `readseek` section lives in Pi's
-shared `settings.json`. All settings are optional; defaults are shown below.
+Add an optional `readseek` section to `~/.pi/agent/settings.json` (global) or
+`.pi/settings.json` (project). Project settings take precedence. Defaults:
 
 ```json
 {
@@ -62,23 +48,19 @@ shared `settings.json`. All settings are optional; defaults are shown below.
 }
 ```
 
-- `replacedTools`: built-in tool names to replace with ReadSeek implementations.
-  Valid values are `"read"`, `"edit"`, `"write"`, and `"grep"`. For a
-  ReadSeek-only file surface, use `["read", "edit", "write", "grep"]`.
+- `replacedTools`: built-in tools backed by ReadSeek. Valid values are `"read"`,
+  `"edit"`, `"write"`, and `"grep"`.
 - `imageMode`: `"auto"` exposes `none`, `all`, `ocr`, `caption`, and `objects`;
-  `"on"` omits `none`; `"off"` removes the `image` parameter and always skips
-  image/PDF files. Omitting `image` also skips visual files.
-- `syntaxValidation`: pre-write syntax-regression check in `readSeek_edit`:
-  `"warn"` writes with a warning, `"block"` aborts without writing, and `"off"`
-  skips the check.
-- `timeoutMs`: ReadSeek invocation timeout in milliseconds.
-- `grep.maxLines` / `grep.maxBytes`: visible `readSeek_grep` output budget; values
+  `"on"` omits `none`; `"off"` skips images and PDFs. Omitting `image` also skips
+  visual files.
+- `syntaxValidation`: syntax-regression handling for `readSeek_edit`. `"warn"`
+  writes with a warning, `"block"` aborts, and `"off"` disables the check.
+- `timeoutMs`: ReadSeek command timeout in milliseconds.
+- `grep.maxLines` and `grep.maxBytes`: output limits for `readSeek_grep`. Values
   above the defaults are clamped.
 
 ## Licensing
 
-`pi-readseek` is licensed under `Apache-2.0`. See [LICENSE](LICENSE) for more
-information.
-
-The upstream `@jarkkojs/readseek` packages are licensed separately as
+`pi-readseek` is licensed under `Apache-2.0`; see [LICENSE](LICENSE).
+`@jarkkojs/readseek` is licensed separately under
 `Apache-2.0 AND LGPL-2.1-or-later`.

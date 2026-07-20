@@ -2,8 +2,8 @@
 
 <img alt="Screenshot of OpenCode running opencode-readseek" src="screenshot.png" width="800">
 
-`opencode-readseek` exposes ReadSeek's hash-anchored text tools and structural
-code navigation as OpenCode tools.
+`opencode-readseek` adds ReadSeek's anchored file tools, structural search, and
+symbol navigation to OpenCode.
 
 ## Installation
 
@@ -15,36 +15,33 @@ Add the plugin to `opencode.json`:
 }
 ```
 
-OpenCode installs the package and its supported-platform `@jarkkojs/readseek`
-binary dependency with Bun at startup.
+OpenCode installs the package and its platform-specific `@jarkkojs/readseek`
+binary dependency with Bun.
 
 ## Tools
 
-- `readseek_read`: read text with `LINE:HASH` anchors; PDFs select one page by
-  default and accept an explicit page.
-- `readseek_edit`: apply line, range, and insertion edits with fresh `LINE:HASH` anchors.
-- `readseek_write`: create or replace a complete text file.
-- `readseek_grep`: plain-text or regular-expression search with anchored results.
-- `readseek_map`: generate a structural symbol map.
-- `readseek_search`: AST-pattern search.
-- `readseek_def`, `readseek_refs`, `readseek_hover`: symbol navigation.
-- `readseek_rename`: apply a verified rename by default; `apply: false` returns a dry-run plan.
-- `readseek_check`: parse diagnostics.
-- `readseek_view`: create or reuse a PDF index, return its overview, or narrow
-  it by page, node, kind, or depth.
+- `readseek_read`: reads anchored text; PDFs select one page by default.
+- `readseek_edit`: applies hash-verified edits to existing text files.
+- `readseek_write`: creates or replaces complete files.
+- `readseek_grep`: searches text or regular expressions and returns anchors.
+- `readseek_map`, `readseek_search`: map symbols and search AST patterns.
+- `readseek_def`, `readseek_refs`, `readseek_hover`: navigate symbols.
+- `readseek_rename`: applies verified renames by default. Set `apply: false` for a
+  dry run.
+- `readseek_check`: reports parse diagnostics.
+- `readseek_view`: indexes a PDF or narrows an existing index by page, node, kind,
+  or depth.
 
-The plugin requests OpenCode read, grep, external-directory, and edit permissions
-as needed. File changes invalidate remembered anchors. Compaction context records
-paths with fresh anchors and summaries of pending dry-run rename plans. Text reads
-return at most 2,000 lines by default.
+The plugin requests read, grep, external-directory, and edit permissions as needed.
+File changes invalidate remembered anchors. Compaction state retains fresh paths
+and pending rename plans. Text reads return at most 2,000 lines by default.
 
-The plugin also instructs OpenCode to prefer ReadSeek's anchored read, edit,
-write, and rename tools over built-in file mutation tools while leaving the
-built-ins available as fallbacks.
+OpenCode is instructed to prefer ReadSeek's read, edit, write, and rename tools;
+built-in tools remain available as fallbacks.
 
 ## Configuration
 
-Pass options with OpenCode's plugin tuple form:
+Pass options with OpenCode's plugin tuple syntax:
 
 ```json
 {
@@ -52,12 +49,13 @@ Pass options with OpenCode's plugin tuple form:
 }
 ```
 
-`imageMode` defaults to `"auto"`: it exposes `none`, `all`, `ocr`, `caption`, and
-`objects`. `"on"` omits `none`; `"off"` skips image/PDF files. Omitting
-`image` also skips visual files.
+`imageMode` defaults to `"auto"`, exposing `none`, `all`, `ocr`, `caption`, and
+`objects`. `"on"` omits `none`; `"off"` skips images and PDFs. Omitting `image`
+also skips visual files.
 
 ## Licensing
 
-This package uses the
-[Apache-2.0 license](https://github.com/jarkkojs/readseek/blob/main/LICENSE-APACHE-2.0).
-`@jarkkojs/readseek` declares `Apache-2.0 AND LGPL-2.1-or-later`.
+`opencode-readseek` is licensed under
+[Apache-2.0](https://github.com/jarkkojs/readseek/blob/main/LICENSE-APACHE-2.0).
+`@jarkkojs/readseek` is licensed separately under
+`Apache-2.0 AND LGPL-2.1-or-later`.

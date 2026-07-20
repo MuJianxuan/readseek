@@ -1,0 +1,916 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+// Copyright (c) 2026 Jarkko Sakkinen
+
+//! Fixed CPU vision encoder for the pinned Qwen3-VL-2B multimodal projector.
+
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+
+use std::path::Path;
+
+use anyhow::{Context as _, Result, ensure};
+use image::imageops::FilterType;
+use image::{RgbImage, load_from_memory};
+use rayon::prelude::*;
+
+use super::gguf::{Gguf, Tensor, TensorType};
+use super::kernels::{add_bias, gelu, layer_norm, matrix_matrix, softmax, vector_add};
+
+const PATCH_SIZE: usize = 16;
+const MERGE_SIZE: usize = 2;
+const ALIGN_SIZE: usize = PATCH_SIZE * MERGE_SIZE;
+const CHANNELS: usize = 3;
+const PATCH_VALUES: usize = PATCH_SIZE * PATCH_SIZE * CHANNELS;
+const POSITION_SIDE: usize = 48;
+const EMBEDDING_WIDTH: usize = 1024;
+const FFN_WIDTH: usize = 4096;
+const HEAD_COUNT: usize = 16;
+const HEAD_WIDTH: usize = EMBEDDING_WIDTH / HEAD_COUNT;
+const QKV_WIDTH: usize = EMBEDDING_WIDTH * 3;
+const PROJECTED_WIDTH: usize = 2048;
+const DEEPSTACK_LAYERS: [usize; 3] = [5, 11, 17];
+const OUTPUT_WIDTH: usize = PROJECTED_WIDTH * (1 + DEEPSTACK_LAYERS.len());
+const LAYER_COUNT: usize = 24;
+const MIN_IMAGE_TOKENS: usize = 8;
+const MAX_IMAGE_TOKENS: usize = 4096;
+const LAYER_NORM_EPSILON: f32 = 1.0e-6;
+const ATTENTION_SCALE: f32 = 0.125;
+const ROPE_THETA: f32 = 10_000.0;
+
+/// Input accepted by [`VisionModel::encode_input`].
+#[derive(Clone, Copy)]
+pub enum VisionInput<'a> {
+    /// PNG, JPEG, GIF, WebP, BMP, or TIFF bytes decoded by the `image` crate.
+    Encoded(&'a [u8]),
+    /// Packed row-major RGB8 pixels.
+    Rgb {
+        width: u32,
+        height: u32,
+        pixels: &'a [u8],
+    },
+}
+
+/// One embedding row per spatially merged image token.
+#[derive(Debug)]
+pub struct VisionEmbedding {
+    /// Row-major values with shape `token_count x 8192`.
+    pub values: Vec<f32>,
+    pub grid_width: usize,
+    pub grid_height: usize,
+    pub token_count: usize,
+}
+
+/// Loaded Qwen3-VL-2B `Q8_0` multimodal projector.
+pub struct VisionModel {
+    gguf: Gguf,
+}
+
+impl VisionModel {
+    /// Load and fully validate the fixed Qwen3-VL-2B mmproj GGUF.
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let gguf = Gguf::load(path).context("load Qwen3-VL vision projector")?;
+        validate_metadata(&gguf)?;
+        validate_tensors(&gguf)?;
+        Ok(Self { gguf })
+    }
+
+    /// Encode either supported input representation.
+    pub fn encode_input(
+        &self,
+        input: VisionInput<'_>,
+        image_max_tokens: usize,
+    ) -> Result<VisionEmbedding> {
+        ensure!(
+            (MIN_IMAGE_TOKENS..=MAX_IMAGE_TOKENS).contains(&image_max_tokens),
+            "image_max_tokens must be in {MIN_IMAGE_TOKENS}..={MAX_IMAGE_TOKENS}"
+        );
+        let image = decode_input(input)?;
+        let resized = smart_resize(image, image_max_tokens)?;
+        let patch_width = resized.width() as usize / PATCH_SIZE;
+        let patch_height = resized.height() as usize / PATCH_SIZE;
+        let token_count = patch_width
+            .checked_mul(patch_height)
+            .context("vision patch count overflow")?;
+
+        let mut hidden = self.patch_embeddings(&resized, patch_width, patch_height)?;
+        let positions = self.position_embeddings(patch_width, patch_height)?;
+        vector_add(&mut hidden, &positions)?;
+
+        let mut deepstack = Vec::with_capacity(DEEPSTACK_LAYERS.len());
+        let rope = VisionRope::new(token_count, patch_width)?;
+        for layer in 0..LAYER_COUNT {
+            hidden = self.transformer_layer(hidden, token_count, layer, &rope)?;
+            if DEEPSTACK_LAYERS.contains(&layer) {
+                deepstack.push(self.project_deepstack(&hidden, token_count, layer)?);
+            }
+        }
+
+        let post_weight = f32_values(&self.gguf, "v.post_ln.weight")?;
+        let post_bias = f32_values(&self.gguf, "v.post_ln.bias")?;
+        let hidden = layer_norm(
+            &hidden,
+            EMBEDDING_WIDTH,
+            post_weight,
+            post_bias,
+            LAYER_NORM_EPSILON,
+        )?;
+        validate_grouped_rows(&hidden, token_count, EMBEDDING_WIDTH)?;
+        let merged_tokens = token_count / 4;
+        let mut main = linear(
+            &self.gguf,
+            "mm.0.weight",
+            "mm.0.bias",
+            &hidden,
+            merged_tokens,
+        )?;
+        gelu(&mut main);
+        main = linear(&self.gguf, "mm.2.weight", "mm.2.bias", &main, merged_tokens)?;
+
+        let mut values = vec![0.0; merged_tokens * OUTPUT_WIDTH];
+        values
+            .par_chunks_mut(OUTPUT_WIDTH)
+            .enumerate()
+            .for_each(|(token, row)| {
+                row[..PROJECTED_WIDTH]
+                    .copy_from_slice(&main[token * PROJECTED_WIDTH..(token + 1) * PROJECTED_WIDTH]);
+                for (stream, features) in deepstack.iter().enumerate() {
+                    let output_start = (stream + 1) * PROJECTED_WIDTH;
+                    let input_start = token * PROJECTED_WIDTH;
+                    row[output_start..output_start + PROJECTED_WIDTH]
+                        .copy_from_slice(&features[input_start..input_start + PROJECTED_WIDTH]);
+                }
+            });
+
+        let grid_width = patch_width / MERGE_SIZE;
+        let grid_height = patch_height / MERGE_SIZE;
+        ensure!(
+            merged_tokens == grid_width * grid_height,
+            "vision output grid does not match token count"
+        );
+        Ok(VisionEmbedding {
+            values,
+            grid_width,
+            grid_height,
+            token_count: merged_tokens,
+        })
+    }
+
+    fn patch_embeddings(
+        &self,
+        image: &RgbImage,
+        patch_width: usize,
+        patch_height: usize,
+    ) -> Result<Vec<f32>> {
+        let first = f32_values(&self.gguf, "v.patch_embd.weight")?;
+        let second = f32_values(&self.gguf, "v.patch_embd.weight.1")?;
+        let bias = f32_values(&self.gguf, "v.patch_embd.bias")?;
+        let token_count = patch_width * patch_height;
+        let pixels = image.as_raw();
+        let image_width = image.width() as usize;
+        let mut output = vec![0.0; token_count * EMBEDDING_WIDTH];
+
+        output
+            .par_chunks_mut(EMBEDDING_WIDTH)
+            .enumerate()
+            .for_each_init(
+                || vec![0.0; PATCH_VALUES],
+                |patch, (token, row)| {
+                    let (patch_x, patch_y) = grouped_patch_coordinates(token, patch_width);
+                    for channel in 0..CHANNELS {
+                        for y in 0..PATCH_SIZE {
+                            for x in 0..PATCH_SIZE {
+                                let source = ((patch_y * PATCH_SIZE + y) * image_width
+                                    + patch_x * PATCH_SIZE
+                                    + x)
+                                    * CHANNELS
+                                    + channel;
+                                let destination = x + PATCH_SIZE * (y + PATCH_SIZE * channel);
+                                patch[destination] = f32::from(pixels[source]) / 127.5 - 1.0;
+                            }
+                        }
+                    }
+                    for (channel, value) in row.iter_mut().enumerate() {
+                        let start = channel * PATCH_VALUES;
+                        let first_row = &first[start..start + PATCH_VALUES];
+                        let second_row = &second[start..start + PATCH_VALUES];
+                        let first_sum = patch
+                            .iter()
+                            .zip(first_row)
+                            .map(|(input, weight)| input * weight)
+                            .sum::<f32>();
+                        let second_sum = patch
+                            .iter()
+                            .zip(second_row)
+                            .map(|(input, weight)| input * weight)
+                            .sum::<f32>();
+                        *value = first_sum + second_sum + bias[channel];
+                    }
+                },
+            );
+        Ok(output)
+    }
+
+    fn position_embeddings(&self, patch_width: usize, patch_height: usize) -> Result<Vec<f32>> {
+        let source = f32_values(&self.gguf, "v.position_embd.weight")?;
+        let token_count = patch_width * patch_height;
+        let mut output = vec![0.0; token_count * EMBEDDING_WIDTH];
+        output
+            .par_chunks_mut(EMBEDDING_WIDTH)
+            .enumerate()
+            .for_each(|(token, row)| {
+                let (x, y) = grouped_patch_coordinates(token, patch_width);
+                let x_coordinate = interpolation_coordinate(x, patch_width, POSITION_SIDE);
+                let y_coordinate = interpolation_coordinate(y, patch_height, POSITION_SIDE);
+                let x0 = x_coordinate.floor() as usize;
+                let y0 = y_coordinate.floor() as usize;
+                let x1 = (x0 + 1).min(POSITION_SIDE - 1);
+                let y1 = (y0 + 1).min(POSITION_SIDE - 1);
+                let x_weight = x_coordinate - x0 as f32;
+                let y_weight = y_coordinate - y0 as f32;
+                for (channel, value) in row.iter_mut().enumerate() {
+                    let top_left = position_value(source, x0, y0, channel);
+                    let top_right = position_value(source, x1, y0, channel);
+                    let bottom_left = position_value(source, x0, y1, channel);
+                    let bottom_right = position_value(source, x1, y1, channel);
+                    let top = top_left + (top_right - top_left) * x_weight;
+                    let bottom = bottom_left + (bottom_right - bottom_left) * x_weight;
+                    *value = top + (bottom - top) * y_weight;
+                }
+            });
+        Ok(output)
+    }
+
+    fn transformer_layer(
+        &self,
+        mut hidden: Vec<f32>,
+        token_count: usize,
+        layer: usize,
+        rope: &VisionRope,
+    ) -> Result<Vec<f32>> {
+        let prefix = format!("v.blk.{layer}");
+        let ln1_weight = f32_values(&self.gguf, &format!("{prefix}.ln1.weight"))?;
+        let ln1_bias = f32_values(&self.gguf, &format!("{prefix}.ln1.bias"))?;
+        let normalized = layer_norm(
+            &hidden,
+            EMBEDDING_WIDTH,
+            ln1_weight,
+            ln1_bias,
+            LAYER_NORM_EPSILON,
+        )?;
+        let mut qkv = linear(
+            &self.gguf,
+            &format!("{prefix}.attn_qkv.weight"),
+            &format!("{prefix}.attn_qkv.bias"),
+            &normalized,
+            token_count,
+        )?;
+        apply_vision_mrope(&mut qkv, rope)?;
+        let attended = attention(&qkv, token_count)?;
+        let projected = linear(
+            &self.gguf,
+            &format!("{prefix}.attn_out.weight"),
+            &format!("{prefix}.attn_out.bias"),
+            &attended,
+            token_count,
+        )?;
+        vector_add(&mut hidden, &projected)?;
+
+        let ln2_weight = f32_values(&self.gguf, &format!("{prefix}.ln2.weight"))?;
+        let ln2_bias = f32_values(&self.gguf, &format!("{prefix}.ln2.bias"))?;
+        let normalized = layer_norm(
+            &hidden,
+            EMBEDDING_WIDTH,
+            ln2_weight,
+            ln2_bias,
+            LAYER_NORM_EPSILON,
+        )?;
+        let mut feed_forward = linear(
+            &self.gguf,
+            &format!("{prefix}.ffn_up.weight"),
+            &format!("{prefix}.ffn_up.bias"),
+            &normalized,
+            token_count,
+        )?;
+        gelu(&mut feed_forward);
+        feed_forward = linear(
+            &self.gguf,
+            &format!("{prefix}.ffn_down.weight"),
+            &format!("{prefix}.ffn_down.bias"),
+            &feed_forward,
+            token_count,
+        )?;
+        vector_add(&mut hidden, &feed_forward)?;
+        Ok(hidden)
+    }
+
+    fn project_deepstack(
+        &self,
+        hidden: &[f32],
+        token_count: usize,
+        layer: usize,
+    ) -> Result<Vec<f32>> {
+        validate_grouped_rows(hidden, token_count, EMBEDDING_WIDTH)?;
+        let prefix = format!("v.deepstack.{layer}");
+        let norm_weight = f32_values(&self.gguf, &format!("{prefix}.norm.weight"))?;
+        let norm_bias = f32_values(&self.gguf, &format!("{prefix}.norm.bias"))?;
+        let normalized = layer_norm(
+            hidden,
+            EMBEDDING_WIDTH * 4,
+            norm_weight,
+            norm_bias,
+            LAYER_NORM_EPSILON,
+        )?;
+        let mut projected = linear(
+            &self.gguf,
+            &format!("{prefix}.fc1.weight"),
+            &format!("{prefix}.fc1.bias"),
+            &normalized,
+            token_count / 4,
+        )?;
+        gelu(&mut projected);
+        linear(
+            &self.gguf,
+            &format!("{prefix}.fc2.weight"),
+            &format!("{prefix}.fc2.bias"),
+            &projected,
+            token_count / 4,
+        )
+    }
+}
+
+fn decode_input(input: VisionInput<'_>) -> Result<RgbImage> {
+    match input {
+        VisionInput::Encoded(bytes) => {
+            ensure!(!bytes.is_empty(), "encoded image is empty");
+            let image = load_from_memory(bytes).context("decode image")?;
+            Ok(image.to_rgb8())
+        }
+        VisionInput::Rgb {
+            width,
+            height,
+            pixels,
+        } => {
+            ensure!(
+                width != 0 && height != 0,
+                "RGB image dimensions must be nonzero"
+            );
+            let expected = (width as usize)
+                .checked_mul(height as usize)
+                .and_then(|value| value.checked_mul(CHANNELS))
+                .context("RGB image size overflow")?;
+            ensure!(
+                pixels.len() == expected,
+                "RGB image has {} bytes, expected {expected} for {width}x{height}",
+                pixels.len()
+            );
+            RgbImage::from_raw(width, height, pixels.to_vec()).context("construct packed RGB image")
+        }
+    }
+}
+
+fn smart_resize(image: RgbImage, image_max_tokens: usize) -> Result<RgbImage> {
+    let width = image.width() as usize;
+    let height = image.height() as usize;
+    let min_pixels = MIN_IMAGE_TOKENS * ALIGN_SIZE * ALIGN_SIZE;
+    let max_pixels = image_max_tokens
+        .checked_mul(ALIGN_SIZE * ALIGN_SIZE)
+        .context("maximum image pixel count overflow")?;
+    let mut target_width = round_to_multiple(width, ALIGN_SIZE).max(ALIGN_SIZE);
+    let mut target_height = round_to_multiple(height, ALIGN_SIZE).max(ALIGN_SIZE);
+    let aligned_pixels = target_width
+        .checked_mul(target_height)
+        .context("aligned image pixel count overflow")?;
+
+    if aligned_pixels > max_pixels {
+        let beta = ((height as f32 * width as f32) / max_pixels as f32).sqrt();
+        target_height = floor_to_multiple(height as f32 / beta, ALIGN_SIZE).max(ALIGN_SIZE);
+        target_width = floor_to_multiple(width as f32 / beta, ALIGN_SIZE).max(ALIGN_SIZE);
+    } else if aligned_pixels < min_pixels {
+        let beta = (min_pixels as f32 / (height as f32 * width as f32)).sqrt();
+        target_height = ceil_to_multiple(height as f32 * beta, ALIGN_SIZE);
+        target_width = ceil_to_multiple(width as f32 * beta, ALIGN_SIZE);
+    }
+    ensure!(
+        target_width.is_multiple_of(ALIGN_SIZE) && target_height.is_multiple_of(ALIGN_SIZE),
+        "smart resize dimensions are not aligned"
+    );
+    let target_width = u32::try_from(target_width).context("resized image width exceeds u32")?;
+    let target_height = u32::try_from(target_height).context("resized image height exceeds u32")?;
+    if image.width() == target_width && image.height() == target_height {
+        return Ok(image);
+    }
+    Ok(image::imageops::resize(
+        &image,
+        target_width,
+        target_height,
+        FilterType::Triangle,
+    ))
+}
+
+fn round_to_multiple(value: usize, factor: usize) -> usize {
+    let rounded_up = usize::from(value % factor >= factor.div_ceil(2));
+    (value / factor + rounded_up) * factor
+}
+
+fn floor_to_multiple(value: f32, factor: usize) -> usize {
+    (value / factor as f32).floor() as usize * factor
+}
+
+fn ceil_to_multiple(value: f32, factor: usize) -> usize {
+    (value / factor as f32).ceil() as usize * factor
+}
+
+fn grouped_patch_coordinates(token: usize, patch_width: usize) -> (usize, usize) {
+    let groups_per_row = patch_width / MERGE_SIZE;
+    let group = token / 4;
+    let offset = token % 4;
+    let group_x = group % groups_per_row;
+    let group_y = group / groups_per_row;
+    (
+        group_x * MERGE_SIZE + offset % MERGE_SIZE,
+        group_y * MERGE_SIZE + offset / MERGE_SIZE,
+    )
+}
+
+fn interpolation_coordinate(index: usize, output_size: usize, input_size: usize) -> f32 {
+    let coordinate = (index as f32 + 0.5) * input_size as f32 / output_size as f32 - 0.5;
+    coordinate.clamp(0.0, (input_size - 1) as f32)
+}
+
+fn position_value(values: &[f32], x: usize, y: usize, channel: usize) -> f32 {
+    values[(y * POSITION_SIDE + x) * EMBEDDING_WIDTH + channel]
+}
+
+struct VisionRope {
+    cosine: Vec<f32>,
+    sine: Vec<f32>,
+    token_count: usize,
+}
+
+impl VisionRope {
+    fn new(token_count: usize, patch_width: usize) -> Result<Self> {
+        let table_len = token_count
+            .checked_mul(HEAD_WIDTH / 2)
+            .context("vision RoPE table size overflow")?;
+        let mut frequencies = [0.0; HEAD_WIDTH / 4];
+        for (pair, frequency) in frequencies.iter_mut().enumerate() {
+            *frequency = ROPE_THETA.powf(-(pair as f32) / (HEAD_WIDTH / 4) as f32);
+        }
+        let mut cosine = vec![0.0; table_len];
+        let mut sine = vec![0.0; table_len];
+        cosine
+            .par_chunks_mut(HEAD_WIDTH / 2)
+            .zip(sine.par_chunks_mut(HEAD_WIDTH / 2))
+            .enumerate()
+            .for_each(|(token, (cosine, sine))| {
+                let (x, y) = grouped_patch_coordinates(token, patch_width);
+                for pair in 0..HEAD_WIDTH / 2 {
+                    let position = if pair < HEAD_WIDTH / 4 { y } else { x };
+                    let frequency = frequencies[pair % (HEAD_WIDTH / 4)];
+                    let angle = position as f32 * frequency;
+                    cosine[pair] = angle.cos();
+                    sine[pair] = angle.sin();
+                }
+            });
+        Ok(Self {
+            cosine,
+            sine,
+            token_count,
+        })
+    }
+}
+
+fn apply_vision_mrope(qkv: &mut [f32], rope: &VisionRope) -> Result<()> {
+    ensure!(
+        qkv.len().is_multiple_of(QKV_WIDTH),
+        "QKV values do not contain complete tokens"
+    );
+    ensure!(
+        qkv.len() / QKV_WIDTH == rope.token_count,
+        "QKV token count differs from the vision RoPE table"
+    );
+    qkv.par_chunks_mut(QKV_WIDTH)
+        .zip(
+            rope.cosine
+                .par_chunks(HEAD_WIDTH / 2)
+                .zip(rope.sine.par_chunks(HEAD_WIDTH / 2)),
+        )
+        .for_each(|(row, (cosine, sine))| {
+            for head in 0..HEAD_COUNT {
+                rotate_half(
+                    &mut row[head * HEAD_WIDTH..(head + 1) * HEAD_WIDTH],
+                    cosine,
+                    sine,
+                );
+                let key_start = EMBEDDING_WIDTH + head * HEAD_WIDTH;
+                rotate_half(&mut row[key_start..key_start + HEAD_WIDTH], cosine, sine);
+            }
+        });
+    Ok(())
+}
+
+fn rotate_half(values: &mut [f32], cosine: &[f32], sine: &[f32]) {
+    let (first, second) = values.split_at_mut(HEAD_WIDTH / 2);
+    for pair in 0..HEAD_WIDTH / 2 {
+        let left = first[pair];
+        let right = second[pair];
+        first[pair] = left * cosine[pair] - right * sine[pair];
+        second[pair] = left * sine[pair] + right * cosine[pair];
+    }
+}
+
+fn attention(qkv: &[f32], token_count: usize) -> Result<Vec<f32>> {
+    ensure!(token_count != 0, "vision attention has no tokens");
+    let output_len = token_count
+        .checked_mul(EMBEDDING_WIDTH)
+        .context("vision attention output size overflow")?;
+    let mut output = vec![0.0; output_len];
+    output.par_chunks_mut(HEAD_WIDTH).enumerate().for_each_init(
+        || vec![0.0; token_count],
+        |scores, (query_head, output_head)| {
+            let query_token = query_head / HEAD_COUNT;
+            let head = query_head % HEAD_COUNT;
+            let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
+            let query = &qkv[query_start..query_start + HEAD_WIDTH];
+            for (key_token, score) in scores.iter_mut().enumerate() {
+                let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
+                let key = &qkv[key_start..key_start + HEAD_WIDTH];
+                *score = query
+                    .iter()
+                    .zip(key)
+                    .map(|(query, key)| query * key)
+                    .sum::<f32>()
+                    * ATTENTION_SCALE;
+            }
+            softmax(scores);
+            for (value_token, weight) in scores.iter().copied().enumerate() {
+                let value_start = value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
+                let value = &qkv[value_start..value_start + HEAD_WIDTH];
+                output_head
+                    .iter_mut()
+                    .zip(value)
+                    .for_each(|(output, value)| *output += weight * value);
+            }
+        },
+    );
+    ensure!(
+        output.iter().all(|value| value.is_finite()),
+        "vision attention produced a non-finite value"
+    );
+    Ok(output)
+}
+
+/// Validate the group-major layout produced by `grouped_patch_coordinates`.
+/// Consecutive groups of four rows form one merged 2x2 spatial token.
+fn validate_grouped_rows(values: &[f32], row_count: usize, width: usize) -> Result<()> {
+    ensure!(
+        row_count.is_multiple_of(4),
+        "row count is not divisible by four"
+    );
+    let expected = row_count
+        .checked_mul(width)
+        .context("grouped input size overflow")?;
+    ensure!(
+        values.len() == expected,
+        "grouped input has {} values, expected {expected}",
+        values.len()
+    );
+    Ok(())
+}
+
+fn linear(
+    gguf: &Gguf,
+    weight_name: &str,
+    bias_name: &str,
+    input: &[f32],
+    row_count: usize,
+) -> Result<Vec<f32>> {
+    let weight = gguf.tensor(weight_name)?;
+    let bias = f32_values(gguf, bias_name)?;
+    let mut output = matrix_matrix(&weight, input, row_count)
+        .with_context(|| format!("apply tensor `{weight_name}`"))?;
+    add_bias(&mut output, bias).with_context(|| format!("apply tensor `{bias_name}`"))?;
+    Ok(output)
+}
+
+fn f32_values<'a>(gguf: &'a Gguf, name: &str) -> Result<&'a [f32]> {
+    let tensor = gguf.tensor(name)?;
+    tensor
+        .f32_slice()
+        .with_context(|| format!("read tensor `{name}`"))
+}
+
+fn validate_metadata(gguf: &Gguf) -> Result<()> {
+    ensure!(
+        gguf.architecture() == "clip",
+        "GGUF architecture must be `clip`"
+    );
+    ensure!(
+        gguf.string("general.type")? == "mmproj",
+        "GGUF type must be `mmproj`"
+    );
+    ensure!(
+        gguf.string("general.basename")? == "qwen3vl",
+        "GGUF basename must be `qwen3vl`"
+    );
+    ensure!(
+        gguf.string("general.size_label")? == "407M",
+        "GGUF size label must be `407M`"
+    );
+    ensure!(
+        gguf.u32("general.file_type")? == 7,
+        "GGUF file type must be Q8_0"
+    );
+    ensure!(
+        gguf.u32("general.quantization_version")? == 2,
+        "GGUF quantization version must be 2"
+    );
+    ensure!(
+        gguf.bool("clip.has_vision_encoder")?,
+        "GGUF has no vision encoder"
+    );
+    ensure!(
+        gguf.u32("clip.vision.projection_dim")? == PROJECTED_WIDTH as u32,
+        "invalid projection width"
+    );
+    ensure!(
+        gguf.u32("clip.vision.image_size")? == 768,
+        "invalid base image size"
+    );
+    ensure!(
+        gguf.u32("clip.vision.patch_size")? == PATCH_SIZE as u32,
+        "invalid patch size"
+    );
+    ensure!(
+        gguf.u32("clip.vision.embedding_length")? == EMBEDDING_WIDTH as u32,
+        "invalid embedding width"
+    );
+    ensure!(
+        gguf.u32("clip.vision.feed_forward_length")? == FFN_WIDTH as u32,
+        "invalid feed-forward width"
+    );
+    ensure!(
+        gguf.u32("clip.vision.block_count")? == LAYER_COUNT as u32,
+        "invalid layer count"
+    );
+    ensure!(
+        gguf.u32("clip.vision.attention.head_count")? == HEAD_COUNT as u32,
+        "invalid attention head count"
+    );
+    ensure!(
+        gguf.string("clip.projector_type")? == "qwen3vl_merger",
+        "invalid projector type"
+    );
+    ensure!(
+        gguf.bool("clip.use_gelu")?,
+        "vision projector must use GELU"
+    );
+    ensure!(
+        gguf.u32("clip.vision.spatial_merge_size")? == MERGE_SIZE as u32,
+        "invalid spatial merge size"
+    );
+    let epsilon = gguf.f32("clip.vision.attention.layer_norm_epsilon")?;
+    ensure!(
+        epsilon.to_bits() == LAYER_NORM_EPSILON.to_bits(),
+        "invalid layer-normalization epsilon {epsilon}"
+    );
+    let tags = gguf.string_array("general.tags")?;
+    ensure!(tags == ["image-text-to-text"], "invalid GGUF tags {tags:?}");
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_tensors(gguf: &Gguf) -> Result<()> {
+    for layer in 0..LAYER_COUNT {
+        let prefix = format!("v.blk.{layer}");
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.attn_out.bias"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.attn_out.weight"),
+            &[EMBEDDING_WIDTH, EMBEDDING_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.attn_qkv.bias"),
+            &[QKV_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.attn_qkv.weight"),
+            &[EMBEDDING_WIDTH, QKV_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ffn_up.bias"),
+            &[FFN_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ffn_up.weight"),
+            &[EMBEDDING_WIDTH, FFN_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ffn_down.bias"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ffn_down.weight"),
+            &[FFN_WIDTH, EMBEDDING_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ln1.bias"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ln1.weight"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ln2.bias"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.ln2.weight"),
+            &[EMBEDDING_WIDTH],
+            TensorType::F32,
+        )?;
+    }
+    for layer in DEEPSTACK_LAYERS {
+        let prefix = format!("v.deepstack.{layer}");
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.fc1.bias"),
+            &[FFN_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.fc1.weight"),
+            &[FFN_WIDTH, FFN_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.fc2.bias"),
+            &[PROJECTED_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.fc2.weight"),
+            &[FFN_WIDTH, PROJECTED_WIDTH],
+            TensorType::Q8_0,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.norm.bias"),
+            &[FFN_WIDTH],
+            TensorType::F32,
+        )?;
+        expect_tensor(
+            gguf,
+            &format!("{prefix}.norm.weight"),
+            &[FFN_WIDTH],
+            TensorType::F32,
+        )?;
+    }
+    expect_tensor(gguf, "mm.0.bias", &[FFN_WIDTH], TensorType::F32)?;
+    expect_tensor(
+        gguf,
+        "mm.0.weight",
+        &[FFN_WIDTH, FFN_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(gguf, "mm.2.bias", &[PROJECTED_WIDTH], TensorType::F32)?;
+    expect_tensor(
+        gguf,
+        "mm.2.weight",
+        &[FFN_WIDTH, PROJECTED_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(gguf, "v.post_ln.bias", &[EMBEDDING_WIDTH], TensorType::F32)?;
+    expect_tensor(
+        gguf,
+        "v.post_ln.weight",
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        "v.patch_embd.bias",
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        "v.patch_embd.weight",
+        &[PATCH_SIZE, PATCH_SIZE, CHANNELS, EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        "v.patch_embd.weight.1",
+        &[PATCH_SIZE, PATCH_SIZE, CHANNELS, EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        "v.position_embd.weight",
+        &[EMBEDDING_WIDTH, POSITION_SIDE * POSITION_SIDE],
+        TensorType::F32,
+    )?;
+    Ok(())
+}
+
+fn expect_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorType) -> Result<()> {
+    let tensor: Tensor<'_> = gguf.tensor(name)?;
+    ensure!(
+        tensor.dimensions() == dimensions,
+        "tensor `{name}` has dimensions {:?}, expected {dimensions:?}",
+        tensor.dimensions()
+    );
+    ensure!(
+        tensor.tensor_type() == kind,
+        "tensor `{name}` is {:?}, expected {kind:?}",
+        tensor.tensor_type()
+    );
+    match kind {
+        TensorType::F32 => {
+            tensor.f32_slice()?;
+        }
+        TensorType::Q8_0 => {
+            tensor.q8_row_size()?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attention_matches_reference() {
+        let token_count = 2;
+        let qkv = (0..token_count * QKV_WIDTH)
+            .map(|value| value as f32 * 0.0001 - 0.25)
+            .collect::<Vec<_>>();
+        let expected = attention_reference(&qkv, token_count);
+        let actual = attention(&qkv, token_count).expect("compute attention");
+        assert_eq!(actual, expected);
+    }
+
+    fn attention_reference(qkv: &[f32], token_count: usize) -> Vec<f32> {
+        let mut output = vec![0.0; token_count * EMBEDDING_WIDTH];
+        for (query_head, output_head) in output.chunks_exact_mut(HEAD_WIDTH).enumerate() {
+            let query_token = query_head / HEAD_COUNT;
+            let head = query_head % HEAD_COUNT;
+            let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
+            let query = &qkv[query_start..query_start + HEAD_WIDTH];
+            let mut scores = vec![0.0; token_count];
+            for (key_token, score) in scores.iter_mut().enumerate() {
+                let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
+                let key = &qkv[key_start..key_start + HEAD_WIDTH];
+                *score = query
+                    .iter()
+                    .zip(key)
+                    .map(|(query, key)| query * key)
+                    .sum::<f32>()
+                    * ATTENTION_SCALE;
+            }
+            softmax(&mut scores);
+            for (value_token, weight) in scores.into_iter().enumerate() {
+                let value_start = value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
+                let value = &qkv[value_start..value_start + HEAD_WIDTH];
+                for channel in 0..HEAD_WIDTH {
+                    output_head[channel] += weight * value[channel];
+                }
+            }
+        }
+        output
+    }
+}

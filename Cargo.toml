@@ -10,13 +10,6 @@ readme = "README.md"
 rust-version = "1.89"
 version = "0.7.7"
 
-[features]
-metal = ["llama-cpp-2/metal"]
-openmp = ["llama-cpp-2/openmp"]
-opencl = ["llama-cpp-2/opencl"]
-rocm = ["llama-cpp-2/rocm"]
-vulkan = ["llama-cpp-2/vulkan"]
-
 [dependencies]
 anyhow = "1.0"
 arborium-meson = "2.18"
@@ -32,7 +25,7 @@ infer = "0.19"
 indicatif = "0.17"
 log = "0.4"
 memchr = "2.7"
-encoding_rs = "0.8"
+memmap2 = "0.9"
 pdf_oxide = { version = "0.3.74", default-features = false }
 quick-xml = "0.41"
 rayon = "1.10"
@@ -83,14 +76,12 @@ xxhash-rust = { version = "0.8.15", features = ["xxh32"] }
 zerocopy = { version = "0.8", features = ["derive"] }
 crc = "3.4.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
-llama-cpp-2 = { version = "=0.1.151", default-features = false, features = ["common", "mtmd", "static-stdcxx"] }
 
 sha2 = "0.10"
 ureq = "3"
 
 [dev-dependencies]
 duct = "1"
-serde_json = "1.0"
 
 [[test]]
 name = "data"

@@ -18,7 +18,8 @@ use crate::engine::document::{
     Asset, BoundingBox, Document, DocumentFormat, Node, NodeKind, SourceAnchor,
 };
 use crate::engine::output::ImageMode;
-use crate::engine::vision::{Analysis, DetectedObject, Input, Request};
+use crate::engine::qwen::VisionInput;
+use crate::engine::vision::{Analysis, DetectedObject, Request};
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub(crate) struct PdfInfo {
@@ -448,7 +449,7 @@ fn analyze_pdf_image(
     page: usize,
     mode: ImageMode,
     request: Request,
-    analyze: &mut impl FnMut(Input<'_>, Request) -> Analysis,
+    analyze: &mut impl FnMut(VisionInput<'_>, Request) -> Analysis,
 ) -> Option<(Analysis, Option<crate::engine::image::PreparedImage>)> {
     if let ImageData::Raw {
         pixels,
@@ -483,7 +484,7 @@ fn analyze_pdf_image(
     } = image.data()
         && image.icc_profile().is_none()
     {
-        let input = Input::Rgb {
+        let input = VisionInput::Rgb {
             width,
             height,
             pixels,
@@ -491,14 +492,14 @@ fn analyze_pdf_image(
         return Some((analyze(input, request), None));
     }
     let png = encode_png()?;
-    Some((analyze(Input::Encoded(&png), request), None))
+    Some((analyze(VisionInput::Encoded(&png), request), None))
 }
 
 pub(crate) fn read(
     bytes: &[u8],
     mode: ImageMode,
     page: Option<usize>,
-    mut analyze: impl FnMut(Input<'_>, Request) -> Analysis,
+    mut analyze: impl FnMut(VisionInput<'_>, Request) -> Analysis,
 ) -> Result<ReadPdfOutput> {
     let document = PdfDocument::from_bytes(bytes.to_vec()).context("parse PDF")?;
     let pages = document.page_count().context("read PDF page count")?;

@@ -24,10 +24,10 @@ const VERIFIED_SCHEMA_VERSION: u32 = 1;
 /// `(remote path, local file name, byte size, sha256)`.
 const FILES: &[(&str, &str, u64, &str)] = &[
     (
-        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
-        "Qwen3VL-2B-Instruct-Q4_K_M.gguf",
-        1_107_409_952,
-        "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae",
+        "Qwen3VL-2B-Instruct-Q8_0.gguf",
+        "Qwen3VL-2B-Instruct-Q8_0.gguf",
+        1_834_427_424,
+        "1e8db19207c8ce0733ddd78c2eff8a9e22c27c82f4443df94c25792ed8fe04f2",
     ),
     (
         "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",

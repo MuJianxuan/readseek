@@ -157,7 +157,7 @@ impl cli::DetectCommand {
 /// Run the requested vision tasks against `bytes`, reusing cached results from
 /// `.readseek/vision/` and storing any newly computed ones.
 fn run_vision(
-    input: crate::engine::vision::Input<'_>,
+    input: crate::engine::qwen::VisionInput<'_>,
     request: crate::engine::vision::Request,
     profile: crate::engine::vision::VisionProfile,
     diagnostics: bool,
@@ -237,7 +237,7 @@ fn run_vision(
 }
 
 fn run_pdf_vision(
-    input: crate::engine::vision::Input<'_>,
+    input: crate::engine::qwen::VisionInput<'_>,
     request: crate::engine::vision::Request,
     profile: crate::engine::vision::VisionProfile,
     diagnostics: bool,
@@ -285,7 +285,7 @@ impl cli::ReadCommand {
                 objects: matches!(mode, cli::ImageMode::All | cli::ImageMode::Objects),
                 ocr: matches!(mode, cli::ImageMode::All | cli::ImageMode::Ocr),
             };
-            let input = crate::engine::vision::Input::Encoded(bytes);
+            let input = crate::engine::qwen::VisionInput::Encoded(bytes);
             let analysis = if let Some(iterations) = self.vision_benchmark {
                 let (analysis, report) =
                     crate::engine::vision::benchmark(input, request, profile, iterations)?;
