@@ -15,6 +15,8 @@ use super::gguf::{Tensor, TensorType};
 const Q8_0_BLOCK_VALUES: usize = 32;
 const Q8_0_BLOCK_BYTES: usize = 2 + Q8_0_BLOCK_VALUES;
 const PARALLEL_MIN_VALUES: usize = 16 * 1_024;
+const MATRIX_ROW_TILE: usize = 4;
+const MATRIX_OUTPUT_TILE: usize = 16;
 
 /// Convert an IEEE 754 binary16 bit pattern to `f32`.
 pub(crate) fn fp16_to_f32(value: u16) -> f32 {
@@ -33,6 +35,169 @@ pub(crate) fn fp16_to_f32(value: u16) -> f32 {
             sign | ((u32::from(exponent) + (127 - 15)) << 23) | (u32::from(fraction) << 13),
         ),
     }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Fp16AttentionKernel {
+    Scalar,
+    #[cfg(target_arch = "x86_64")]
+    AvxF16c,
+}
+
+impl Fp16AttentionKernel {
+    pub(crate) fn detect() -> Self {
+        static KERNEL: OnceLock<Fp16AttentionKernel> = OnceLock::new();
+
+        *KERNEL.get_or_init(|| {
+            #[cfg(target_arch = "x86_64")]
+            if std::is_x86_feature_detected!("avx") && std::is_x86_feature_detected!("f16c") {
+                return Self::AvxF16c;
+            }
+            Self::Scalar
+        })
+    }
+
+    pub(crate) fn dot_pair(self, values: &[u16], left: &[f32], right: &[f32]) -> (f32, f32) {
+        assert_eq!(values.len(), left.len(), "FP16 dot product lengths differ");
+        assert_eq!(values.len(), right.len(), "FP16 dot product lengths differ");
+        match self {
+            Self::Scalar => fp16_dot_pair_scalar(values, left, right),
+            #[cfg(target_arch = "x86_64")]
+            Self::AvxF16c => {
+                // The variant is only constructed after runtime feature detection.
+                unsafe { fp16_dot_pair_avx_f16c(values, left, right) }
+            }
+        }
+    }
+
+    pub(crate) fn accumulate_pair(
+        self,
+        values: &[u16],
+        left_weight: f32,
+        right_weight: f32,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) {
+        assert_eq!(values.len(), left.len(), "FP16 accumulation lengths differ");
+        assert_eq!(
+            values.len(),
+            right.len(),
+            "FP16 accumulation lengths differ"
+        );
+        match self {
+            Self::Scalar => {
+                fp16_accumulate_pair_scalar(values, left_weight, right_weight, left, right);
+            }
+            #[cfg(target_arch = "x86_64")]
+            Self::AvxF16c => {
+                // The variant is only constructed after runtime feature detection.
+                unsafe {
+                    fp16_accumulate_pair_avx_f16c(values, left_weight, right_weight, left, right);
+                }
+            }
+        }
+    }
+}
+
+fn fp16_dot_pair_scalar(values: &[u16], left: &[f32], right: &[f32]) -> (f32, f32) {
+    let mut left_sum = 0.0;
+    let mut right_sum = 0.0;
+    for ((value, left), right) in values.iter().zip(left).zip(right) {
+        let value = fp16_to_f32(*value);
+        left_sum += left * value;
+        right_sum += right * value;
+    }
+    (left_sum, right_sum)
+}
+
+fn fp16_accumulate_pair_scalar(
+    values: &[u16],
+    left_weight: f32,
+    right_weight: f32,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    for ((value, left), right) in values.iter().zip(left).zip(right) {
+        let value = fp16_to_f32(*value);
+        *left += left_weight * value;
+        *right += right_weight * value;
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx,f16c")]
+#[allow(clippy::cast_ptr_alignment)]
+unsafe fn fp16_dot_pair_avx_f16c(values: &[u16], left: &[f32], right: &[f32]) -> (f32, f32) {
+    use std::arch::x86_64::{
+        __m128i, _mm_loadu_si128, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps,
+        _mm256_setzero_ps, _mm256_storeu_ps,
+    };
+
+    let vectorized_len = values.len() / 8 * 8;
+    let mut left_sums = _mm256_setzero_ps();
+    let mut right_sums = _mm256_setzero_ps();
+    for index in (0..vectorized_len).step_by(8) {
+        let packed = unsafe { _mm_loadu_si128(values.as_ptr().add(index).cast::<__m128i>()) };
+        let unpacked = _mm256_cvtph_ps(packed);
+        let left_values = unsafe { _mm256_loadu_ps(left.as_ptr().add(index)) };
+        let right_values = unsafe { _mm256_loadu_ps(right.as_ptr().add(index)) };
+        left_sums = _mm256_add_ps(left_sums, _mm256_mul_ps(left_values, unpacked));
+        right_sums = _mm256_add_ps(right_sums, _mm256_mul_ps(right_values, unpacked));
+    }
+    let mut left_lanes = [0.0_f32; 8];
+    let mut right_lanes = [0.0_f32; 8];
+    unsafe {
+        _mm256_storeu_ps(left_lanes.as_mut_ptr(), left_sums);
+        _mm256_storeu_ps(right_lanes.as_mut_ptr(), right_sums);
+    }
+    let (left_tail, right_tail) = fp16_dot_pair_scalar(
+        &values[vectorized_len..],
+        &left[vectorized_len..],
+        &right[vectorized_len..],
+    );
+    (
+        left_lanes.into_iter().sum::<f32>() + left_tail,
+        right_lanes.into_iter().sum::<f32>() + right_tail,
+    )
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx,f16c")]
+#[allow(clippy::cast_ptr_alignment)]
+unsafe fn fp16_accumulate_pair_avx_f16c(
+    values: &[u16],
+    left_weight: f32,
+    right_weight: f32,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    use std::arch::x86_64::{
+        __m128i, _mm_loadu_si128, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps,
+        _mm256_set1_ps, _mm256_storeu_ps,
+    };
+
+    let vectorized_len = values.len() / 8 * 8;
+    let left_weights = _mm256_set1_ps(left_weight);
+    let right_weights = _mm256_set1_ps(right_weight);
+    for index in (0..vectorized_len).step_by(8) {
+        let packed = unsafe { _mm_loadu_si128(values.as_ptr().add(index).cast::<__m128i>()) };
+        let unpacked = _mm256_cvtph_ps(packed);
+        let left_values = unsafe { _mm256_loadu_ps(left.as_ptr().add(index)) };
+        let right_values = unsafe { _mm256_loadu_ps(right.as_ptr().add(index)) };
+        let left_values = _mm256_add_ps(left_values, _mm256_mul_ps(left_weights, unpacked));
+        let right_values = _mm256_add_ps(right_values, _mm256_mul_ps(right_weights, unpacked));
+        unsafe {
+            _mm256_storeu_ps(left.as_mut_ptr().add(index), left_values);
+            _mm256_storeu_ps(right.as_mut_ptr().add(index), right_values);
+        }
+    }
+    fp16_accumulate_pair_scalar(
+        &values[vectorized_len..],
+        left_weight,
+        right_weight,
+        &mut left[vectorized_len..],
+        &mut right[vectorized_len..],
+    );
 }
 
 /// Convert `f32` to an IEEE 754 binary16 bit pattern using ties-to-even rounding.
@@ -481,13 +646,23 @@ pub(crate) fn matrix_matrix(
     match matrix.tensor_type() {
         TensorType::F32 => {
             let data = f32_matrix_data(matrix, input_size, output_size)?;
+            let kernel = F32DotKernel::detect();
             output
-                .par_chunks_mut(output_size)
-                .zip(vectors.par_chunks(input_size))
-                .for_each(|(output_row, input_row)| {
-                    for (row_index, value) in output_row.iter_mut().enumerate() {
-                        let row_start = row_index * input_size;
-                        *value = dot_f32(&data[row_start..row_start + input_size], input_row);
+                .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+                .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
+                .for_each(|(output_rows, input_rows)| {
+                    for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                        let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                        for output_channel in output_start..output_end {
+                            let row_start = output_channel * input_size;
+                            let weights = &data[row_start..row_start + input_size];
+                            for (output_row, input_row) in output_rows
+                                .chunks_exact_mut(output_size)
+                                .zip(input_rows.chunks_exact(input_size))
+                            {
+                                output_row[output_channel] = kernel.dot(weights, input_row);
+                            }
+                        }
                     }
                 });
         }
@@ -495,16 +670,24 @@ pub(crate) fn matrix_matrix(
             let row_bytes = q8_matrix_row_bytes(matrix, input_size, output_size)?;
             let kernel = Q8DotKernel::detect();
             output
-                .par_chunks_mut(output_size)
-                .zip(vectors.par_chunks(input_size))
-                .try_for_each(|(output_row, input_row)| -> Result<()> {
-                    let activation = Q8Activation::new(input_row)?;
-                    for (row_index, value) in output_row.iter_mut().enumerate() {
-                        let row_start = row_index * row_bytes;
-                        *value = kernel.dot(
-                            &matrix.data()[row_start..row_start + row_bytes],
-                            &activation,
-                        );
+                .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+                .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
+                .try_for_each(|(output_rows, input_rows)| -> Result<()> {
+                    let activations = input_rows
+                        .chunks_exact(input_size)
+                        .map(Q8Activation::new)
+                        .collect::<Result<Vec<_>>>()?;
+                    for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                        let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                        for output_channel in output_start..output_end {
+                            let row_start = output_channel * row_bytes;
+                            let weights = &matrix.data()[row_start..row_start + row_bytes];
+                            for (output_row, activation) in
+                                output_rows.chunks_exact_mut(output_size).zip(&activations)
+                            {
+                                output_row[output_channel] = kernel.dot(weights, activation);
+                            }
+                        }
                     }
                     Ok(())
                 })?;

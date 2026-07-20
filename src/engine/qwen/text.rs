@@ -13,7 +13,7 @@ use rayon::prelude::*;
 
 use super::gguf::{Gguf, TensorType};
 use super::kernels::{
-    f32_to_fp16, fp16_to_f32, matrix_vector, matrix_vector_argmax, matrix_vector_pair,
+    Fp16AttentionKernel, f32_to_fp16, matrix_vector, matrix_vector_argmax, matrix_vector_pair,
     matrix_vector_triple, rms_norm, silu, softmax, vector_add, vector_multiply,
 };
 use super::tokenizer::{Tokenizer, Utf8Decoder};
@@ -146,6 +146,7 @@ impl TextModel {
                 &embedding,
                 position,
                 None,
+                1,
                 &mut cache,
                 &mut attention_scratch,
             )?);
@@ -155,14 +156,19 @@ impl TextModel {
         }
 
         for (index, row) in image.values.chunks_exact(IMAGE_EMBEDDING_SIZE).enumerate() {
-            let position =
-                image_position(scalar_position, index, image.grid_width, image.grid_height)?;
+            let position = image_position(
+                scalar_position,
+                image.positions[index],
+                image.grid_width,
+                image.grid_height,
+            )?;
             let base = &row[..EMBEDDING_SIZE];
             let auxiliaries = &row[EMBEDDING_SIZE..];
             last_hidden = Some(self.forward_token(
                 base,
                 position,
                 Some(auxiliaries),
+                image.masses[index],
                 &mut cache,
                 &mut attention_scratch,
             )?);
@@ -178,6 +184,7 @@ impl TextModel {
                 &embedding,
                 position,
                 None,
+                1,
                 &mut cache,
                 &mut attention_scratch,
             )?);
@@ -221,6 +228,7 @@ impl TextModel {
                 &embedding,
                 position,
                 None,
+                1,
                 &mut cache,
                 &mut attention_scratch,
             )?;
@@ -256,6 +264,7 @@ impl TextModel {
         input: &[f32],
         position: Position,
         deepstack: Option<&[f32]>,
+        mass: u32,
         cache: &mut KvCache,
         attention_scratch: &mut TextAttentionScratch,
     ) -> Result<Vec<f32>> {
@@ -299,7 +308,7 @@ impl TextModel {
             apply_im_rope(&mut query, &rope)?;
             apply_im_rope(&mut key, &rope)?;
 
-            cache.layers[layer].append(&key, &value)?;
+            cache.layers[layer].append(&key, &value, mass)?;
             causal_gqa(&query, &cache.layers[layer], attention_scratch)?;
             let projected = matrix_vector(
                 &self.gguf.tensor(&names.attention_output)?,
@@ -357,14 +366,16 @@ fn text_position(position: usize) -> Result<Position> {
 
 fn image_position(
     scalar: usize,
-    index: usize,
+    position: [usize; 2],
     grid_width: usize,
     grid_height: usize,
 ) -> Result<Position> {
     ensure!(grid_width != 0 && grid_height != 0, "image grid is empty");
-    let row = index / grid_width;
-    let column = index % grid_width;
-    ensure!(row < grid_height, "image token {index} is outside the grid");
+    let [row, column] = position;
+    ensure!(
+        row < grid_height && column < grid_width,
+        "image token position [{row}, {column}] is outside the grid"
+    );
 
     let temporal = u32::try_from(scalar).context("image temporal position exceeds u32")?;
     let height = scalar
@@ -435,6 +446,7 @@ fn apply_im_rope(values: &mut [f32], rope: &ImRope) -> Result<()> {
 struct LayerCache {
     keys: Vec<u16>,
     values: Vec<u16>,
+    log_masses: Vec<f32>,
 }
 
 impl LayerCache {
@@ -448,9 +460,12 @@ impl LayerCache {
         self.values
             .try_reserve_exact(values)
             .context("reserve F16 value cache")?;
+        self.log_masses
+            .try_reserve_exact(token_count)
+            .context("reserve attention mass cache")?;
         Ok(())
     }
-    fn append(&mut self, key: &[f32], value: &[f32]) -> Result<()> {
+    fn append(&mut self, key: &[f32], value: &[f32], mass: u32) -> Result<()> {
         ensure!(
             key.len() == KEY_VALUE_SIZE,
             "cache key has {} values, expected {KEY_VALUE_SIZE}",
@@ -462,17 +477,22 @@ impl LayerCache {
             value.len()
         );
         ensure!(
-            self.keys.len() == self.values.len(),
-            "key and value cache lengths differ"
+            self.keys.len() == self.values.len() && self.token_count() == self.log_masses.len(),
+            "key, value, and mass cache lengths differ"
         );
+        ensure!(mass != 0, "attention token mass is zero");
         self.keys
             .try_reserve(KEY_VALUE_SIZE)
             .context("grow F16 key cache")?;
         self.values
             .try_reserve(KEY_VALUE_SIZE)
             .context("grow F16 value cache")?;
+        self.log_masses
+            .try_reserve(1)
+            .context("grow attention mass cache")?;
         self.keys.extend(key.iter().copied().map(f32_to_fp16));
         self.values.extend(value.iter().copied().map(f32_to_fp16));
+        self.log_masses.push((mass as f32).ln());
         Ok(())
     }
 
@@ -524,7 +544,9 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
         query.len()
     );
     ensure!(
-        cache.keys.len() == cache.values.len() && cache.keys.len().is_multiple_of(KEY_VALUE_SIZE),
+        cache.keys.len() == cache.values.len()
+            && cache.keys.len().is_multiple_of(KEY_VALUE_SIZE)
+            && cache.token_count() == cache.log_masses.len(),
         "invalid key/value cache shape"
     );
     let token_count = cache.token_count();
@@ -536,6 +558,7 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
     scratch.output.fill(0.0);
     scratch.scores.resize(score_count, 0.0);
     let scale = (HEAD_SIZE as f32).sqrt().recip();
+    let kernel = Fp16AttentionKernel::detect();
 
     scratch
         .output
@@ -552,31 +575,35 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
             let query_start = key_value_head * QUERY_GROUP_SIZE * HEAD_SIZE;
             let query_left = &query[query_start..query_start + HEAD_SIZE];
             let query_right = &query[query_start + HEAD_SIZE..query_start + 2 * HEAD_SIZE];
-            for token in 0..token_count {
-                let start = token * KEY_VALUE_SIZE + key_value_head * HEAD_SIZE;
-                let keys = &cache.keys[start..start + HEAD_SIZE];
-                let mut dot_left = 0.0;
-                let mut dot_right = 0.0;
-                for channel in 0..HEAD_SIZE {
-                    let key = fp16_to_f32(keys[channel]);
-                    dot_left += query_left[channel] * key;
-                    dot_right += query_right[channel] * key;
-                }
-                weights_left[token] = dot_left * scale;
-                weights_right[token] = dot_right * scale;
+            let head_start = key_value_head * HEAD_SIZE;
+            for (((keys, log_mass), left_weight), right_weight) in cache
+                .keys
+                .chunks_exact(KEY_VALUE_SIZE)
+                .zip(&cache.log_masses)
+                .zip(weights_left.iter_mut())
+                .zip(weights_right.iter_mut())
+            {
+                let keys = &keys[head_start..head_start + HEAD_SIZE];
+                let (dot_left, dot_right) = kernel.dot_pair(keys, query_left, query_right);
+                *left_weight = dot_left * scale + log_mass;
+                *right_weight = dot_right * scale + log_mass;
             }
             softmax(weights_left);
             softmax(weights_right);
-            for token in 0..token_count {
-                let start = token * KEY_VALUE_SIZE + key_value_head * HEAD_SIZE;
-                let values = &cache.values[start..start + HEAD_SIZE];
-                let left_attention = weights_left[token];
-                let right_attention = weights_right[token];
-                for channel in 0..HEAD_SIZE {
-                    let value = fp16_to_f32(values[channel]);
-                    output_left[channel] += left_attention * value;
-                    output_right[channel] += right_attention * value;
-                }
+            for ((values, left_weight), right_weight) in cache
+                .values
+                .chunks_exact(KEY_VALUE_SIZE)
+                .zip(weights_left.iter())
+                .zip(weights_right.iter())
+            {
+                let values = &values[head_start..head_start + HEAD_SIZE];
+                kernel.accumulate_pair(
+                    values,
+                    *left_weight,
+                    *right_weight,
+                    output_left,
+                    output_right,
+                );
             }
         });
     ensure!(
@@ -590,28 +617,54 @@ fn validate_image(image: &VisionEmbedding) -> Result<usize> {
         image.grid_width != 0 && image.grid_height != 0,
         "image decoder grid must be nonempty"
     );
-    let token_count = image
+    let grid_tokens = image
         .grid_width
         .checked_mul(image.grid_height)
         .context("image decoder grid size overflow")?;
     ensure!(
-        image.token_count == token_count,
-        "image reports {} tokens, but its grid contains {token_count}",
-        image.token_count
+        image.original_token_count == grid_tokens,
+        "image original token count does not match its grid"
     );
-    let expected = token_count
+    ensure!(
+        image.token_count != 0 && image.token_count <= grid_tokens,
+        "image reduced token count is invalid"
+    );
+    ensure!(
+        image.positions.len() == image.token_count && image.masses.len() == image.token_count,
+        "image token metadata length differs"
+    );
+    let expected = image
+        .token_count
         .checked_mul(IMAGE_EMBEDDING_SIZE)
         .context("image embedding size overflow")?;
     ensure!(
         image.values.len() == expected,
-        "image embedding has {} values, expected {expected} ({token_count} x {IMAGE_EMBEDDING_SIZE})",
+        "image embedding has {} values, expected {expected}",
         image.values.len()
     );
     ensure!(
         image.values.iter().all(|value| value.is_finite()),
         "image embedding contains a non-finite value"
     );
-    Ok(token_count)
+    ensure!(
+        image.masses.iter().all(|mass| *mass != 0),
+        "image contains a zero-mass token"
+    );
+    ensure!(
+        image
+            .positions
+            .iter()
+            .all(|[row, column]| { *row < image.grid_height && *column < image.grid_width }),
+        "image token position is outside the grid"
+    );
+    ensure!(
+        image.positions.windows(2).all(|positions| {
+            positions[0][0] * image.grid_width + positions[0][1]
+                < positions[1][0] * image.grid_width + positions[1][1]
+        }),
+        "image token positions are not strictly row-major"
+    );
+    Ok(image.token_count)
 }
 #[allow(clippy::cast_possible_truncation)]
 fn validate_metadata(gguf: &Gguf) -> Result<()> {
@@ -850,6 +903,7 @@ impl JsonObjectTracker {
 
 #[cfg(test)]
 mod tests {
+    use super::super::kernels::fp16_to_f32;
     use super::*;
 
     #[test]
@@ -871,8 +925,8 @@ mod tests {
         let value = vec![2.0; KEY_VALUE_SIZE];
         for layer in &mut cache.layers {
             assert!(layer.keys.capacity() >= 2 * KEY_VALUE_SIZE);
-            layer.append(&key, &value).expect("append first token");
-            layer.append(&key, &value).expect("append second token");
+            layer.append(&key, &value, 1).expect("append first token");
+            layer.append(&key, &value, 1).expect("append second token");
             assert_eq!(layer.token_count(), 2);
         }
     }
@@ -887,7 +941,7 @@ mod tests {
             let value = (0..KEY_VALUE_SIZE)
                 .map(|value| (token * KEY_VALUE_SIZE + value) as f32 * -0.002)
                 .collect::<Vec<_>>();
-            cache.append(&key, &value).expect("append cache token");
+            cache.append(&key, &value, 1).expect("append cache token");
         }
         let query = (0..EMBEDDING_SIZE)
             .map(|value| value as f32 * 0.003)
@@ -895,7 +949,9 @@ mod tests {
         let expected = causal_gqa_reference(&query, &cache);
         let mut scratch = TextAttentionScratch::default();
         causal_gqa(&query, &cache, &mut scratch).expect("compute attention");
-        assert_eq!(scratch.output, expected);
+        for (actual, expected) in scratch.output.iter().zip(expected) {
+            assert!((actual - expected).abs() <= 2.0e-5 * expected.abs().max(1.0));
+        }
     }
 
     fn apply_im_rope_direct(values: &mut [f32], position: Position) {
@@ -937,7 +993,8 @@ mod tests {
                         .zip(key)
                         .map(|(query, key)| query * fp16_to_f32(*key))
                         .sum::<f32>()
-                        * scale,
+                        * scale
+                        + cache.log_masses[token],
                 );
             }
             softmax(&mut scores);

@@ -10,4 +10,4 @@ mod tokenizer;
 mod vision;
 
 pub(crate) use text::TextModel;
-pub(crate) use vision::{VisionEmbedding, VisionInput, VisionModel};
+pub(crate) use vision::{SpatialReduction, VisionEmbedding, VisionInput, VisionModel};

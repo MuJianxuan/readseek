@@ -25,7 +25,7 @@ use anyhow::{Context as _, Result, anyhow, ensure};
 use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 
-use crate::engine::qwen::{TextModel, VisionEmbedding, VisionInput, VisionModel};
+use crate::engine::qwen::{SpatialReduction, TextModel, VisionEmbedding, VisionInput, VisionModel};
 
 const MODEL_FILE: &str = "Qwen3VL-2B-Instruct-Q8_0.gguf";
 const MMPROJ_FILE: &str = "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf";
@@ -69,12 +69,22 @@ impl VisionProfile {
         .max()
         .unwrap_or(0)
     }
+
+    fn spatial_reduction(self) -> SpatialReduction {
+        match self {
+            Self::Fast => SpatialReduction::MergeHalf,
+            Self::Balanced => SpatialReduction::PruneQuarter,
+            Self::Accurate => SpatialReduction::None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct InferenceMetrics {
     profile: VisionProfile,
     image_max_tokens: usize,
+    image_tokens_before_reduction: usize,
+    image_tokens_after_reduction: usize,
     prompt_tokens: usize,
     generated_tokens: usize,
     threads: usize,
@@ -83,8 +93,10 @@ pub(crate) struct InferenceMetrics {
     gpu_offload_supported: bool,
     backend_devices: Vec<String>,
     startup_ms: u128,
+    vision_encode_ms: u128,
     bitmap_ms: u128,
     tokenize_ms: u128,
+    text_prefill_ms: u128,
     prefill_ms: u128,
     decode_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -256,13 +268,15 @@ pub(crate) fn analyze(
         let (width, height) = input.dimensions()?;
         let embedding = runtime
             .vision
-            .encode_input(input, image_max_tokens)
+            .encode_input(input, image_max_tokens, profile.spatial_reduction())
             .context("encode image for Qwen3-VL")?;
-        let bitmap_ms = vision_started.elapsed().as_millis();
+        let vision_encode_ms = vision_started.elapsed().as_millis();
         let (raw, generation) = generate(runtime, &embedding, model_request)?;
         let metrics = InferenceMetrics {
             profile,
             image_max_tokens,
+            image_tokens_before_reduction: embedding.original_token_count,
+            image_tokens_after_reduction: embedding.token_count,
             prompt_tokens: generation.prompt_tokens,
             generated_tokens: generation.generated_tokens,
             threads: runtime.threads,
@@ -271,8 +285,10 @@ pub(crate) fn analyze(
             gpu_offload_supported: false,
             backend_devices: vec!["custom CPU".to_owned()],
             startup_ms,
-            bitmap_ms,
+            vision_encode_ms,
+            bitmap_ms: vision_encode_ms,
             tokenize_ms: generation.tokenize_ms,
+            text_prefill_ms: generation.prefill_ms,
             prefill_ms: generation.prefill_ms,
             decode_ms: generation.decode_ms,
             prefill_tokens_per_second: tokens_per_second(

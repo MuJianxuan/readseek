@@ -17,7 +17,7 @@ use image::{RgbImage, load_from_memory};
 use rayon::prelude::*;
 
 use super::gguf::{Gguf, Tensor, TensorType};
-use super::kernels::{add_bias, gelu, layer_norm, matrix_matrix, softmax, vector_add};
+use super::kernels::{add_bias, gelu, layer_norm, matrix_matrix, vector_add};
 
 const PATCH_SIZE: usize = 16;
 const MERGE_SIZE: usize = 2;
@@ -39,6 +39,7 @@ const MAX_IMAGE_TOKENS: usize = 4096;
 const LAYER_NORM_EPSILON: f32 = 1.0e-6;
 const ATTENTION_SCALE: f32 = 0.125;
 const ROPE_THETA: f32 = 10_000.0;
+const ATTENTION_KEY_TILE: usize = 64;
 
 /// Input accepted by [`VisionModel::encode_input`].
 #[derive(Clone, Copy)]
@@ -53,19 +54,36 @@ pub enum VisionInput<'a> {
     },
 }
 
-/// One embedding row per spatially merged image token.
+/// Decoder-facing spatial reduction applied after Qwen's trained patch merger.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpatialReduction {
+    MergeHalf,
+    PruneQuarter,
+    None,
+}
+
+/// Spatially merged image tokens and their original grid locations.
 #[derive(Debug)]
 pub struct VisionEmbedding {
     /// Row-major values with shape `token_count x 8192`.
     pub values: Vec<f32>,
+    pub positions: Vec<[usize; 2]>,
+    pub masses: Vec<u32>,
     pub grid_width: usize,
     pub grid_height: usize,
     pub token_count: usize,
+    pub original_token_count: usize,
 }
 
 /// Loaded Qwen3-VL-2B `Q8_0` multimodal projector.
 pub struct VisionModel {
     gguf: Gguf,
+}
+
+#[derive(Clone, Copy)]
+struct TokenCluster {
+    anchor: usize,
+    partner: Option<usize>,
 }
 
 impl VisionModel {
@@ -82,6 +100,7 @@ impl VisionModel {
         &self,
         input: VisionInput<'_>,
         image_max_tokens: usize,
+        reduction: SpatialReduction,
     ) -> Result<VisionEmbedding> {
         ensure!(
             (MIN_IMAGE_TOKENS..=MAX_IMAGE_TOKENS).contains(&image_max_tokens),
@@ -150,12 +169,140 @@ impl VisionModel {
             merged_tokens == grid_width * grid_height,
             "vision output grid does not match token count"
         );
+        Self::reduce_spatial_tokens(&values, grid_width, grid_height, reduction)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn reduce_spatial_tokens(
+        values: &[f32],
+        grid_width: usize,
+        grid_height: usize,
+        reduction: SpatialReduction,
+    ) -> Result<VisionEmbedding> {
+        let original_token_count = grid_width
+            .checked_mul(grid_height)
+            .context("vision output grid size overflow")?;
+        ensure!(
+            values.len() == original_token_count * OUTPUT_WIDTH,
+            "vision output values do not match grid"
+        );
+
+        let mut clusters = Vec::with_capacity(original_token_count);
+        match reduction {
+            SpatialReduction::None => {
+                clusters.extend((0..original_token_count).map(|anchor| TokenCluster {
+                    anchor,
+                    partner: None,
+                }));
+            }
+            SpatialReduction::PruneQuarter => {
+                for tile_y in (0..grid_height).step_by(2) {
+                    for tile_x in (0..grid_width).step_by(2) {
+                        let tile = Self::tile_indices(tile_x, tile_y, grid_width, grid_height);
+                        let dropped =
+                            (tile.len() == 4).then(|| Self::closest_pair(values, &tile).1);
+                        clusters.extend(
+                            tile.into_iter()
+                                .filter(|index| Some(*index) != dropped)
+                                .map(|anchor| TokenCluster {
+                                    anchor,
+                                    partner: None,
+                                }),
+                        );
+                    }
+                }
+            }
+            SpatialReduction::MergeHalf => {
+                for row in 0..grid_height {
+                    for column in (0..grid_width).step_by(2) {
+                        let anchor = row * grid_width + column;
+                        let partner = (column + 1 < grid_width).then_some(anchor + 1);
+                        clusters.push(TokenCluster { anchor, partner });
+                    }
+                }
+            }
+        }
+        clusters.sort_unstable_by_key(|cluster| cluster.anchor);
+
+        let token_count = clusters.len();
+        let mut reduced = Vec::with_capacity(token_count * OUTPUT_WIDTH);
+        let mut positions = Vec::with_capacity(token_count);
+        let mut masses = Vec::with_capacity(token_count);
+        for cluster in clusters {
+            let start = cluster.anchor * OUTPUT_WIDTH;
+            let anchor = &values[start..start + OUTPUT_WIDTH];
+            if let Some(partner) = cluster.partner {
+                let start = partner * OUTPUT_WIDTH;
+                let partner = &values[start..start + OUTPUT_WIDTH];
+                reduced.extend(
+                    anchor
+                        .iter()
+                        .zip(partner)
+                        .map(|(left, right)| (left + right) * 0.5),
+                );
+                masses.push(2);
+            } else {
+                reduced.extend_from_slice(anchor);
+                masses.push(1);
+            }
+            positions.push([cluster.anchor / grid_width, cluster.anchor % grid_width]);
+        }
+
         Ok(VisionEmbedding {
-            values,
+            values: reduced,
+            positions,
+            masses,
             grid_width,
             grid_height,
-            token_count: merged_tokens,
+            token_count,
+            original_token_count,
         })
+    }
+
+    fn tile_indices(
+        tile_x: usize,
+        tile_y: usize,
+        grid_width: usize,
+        grid_height: usize,
+    ) -> Vec<usize> {
+        let mut indices = Vec::with_capacity(4);
+        for y in tile_y..(tile_y + 2).min(grid_height) {
+            for x in tile_x..(tile_x + 2).min(grid_width) {
+                indices.push(y * grid_width + x);
+            }
+        }
+        indices
+    }
+
+    fn closest_pair(values: &[f32], indices: &[usize]) -> (usize, usize) {
+        let mut best = (indices[0], indices[1]);
+        let mut best_score = Self::token_similarity(values, best.0, best.1);
+        for left in 0..indices.len() {
+            for right in left + 1..indices.len() {
+                let pair = (indices[left], indices[right]);
+                let score = Self::token_similarity(values, pair.0, pair.1);
+                if score > best_score {
+                    best = pair;
+                    best_score = score;
+                }
+            }
+        }
+        best
+    }
+
+    fn token_similarity(values: &[f32], left: usize, right: usize) -> f32 {
+        let left_start = left * OUTPUT_WIDTH;
+        let right_start = right * OUTPUT_WIDTH;
+        let left = &values[left_start..left_start + PROJECTED_WIDTH];
+        let right = &values[right_start..right_start + PROJECTED_WIDTH];
+        let (mut dot, mut left_norm, mut right_norm) = (0.0, 0.0, 0.0);
+        for (left, right) in left.iter().zip(right) {
+            dot += left * right;
+            left_norm += left * left;
+            right_norm += right * right;
+        }
+        let norm = (left_norm * right_norm).sqrt();
+        if norm == 0.0 { -1.0 } else { dot / norm }
     }
 
     fn patch_embeddings(
@@ -524,35 +671,64 @@ fn rotate_half(values: &mut [f32], cosine: &[f32], sine: &[f32]) {
 
 fn attention(qkv: &[f32], token_count: usize) -> Result<Vec<f32>> {
     ensure!(token_count != 0, "vision attention has no tokens");
+    ensure!(
+        qkv.len() == token_count * QKV_WIDTH,
+        "vision attention input size differs"
+    );
     let output_len = token_count
         .checked_mul(EMBEDDING_WIDTH)
         .context("vision attention output size overflow")?;
     let mut output = vec![0.0; output_len];
     output.par_chunks_mut(HEAD_WIDTH).enumerate().for_each_init(
-        || vec![0.0; token_count],
+        || [0.0_f32; ATTENTION_KEY_TILE],
         |scores, (query_head, output_head)| {
             let query_token = query_head / HEAD_COUNT;
             let head = query_head % HEAD_COUNT;
             let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
             let query = &qkv[query_start..query_start + HEAD_WIDTH];
-            for (key_token, score) in scores.iter_mut().enumerate() {
-                let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
-                let key = &qkv[key_start..key_start + HEAD_WIDTH];
-                *score = query
-                    .iter()
-                    .zip(key)
-                    .map(|(query, key)| query * key)
-                    .sum::<f32>()
-                    * ATTENTION_SCALE;
+            let mut running_max = f32::NEG_INFINITY;
+            let mut running_sum = 0.0_f32;
+
+            for key_start_token in (0..token_count).step_by(ATTENTION_KEY_TILE) {
+                let tile_len = (token_count - key_start_token).min(ATTENTION_KEY_TILE);
+                let scores = &mut scores[..tile_len];
+                for (offset, score) in scores.iter_mut().enumerate() {
+                    let key_token = key_start_token + offset;
+                    let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
+                    let key = &qkv[key_start..key_start + HEAD_WIDTH];
+                    *score = query
+                        .iter()
+                        .zip(key)
+                        .map(|(query, key)| query * key)
+                        .sum::<f32>()
+                        * ATTENTION_SCALE;
+                }
+
+                let tile_max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let new_max = running_max.max(tile_max);
+                if running_sum != 0.0 {
+                    let previous_scale = (running_max - new_max).exp();
+                    running_sum *= previous_scale;
+                    for value in output_head.iter_mut() {
+                        *value *= previous_scale;
+                    }
+                }
+                for (offset, score) in scores.iter().copied().enumerate() {
+                    let weight = (score - new_max).exp();
+                    running_sum += weight;
+                    let value_token = key_start_token + offset;
+                    let value_start =
+                        value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
+                    let value = &qkv[value_start..value_start + HEAD_WIDTH];
+                    output_head
+                        .iter_mut()
+                        .zip(value)
+                        .for_each(|(output, value)| *output += weight * value);
+                }
+                running_max = new_max;
             }
-            softmax(scores);
-            for (value_token, weight) in scores.iter().copied().enumerate() {
-                let value_start = value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
-                let value = &qkv[value_start..value_start + HEAD_WIDTH];
-                output_head
-                    .iter_mut()
-                    .zip(value)
-                    .for_each(|(output, value)| *output += weight * value);
+            for value in output_head.iter_mut() {
+                *value /= running_sum;
             }
         },
     );
@@ -871,17 +1047,20 @@ fn expect_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorType
 
 #[cfg(test)]
 mod tests {
+    use super::super::kernels::softmax;
     use super::*;
 
     #[test]
     fn attention_matches_reference() {
-        let token_count = 2;
+        let token_count = ATTENTION_KEY_TILE + 1;
         let qkv = (0..token_count * QKV_WIDTH)
             .map(|value| value as f32 * 0.0001 - 0.25)
             .collect::<Vec<_>>();
         let expected = attention_reference(&qkv, token_count);
         let actual = attention(&qkv, token_count).expect("compute attention");
-        assert_eq!(actual, expected);
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual - expected).abs() <= 1.0e-5 * expected.abs().max(1.0));
+        }
     }
 
     fn attention_reference(qkv: &[f32], token_count: usize) -> Vec<f32> {

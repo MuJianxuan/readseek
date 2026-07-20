@@ -21,7 +21,7 @@ use crate::engine::hash;
 use crate::engine::vision::{DetectedObject, VisionProfile};
 
 const VISION_CACHE_DIR: &str = "vision";
-const CACHE_SCHEMA_VERSION: u32 = 9;
+const CACHE_SCHEMA_VERSION: u32 = 10;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Length of a BLAKE3 hash rendered as lowercase hex.
 const HASH_HEX_LEN: usize = 64;
