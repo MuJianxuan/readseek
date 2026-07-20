@@ -206,7 +206,7 @@ export def RenameTo(file: string, line: number, column: number, old_name: string
     for entry in get(rename_result.json, 'others', [])
       var path = get(entry, 'file', '')
       if !empty(path)
-        changed[fnamemodify(path =~# '^/' ? path : dir .. '/' .. path, ':p')] = true
+        changed[fnamemodify(IsAbsolutePath(path) ? path : dir .. '/' .. path, ':p')] = true
       endif
     endfor
     ReloadChangedBuffers(changed)
@@ -492,12 +492,16 @@ export def SearchLocations(json: dict<any>, project_root: string): list<any>
   return locations
 enddef
 
+def IsAbsolutePath(file: string): bool
+  return file =~# '^\%([A-Za-z]:[\\/]\|/\|\\\\\)'
+enddef
+
 def ResolveLocationFile(file: string, project_root: string): string
   if empty(file)
     return ''
   endif
 
-  if file =~# '^/'
+  if IsAbsolutePath(file)
     return fnamemodify(file, ':p')
   endif
 

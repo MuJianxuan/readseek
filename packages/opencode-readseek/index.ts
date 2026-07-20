@@ -1208,8 +1208,8 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           const target = resolvePath(context.directory, (input.path as string | undefined) ?? ".");
           const args = ["refs", target, input.name as string];
           optionalFlag(args, input.scope as boolean | undefined, "--scope");
-          if (input.line) args.push("--line", String(input.line));
-          if (input.column) args.push("--column", String(input.column));
+          if (input.line !== undefined) args.push("--line", String(input.line));
+          if (input.column !== undefined) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
           withSearchFlags(args, input);
           await authorizeSearch(context, target, input.name as string);
@@ -1229,7 +1229,7 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           const filePath = resolvePath(context.directory, input.path as string);
           await authorizeRead(context, filePath);
           const args = ["identify", `${filePath}:${input.line}`];
-          if (input.column) args.push("--column", String(input.column));
+          if (input.column !== undefined) args.push("--column", String(input.column));
           if (input.language) args.push("--language", input.language as string);
           return runReadSeek(context, args);
         },
@@ -1250,13 +1250,13 @@ export const ReadSeekPlugin: Plugin = async (_input, options) => {
           await authorizeRead(context, filePath);
           if (input.workspace) {
             const identifyArgs = ["identify", `${filePath}:${input.line}`];
-            if (input.column) identifyArgs.push("--column", String(input.column));
+            if (input.column !== undefined) identifyArgs.push("--column", String(input.column));
             const name = identifiedName(await runReadSeek(context, identifyArgs));
             if (!name) throw new Error("readseek could not identify a binding at the rename cursor");
             await authorizeSearch(context, context.directory, name);
           }
           const args = ["rename", filePath, "--line", String(input.line), "--to", input.to as string];
-          if (input.column) args.push("--column", String(input.column));
+          if (input.column !== undefined) args.push("--column", String(input.column));
           if (input.workspace) args.push("--workspace", context.directory);
           const plan = await runReadSeek(context, args);
           if (input.apply === false) return plan;

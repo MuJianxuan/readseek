@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 
 import { withFileMutationQueue, truncateHead, type ExtensionAPI, type ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
@@ -91,16 +91,21 @@ export interface WriteResult extends WriteDiffFields {
 type ExecuteWriteResult = WriteResult | ToolErrorResult;
 
 function isToolErrorResult(result: ExecuteWriteResult): result is ToolErrorResult {
-  return "isError" in result;
+  return "isError" in result && result.isError === true;
 }
 
-async function readPreviousTextForDiff(filePath: string): Promise<string> {
+async function readPreviousTextForDiff(filePath: string): Promise<{ content: string; existed: boolean }> {
   try {
     const previous = await readFile(filePath);
-    if (looksLikeBinary(previous)) return "";
-    return previous.toString("utf-8");
-  } catch {
-    return "";
+    return {
+      content: looksLikeBinary(previous) ? "" : previous.toString("utf-8"),
+      existed: true,
+    };
+  } catch (err: unknown) {
+    if ((err as { code?: unknown } | null)?.code === "ENOENT") {
+      return { content: "", existed: false };
+    }
+    throw err;
   }
 }
 
@@ -161,8 +166,7 @@ export async function executeWrite(opts: {
     });
   }
 
-  const previousContent = await readPreviousTextForDiff(filePath);
-  const existedBeforeWrite = await access(filePath).then(() => true, () => false);
+  const { content: previousContent, existed: existedBeforeWrite } = await readPreviousTextForDiff(filePath);
 
 	// Create parent directories
 	await mkdir(dirname(filePath), { recursive: true });

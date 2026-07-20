@@ -91,8 +91,12 @@ export def RunRaw(argv: list<string>, stdin: string, Callback: func)
   timeout_id = timer_start(config.JobTimeout(), OnTimeout)
 
   var channel = job_getchannel(process)
-  if !empty(stdin)
-    ch_sendraw(channel, stdin)
-  endif
-  ch_close_in(channel)
+  try
+    if !empty(stdin)
+      ch_sendraw(channel, stdin)
+    endif
+    ch_close_in(channel)
+  catch /^Vim\%((\a\+)\)\=:E631/
+    # The process exited before stdin could be sent; OnExit reports its status.
+  endtry
 enddef

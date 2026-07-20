@@ -7,8 +7,12 @@ import autoload 'readseek/config.vim'
 
 const GithubRepo = 'jarkkojs/readseek'
 
+def IsExternallyManaged(): bool
+  return !empty(get(g:, 'readseek_executable', ''))
+enddef
+
 export def Install(Callback: func, force: bool = false)
-  if !empty(get(g:, 'readseek_executable', ''))
+  if IsExternallyManaged()
     Callback({ok: false, error: 'g:readseek_executable is externally managed'})
     return
   endif
@@ -86,7 +90,7 @@ export def Install(Callback: func, force: bool = false)
 enddef
 
 export def Uninstall(Callback: func)
-  if !empty(get(g:, 'readseek_executable', ''))
+  if IsExternallyManaged()
     Callback({ok: false, error: 'g:readseek_executable is externally managed'})
     return
   endif

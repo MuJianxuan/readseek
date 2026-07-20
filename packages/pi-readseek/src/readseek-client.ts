@@ -302,9 +302,10 @@ interface ReadSeekFailure {
  * install hint) versus any other execution error.
  */
 export function classifyReadSeekFailure(err: unknown): ReadSeekFailure {
-	const message = String((err as { message?: unknown } | null)?.message || err);
+	const failure = err as { code?: unknown; message?: unknown } | null;
+	const message = String(failure?.message ?? err);
 	const missing =
-		(err as { code?: unknown } | null)?.code === "ENOENT" ||
+		failure?.code === "ENOENT" ||
 		/Cannot find package|Cannot find module|no such file/i.test(message);
 	if (missing) {
 		return { code: "readseek-not-installed", message, hint: "Run npm install to install @jarkkojs/readseek." };

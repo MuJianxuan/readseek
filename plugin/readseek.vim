@@ -7,8 +7,8 @@ if exists('g:loaded_readseek')
   finish
 endif
 
-if !has('vim9script') || !has('job') || !has('channel') || !has('popupwin') || !has('textprop')
-  echoerr 'readseek.vim requires Vim9 with +job, +channel, +popupwin, and +textprop'
+if !has('job') || !has('channel') || !has('timers') || !has('popupwin') || !has('textprop')
+  echoerr 'readseek.vim requires Vim9 with +job, +channel, +timers, +popupwin, and +textprop'
   finish
 endif
 

@@ -53,7 +53,7 @@ tools to OpenCode. Add it to `opencode.json`:
 
 The bundled `readseek.vim` plugin provides anchored reads, structural navigation,
 parse diagnostics, search, references, and renames. It requires Vim9 with `+job`,
-`+channel`, `+popupwin`, and `+textprop`; Neovim is not supported.
+`+channel`, `+timers`, `+popupwin`, and `+textprop`; Neovim is not supported.
 
 Install it with a Vim plugin manager, such as `Plug 'jarkkojs/readseek'`, then run
 `:ReadSeekInstall` to install the matching prebuilt binary. Downloads are explicit
