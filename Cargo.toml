@@ -29,6 +29,7 @@ infer = "0.19"
 indicatif = "0.17"
 memchr = "2.7"
 memmap2 = "0.9"
+num-traits = "0.2"
 pdf_oxide = { version = "0.3.74", default-features = false }
 quick-xml = "0.41"
 rayon = "1.10"

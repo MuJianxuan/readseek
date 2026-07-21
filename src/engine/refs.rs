@@ -3,7 +3,7 @@
 
 use crate::engine::flags::GitFlags;
 use crate::engine::hash::LineHash;
-use crate::engine::lang::{AnalysisEngine, Language};
+use crate::engine::lang::{AnalysisEngine, EngineField, Language};
 use crate::engine::output::{CompactLocation, CompactOutput, RefLocation, RefsOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
 use crate::engine::source::{
@@ -115,7 +115,7 @@ fn scoped_output(request: &Request) -> Result<RefsOutput> {
             RefLocation {
                 file: Arc::clone(&file),
                 language: source.detection.language,
-                engine: source.detection.engine,
+                engine: EngineField(source.detection.engine),
                 file_hash: Arc::clone(&file_hash),
                 line: source_line.number,
                 column: occurrence.start_byte - source.line_starts[line_idx] + 1,
@@ -220,7 +220,7 @@ fn scan_source(
         references.push(RefLocation {
             file: Arc::clone(&file),
             language,
-            engine,
+            engine: EngineField(engine),
             file_hash: Arc::clone(&file_hash),
             line: line_number,
             column,

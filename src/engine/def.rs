@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 use crate::engine::flags::GitFlags;
-use crate::engine::lang::Language;
+use crate::engine::lang::{EngineField, Language};
 use crate::engine::output::{CompactLocation, CompactOutput, DefLocation, DefOutput};
 use crate::engine::paths::def_candidate_paths;
 use crate::engine::source::{read_source_containing, source_map_with_dir};
@@ -129,7 +129,7 @@ fn locations_in_path(
         definitions.push(DefLocation {
             file: source.path.clone(),
             language: source.detection.language,
-            engine: source.detection.engine,
+            engine: EngineField(source.detection.engine),
             file_hash: source.file_hash.clone(),
             line_hash: line.hash(),
             text: line.text.clone(),

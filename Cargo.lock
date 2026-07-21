@@ -1737,6 +1737,7 @@ dependencies = [
  "infer",
  "memchr",
  "memmap2",
+ "num-traits",
  "pdf_oxide",
  "quick-xml",
  "rayon",

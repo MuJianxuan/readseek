@@ -200,7 +200,6 @@ pub(crate) struct IdentifyCommand {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "def")]
 #[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct DefCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -222,24 +221,15 @@ pub(crate) struct DefCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    pub(crate) cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    pub(crate) others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    pub(crate) ignored: bool,
+    /// comma-list of Git search scopes: cached, others, ignored (default none)
+    #[argh(option, short = 'g', default = "GitGroup::EMPTY")]
+    pub(crate) git: GitGroup,
 }
 
 /// find identifier references
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "refs")]
 #[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct RefsCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -273,24 +263,15 @@ pub(crate) struct RefsCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    pub(crate) cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    pub(crate) others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    pub(crate) ignored: bool,
+    /// comma-list of Git search scopes: cached, others, ignored (default none)
+    #[argh(option, short = 'g', default = "GitGroup::EMPTY")]
+    pub(crate) git: GitGroup,
 }
 
 /// plan a binding-accurate rename within a single file
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "rename")]
 #[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct RenameCommand {
     /// file holding the binding under the cursor (a single regular file)
     #[argh(positional)]
@@ -325,24 +306,16 @@ pub(crate) struct RenameCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// search tracked/indexed files when expanding across a Git repository
-    #[argh(switch, short = 'c')]
-    pub(crate) cached: bool,
-
-    /// search untracked files when expanding across a Git repository
-    #[argh(switch, short = 'o')]
-    pub(crate) others: bool,
-
-    /// include ignored untracked files when expanding across a Git repository
-    #[argh(switch, short = 'i')]
-    pub(crate) ignored: bool,
+    /// comma-list of Git search scopes when expanding across a repository:
+    /// cached, others, ignored (default none)
+    #[argh(option, short = 'g', default = "GitGroup::EMPTY")]
+    pub(crate) git: GitGroup,
 }
 
 /// search files with an AST pattern
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "search")]
 #[argh(help_triggers("-h", "--help"))]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct SearchCommand {
     /// file or directory to search
     #[argh(positional)]
@@ -356,17 +329,9 @@ pub(crate) struct SearchCommand {
     #[argh(option, from_str_fn(parse_language))]
     pub(crate) language: Option<Language>,
 
-    /// search tracked/indexed files when searching a Git repository
-    #[argh(switch, short = 'c')]
-    pub(crate) cached: bool,
-
-    /// search untracked files when searching a Git repository
-    #[argh(switch, short = 'o')]
-    pub(crate) others: bool,
-
-    /// include ignored untracked files when searching a Git repository
-    #[argh(switch, short = 'i')]
-    pub(crate) ignored: bool,
+    /// comma-list of Git search scopes: cached, others, ignored (default none)
+    #[argh(option, short = 'g', default = "GitGroup::EMPTY")]
+    pub(crate) git: GitGroup,
 }
 
 /// initialize .readseek/ directory
@@ -448,6 +413,48 @@ fn is_line_hash(value: &str) -> bool {
     value.len() == 3 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
+/// Comma-list of Git search scopes requested via `--git`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GitGroup(u8);
+
+impl GitGroup {
+    const CACHED: u8 = 1;
+    const OTHERS: u8 = 2;
+    const IGNORED: u8 = 4;
+    pub(crate) const EMPTY: Self = Self(0);
+
+    fn contains(self, bit: u8) -> bool {
+        self.0 & bit != 0
+    }
+
+    pub(crate) fn to_flags(self) -> GitFlags {
+        GitFlags {
+            cached: self.contains(Self::CACHED),
+            others: self.contains(Self::OTHERS),
+            ignored: self.contains(Self::IGNORED),
+        }
+    }
+}
+
+impl argh::FromArgValue for GitGroup {
+    fn from_arg_value(value: &str) -> std::result::Result<Self, String> {
+        let mut bits = 0_u8;
+        for token in value.split(',') {
+            bits |= match token.trim() {
+                "cached" => Self::CACHED,
+                "others" => Self::OTHERS,
+                "ignored" => Self::IGNORED,
+                other => {
+                    return Err(format!(
+                        "unknown git scope `{other}`; expected cached, others, or ignored"
+                    ));
+                }
+            };
+        }
+        Ok(Self(bits))
+    }
+}
+
 pub(crate) trait GitSelection {
     fn git_flags(&self) -> GitFlags;
 }
@@ -457,11 +464,7 @@ macro_rules! impl_git_selection {
         $(
             impl GitSelection for $command {
                 fn git_flags(&self) -> GitFlags {
-                    GitFlags {
-                        cached: self.cached,
-                        others: self.others,
-                        ignored: self.ignored,
-                    }
+                    self.git.to_flags()
                 }
             }
         )+

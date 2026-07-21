@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::engine::hash::LineHash;
 use crate::engine::image::{ImageInfo, PreparedImage};
-use crate::engine::lang::{AnalysisEngine, Language, serialize_engine};
+use crate::engine::lang::{EngineField, Language};
 use crate::engine::source::{
     ContentCategory, Detection, HashLine, SourceFile, Symbol, find_symbol, load_source,
     load_source_from_bytes, range_hashlines, source_map,
@@ -87,7 +87,7 @@ impl DetectOutput {
                     Self::Source(DetectSourceOutput {
                         file,
                         language,
-                        engine,
+                        engine: EngineField(engine),
                         supported,
                         type_: mime,
                         mime: detect_mime,
@@ -104,9 +104,8 @@ pub(crate) struct DetectSourceOutput {
     type_: String,
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    engine: EngineField,
     supported: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     mime: Option<String>,
@@ -169,9 +168,8 @@ pub(crate) struct DetectTextOutput {
 pub(crate) struct SourceHeader {
     file: PathBuf,
     language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    engine: EngineField,
     line_count: usize,
     file_hash: String,
 }
@@ -181,7 +179,7 @@ impl From<&SourceFile> for SourceHeader {
         Self {
             file: source.path.clone(),
             language: source.detection.language,
-            engine: source.detection.engine,
+            engine: EngineField(source.detection.engine),
             line_count: source.lines.len(),
             file_hash: source.file_hash.clone(),
         }
@@ -325,9 +323,8 @@ pub(crate) struct DefOutput {
 pub(crate) struct DefLocation {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) symbol: Symbol,
     #[serde(skip_serializing)]
@@ -345,9 +342,8 @@ pub(crate) struct RefsOutput {
 pub(crate) struct RefLocation {
     pub(crate) file: Arc<PathBuf>,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: Arc<str>,
     pub(crate) line: usize,
     pub(crate) column: usize,
@@ -383,9 +379,8 @@ pub(crate) struct CompactLocation {
 pub(crate) struct RenameOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) old_name: String,
     pub(crate) new_name: String,
@@ -404,9 +399,8 @@ pub(crate) struct RenameOutput {
 pub(crate) struct RenameFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) conflicts: Vec<RenameConflict>,
     pub(crate) edits: Vec<RenameEdit>,
@@ -440,9 +434,8 @@ pub(crate) struct SearchOutput {
 pub(crate) struct SearchFileOutput {
     pub(crate) file: PathBuf,
     pub(crate) language: Language,
-    #[serde(serialize_with = "serialize_engine")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) engine: Option<AnalysisEngine>,
+    #[serde(skip_serializing_if = "EngineField::is_none")]
+    pub(crate) engine: EngineField,
     pub(crate) file_hash: String,
     pub(crate) matches: Vec<SearchMatch>,
 }

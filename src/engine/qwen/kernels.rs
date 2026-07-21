@@ -3,14 +3,20 @@
 
 //! Scalar CPU kernels used by the fixed Qwen inference path.
 
-#![allow(clippy::cast_precision_loss)]
-
 use std::sync::OnceLock;
 
 use anyhow::{Result, bail, ensure};
+use num_traits::ToPrimitive;
 use rayon::prelude::*;
 
 use super::gguf::{Tensor, TensorType};
+
+/// Lossless `usize -> f32` for model dimensions/indexes that fit in `u16`.
+/// `f32::from(u16)` is exact (24-bit mantissa holds any u16); `try_from` is the
+/// clippy-recommended narrowing. Use only when the value provably fits `u16`.
+pub(crate) fn dim_to_f32(value: usize) -> f32 {
+    f32::from(u16::try_from(value).expect("model dimension/index exceeds u16"))
+}
 
 const Q8_0_BLOCK_VALUES: usize = 32;
 const Q8_0_BLOCK_BYTES: usize = 2 + Q8_0_BLOCK_VALUES;
@@ -126,18 +132,20 @@ fn fp16_accumulate_pair_scalar(
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx,f16c")]
-#[allow(clippy::cast_ptr_alignment)]
 unsafe fn fp16_dot_pair_avx_f16c(values: &[u16], left: &[f32], right: &[f32]) -> (f32, f32) {
     use std::arch::x86_64::{
-        __m128i, _mm_loadu_si128, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps,
-        _mm256_setzero_ps, _mm256_storeu_ps,
+        __m128i, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps,
+        _mm256_storeu_ps,
     };
 
     let vectorized_len = values.len() / 8 * 8;
     let mut left_sums = _mm256_setzero_ps();
     let mut right_sums = _mm256_setzero_ps();
     for index in (0..vectorized_len).step_by(8) {
-        let packed = unsafe { _mm_loadu_si128(values.as_ptr().add(index).cast::<__m128i>()) };
+        // `read_unaligned` is the intended unaligned read; codegen is identical
+        // to `_mm_loadu_si128` and does not trigger `cast_ptr_alignment`.
+        let packed =
+            unsafe { std::ptr::read_unaligned(values.as_ptr().add(index).cast::<__m128i>()) };
         let unpacked = _mm256_cvtph_ps(packed);
         let left_values = unsafe { _mm256_loadu_ps(left.as_ptr().add(index)) };
         let right_values = unsafe { _mm256_loadu_ps(right.as_ptr().add(index)) };
@@ -163,7 +171,6 @@ unsafe fn fp16_dot_pair_avx_f16c(values: &[u16], left: &[f32], right: &[f32]) ->
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx,f16c")]
-#[allow(clippy::cast_ptr_alignment)]
 unsafe fn fp16_accumulate_pair_avx_f16c(
     values: &[u16],
     left_weight: f32,
@@ -172,15 +179,18 @@ unsafe fn fp16_accumulate_pair_avx_f16c(
     right: &mut [f32],
 ) {
     use std::arch::x86_64::{
-        __m128i, _mm_loadu_si128, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps,
-        _mm256_set1_ps, _mm256_storeu_ps,
+        __m128i, _mm256_add_ps, _mm256_cvtph_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_set1_ps,
+        _mm256_storeu_ps,
     };
 
     let vectorized_len = values.len() / 8 * 8;
     let left_weights = _mm256_set1_ps(left_weight);
     let right_weights = _mm256_set1_ps(right_weight);
     for index in (0..vectorized_len).step_by(8) {
-        let packed = unsafe { _mm_loadu_si128(values.as_ptr().add(index).cast::<__m128i>()) };
+        // `read_unaligned` is the intended unaligned read; codegen is identical
+        // to `_mm_loadu_si128` and does not trigger `cast_ptr_alignment`.
+        let packed =
+            unsafe { std::ptr::read_unaligned(values.as_ptr().add(index).cast::<__m128i>()) };
         let unpacked = _mm256_cvtph_ps(packed);
         let left_values = unsafe { _mm256_loadu_ps(left.as_ptr().add(index)) };
         let right_values = unsafe { _mm256_loadu_ps(right.as_ptr().add(index)) };
@@ -201,10 +211,9 @@ unsafe fn fp16_accumulate_pair_avx_f16c(
 }
 
 /// Convert `f32` to an IEEE 754 binary16 bit pattern using ties-to-even rounding.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn f32_to_fp16(value: f32) -> u16 {
     let bits = value.to_bits();
-    let sign = ((bits >> 16) & 0x8000) as u16;
+    let sign = u16::try_from(bits >> 16).expect("top 16 bits fit u16") & 0x8000;
     let exponent = i32::from(u8::try_from((bits >> 23) & 0xff).expect("exponent fits u8"));
     let fraction = bits & 0x007f_ffff;
 
@@ -212,7 +221,9 @@ pub(crate) fn f32_to_fp16(value: f32) -> u16 {
         if fraction == 0 {
             return sign | 0x7c00;
         }
-        return sign | 0x7e00 | ((fraction >> 13) as u16 & 0x01ff);
+        return sign
+            | 0x7e00
+            | (u16::try_from(fraction >> 13).expect("fraction fits u16") & 0x01ff);
     }
 
     let half_exponent = exponent - 127 + 15;
@@ -224,14 +235,14 @@ pub(crate) fn f32_to_fp16(value: f32) -> u16 {
             return sign;
         }
         let significand = fraction | 0x0080_0000;
-        let shift = (14 - half_exponent) as u32;
+        let shift = u32::try_from(14 - half_exponent).expect("shift is non-negative");
         let mut rounded = significand >> shift;
         let remainder = significand & ((1_u32 << shift) - 1);
         let halfway = 1_u32 << (shift - 1);
         if remainder > halfway || (remainder == halfway && rounded & 1 != 0) {
             rounded += 1;
         }
-        return sign | rounded as u16;
+        return sign | u16::try_from(rounded).expect("rounded fits u16");
     }
 
     let mut rounded_fraction = fraction >> 13;
@@ -239,7 +250,7 @@ pub(crate) fn f32_to_fp16(value: f32) -> u16 {
     if remainder > 0x1000 || (remainder == 0x1000 && rounded_fraction & 1 != 0) {
         rounded_fraction += 1;
     }
-    let mut encoded_exponent = half_exponent as u16;
+    let mut encoded_exponent = u16::try_from(half_exponent).expect("half_exponent in 1..=0x1e");
     if rounded_fraction == 0x400 {
         rounded_fraction = 0;
         encoded_exponent += 1;
@@ -247,7 +258,8 @@ pub(crate) fn f32_to_fp16(value: f32) -> u16 {
             return sign | 0x7c00;
         }
     }
-    sign | (encoded_exponent << 10) | rounded_fraction as u16
+    sign | (encoded_exponent << 10)
+        | u16::try_from(rounded_fraction).expect("rounded_fraction fits u16")
 }
 
 /// Dequantize one `Q8_0` row into a caller-provided buffer.
@@ -305,7 +317,8 @@ struct Q8Activation {
 }
 
 impl Q8Activation {
-    #[allow(clippy::cast_possible_truncation)]
+    // `round()` + `clamp(-127.0, 127.0)` keeps the value in `i8` range, so the
+    // checked `to_i8()` is total here and rejects only a contract bug.
     fn new(vector: &[f32]) -> Result<Self> {
         ensure!(
             vector.len().is_multiple_of(Q8_0_BLOCK_VALUES),
@@ -323,11 +336,13 @@ impl Q8Activation {
             let scale = maximum / 127.0;
             let inverse = if scale == 0.0 { 0.0 } else { scale.recip() };
             scales.push(scale);
-            values.extend(
-                block
-                    .iter()
-                    .map(|value| (value * inverse).round().clamp(-127.0, 127.0) as i8),
-            );
+            values.extend(block.iter().map(|value| {
+                (value * inverse)
+                    .round()
+                    .clamp(-127.0, 127.0)
+                    .to_i8()
+                    .expect("scale is clamped into i8 range")
+            }));
         }
         Ok(Self { scales, values })
     }
@@ -373,25 +388,24 @@ fn dot_q8_0_quantized_scalar(row: &[u8], activation: &Q8Activation) -> f32 {
         .zip(&activation.scales)
     {
         let weight_scale = fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        let integer_sum = block[2..]
+        // i8 weights and i8 activations each fit exactly in f32; the 32-wide
+        // product sum stays below f32's 24-bit exact range.
+        let block_sum = block[2..]
             .iter()
             .zip(values)
-            .map(|(weight, activation)| {
-                i32::from(i8::from_ne_bytes([*weight])) * i32::from(*activation)
-            })
-            .sum::<i32>();
-        sum += weight_scale * activation_scale * integer_sum as f32;
+            .map(|(weight, value)| f32::from(i8::from_ne_bytes([*weight])) * f32::from(*value))
+            .sum::<f32>();
+        sum += weight_scale * activation_scale * block_sum;
     }
     sum
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-#[allow(clippy::cast_ptr_alignment)]
 unsafe fn dot_q8_0_quantized_avx2(row: &[u8], activation: &Q8Activation) -> f32 {
     use std::arch::x86_64::{
-        __m256i, _mm_add_epi32, _mm_cvtsi128_si32, _mm_shuffle_epi32, _mm_unpackhi_epi64,
-        _mm256_abs_epi8, _mm256_castsi256_si128, _mm256_extracti128_si256, _mm256_loadu_si256,
+        __m256i, _mm_add_epi32, _mm_cvtepi32_ps, _mm_cvtss_f32, _mm_shuffle_epi32,
+        _mm_unpackhi_epi64, _mm256_abs_epi8, _mm256_castsi256_si128, _mm256_extracti128_si256,
         _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_sign_epi8,
     };
 
@@ -402,8 +416,10 @@ unsafe fn dot_q8_0_quantized_avx2(row: &[u8], activation: &Q8Activation) -> f32 
         .zip(activation.values.chunks_exact(Q8_0_BLOCK_VALUES))
         .zip(&activation.scales)
     {
-        let weights = unsafe { _mm256_loadu_si256(block[2..].as_ptr().cast::<__m256i>()) };
-        let activations = unsafe { _mm256_loadu_si256(values.as_ptr().cast::<__m256i>()) };
+        // `read_unaligned` is the intended unaligned read; codegen is identical
+        // to `_mm256_loadu_si256` and does not trigger `cast_ptr_alignment`.
+        let weights = unsafe { std::ptr::read_unaligned(block[2..].as_ptr().cast::<__m256i>()) };
+        let activations = unsafe { std::ptr::read_unaligned(values.as_ptr().cast::<__m256i>()) };
         let signed_activations = _mm256_sign_epi8(activations, weights);
         let weight_magnitudes = _mm256_abs_epi8(weights);
         let pairs = _mm256_maddubs_epi16(weight_magnitudes, signed_activations);
@@ -413,9 +429,8 @@ unsafe fn dot_q8_0_quantized_avx2(row: &[u8], activation: &Q8Activation) -> f32 
         let lanes = _mm_add_epi32(low, high);
         let pairs = _mm_add_epi32(lanes, _mm_unpackhi_epi64(lanes, lanes));
         let total = _mm_add_epi32(pairs, _mm_shuffle_epi32::<0x55>(pairs));
-        let integer_sum = _mm_cvtsi128_si32(total);
         let weight_scale = fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        sum += weight_scale * activation_scale * integer_sum as f32;
+        sum += weight_scale * activation_scale * _mm_cvtss_f32(_mm_cvtepi32_ps(total));
     }
     sum
 }
@@ -844,7 +859,8 @@ pub(crate) fn rms_norm(
     validate_norm_shape(values, width, weight, None, epsilon)?;
     let mut output = vec![0.0; values.len()];
     let normalize = |output_row: &mut [f32], input_row: &[f32]| {
-        let mean_square = input_row.iter().map(|value| value * value).sum::<f32>() / width as f32;
+        let mean_square =
+            input_row.iter().map(|value| value * value).sum::<f32>() / dim_to_f32(width);
         let scale = (mean_square + epsilon).sqrt().recip();
         for index in 0..width {
             output_row[index] = input_row[index] * scale * weight[index];
@@ -875,7 +891,7 @@ pub(crate) fn layer_norm(
     validate_norm_shape(values, width, weight, Some(bias), epsilon)?;
     let mut output = vec![0.0; values.len()];
     let normalize = |output_row: &mut [f32], input_row: &[f32]| {
-        let mean = input_row.iter().sum::<f32>() / width as f32;
+        let mean = input_row.iter().sum::<f32>() / dim_to_f32(width);
         let variance = input_row
             .iter()
             .map(|value| {
@@ -883,7 +899,7 @@ pub(crate) fn layer_norm(
                 centered * centered
             })
             .sum::<f32>()
-            / width as f32;
+            / dim_to_f32(width);
         let scale = (variance + epsilon).sqrt().recip();
         for index in 0..width {
             output_row[index] = (input_row[index] - mean) * scale * weight[index] + bias[index];
@@ -1021,9 +1037,15 @@ pub(crate) fn vector_multiply(left: &mut [f32], right: &[f32]) -> Result<()> {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation, clippy::float_cmp)]
 mod tests {
     use super::*;
+
+    fn assert_bits(actual: f32, expected: f32) {
+        assert!(
+            actual.to_bits() == expected.to_bits(),
+            "{actual:?} != {expected:?}"
+        );
+    }
 
     #[test]
     fn fp16_round_trips_all_non_nan_values() {
@@ -1053,7 +1075,9 @@ mod tests {
         values[Q8_0_BLOCK_VALUES] = -127.0;
         values[Q8_0_BLOCK_VALUES + 1] = 127.0;
         let activation = Q8Activation::new(&values).expect("quantize activation");
-        assert_eq!(activation.scales, [0.0, 1.0]);
+        assert_eq!(activation.scales.len(), 2);
+        assert_bits(activation.scales[0], 0.0);
+        assert_bits(activation.scales[1], 1.0);
         assert!(
             activation.values[..Q8_0_BLOCK_VALUES]
                 .iter()
@@ -1066,22 +1090,22 @@ mod tests {
     #[test]
     fn quantized_dot_matches_dequantized_reference() {
         let mut vector = (0..Q8_0_BLOCK_VALUES)
-            .map(|index| index as f32 - 16.0)
+            .map(|index| dim_to_f32(index) - 16.0)
             .collect::<Vec<_>>();
         vector[Q8_0_BLOCK_VALUES - 1] = 127.0;
         let mut row = vec![0_u8; Q8_0_BLOCK_BYTES];
         row[..2].copy_from_slice(&0x3c00_u16.to_le_bytes());
         for (index, value) in row[2..].iter_mut().enumerate() {
-            *value = (index as i8 - 16).to_ne_bytes()[0];
+            *value = (i8::try_from(index).expect("index fits i8") - 16).to_ne_bytes()[0];
         }
         row[2] = (-128_i8).to_ne_bytes()[0];
         let activation = Q8Activation::new(&vector).expect("quantize activation");
         let expected = dot_q8_0_scalar(&row, &vector);
-        assert_eq!(dot_q8_0_quantized_scalar(&row, &activation), expected);
+        assert_bits(dot_q8_0_quantized_scalar(&row, &activation), expected);
         #[cfg(target_arch = "x86_64")]
         if std::is_x86_feature_detected!("avx2") {
             let actual = unsafe { dot_q8_0_quantized_avx2(&row, &activation) };
-            assert_eq!(actual, expected);
+            assert_bits(actual, expected);
         }
     }
 }

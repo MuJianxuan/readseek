@@ -8,11 +8,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
-use std::slice;
 use std::str;
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use memmap2::{Mmap, MmapOptions};
+use zerocopy::FromBytes;
 
 const GGUF_MAGIC: &[u8; 4] = b"GGUF";
 const GGUF_VERSION: u32 = 3;
@@ -52,7 +52,6 @@ impl<'a> Tensor<'a> {
     }
 
     /// Return `F32` tensor data without copying.
-    #[allow(clippy::cast_ptr_alignment)]
     pub(crate) fn f32_slice(&self) -> Result<&'a [f32]> {
         if self.kind != TensorType::F32 {
             bail!("tensor is {:?}, not F32", self.kind);
@@ -60,19 +59,12 @@ impl<'a> Tensor<'a> {
         if cfg!(target_endian = "big") {
             bail!("F32 tensor views require a little-endian host");
         }
-        if !(self.data.as_ptr() as usize).is_multiple_of(align_of::<f32>()) {
-            bail!("F32 tensor data is not aligned");
-        }
-
-        // Every bit pattern is a valid f32. The parser has already checked the
-        // byte count and alignment, and the returned slice borrows `data`.
-        let values = unsafe {
-            slice::from_raw_parts(
-                self.data.as_ptr().cast::<f32>(),
-                self.data.len() / size_of::<f32>(),
-            )
-        };
-        Ok(values)
+        // GGUF stores F32 little-endian, and every bit pattern is a valid f32
+        // on a little-endian host. `ref_from_bytes_with_elems` validates both
+        // alignment and size, so no `unsafe` is needed at the call site.
+        let element_count = self.data.len() / size_of::<f32>();
+        <[f32]>::ref_from_bytes_with_elems(self.data, element_count)
+            .map_err(|err| anyhow!("F32 tensor does not form a valid f32 slice: {err}"))
     }
 
     /// Number of encoded bytes in one `Q8_0` row.

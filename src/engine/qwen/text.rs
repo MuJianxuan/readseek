@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-//! Fixed scalar decoder for the Qwen3-VL-2B `Q8_0` text model.
-
-#![allow(clippy::cast_precision_loss)]
-
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, ensure};
+use num_traits::ToPrimitive;
 use rayon::prelude::*;
 
 use super::gguf::{Gguf, TensorType};
 use super::kernels::{
-    Fp16AttentionKernel, f32_to_fp16, matrix_vector, matrix_vector_argmax, matrix_vector_pair,
-    matrix_vector_triple, rms_norm, silu, softmax, vector_add, vector_multiply,
+    Fp16AttentionKernel, dim_to_f32, f32_to_fp16, matrix_vector, matrix_vector_argmax,
+    matrix_vector_pair, matrix_vector_triple, rms_norm, silu, softmax, vector_add, vector_multiply,
 };
 use super::tokenizer::{Tokenizer, Utf8Decoder};
 use super::vision::VisionEmbedding;
@@ -106,7 +103,6 @@ impl TextModel {
     }
 
     /// Generate greedily from the fixed `ReadSeek` one-image chat template.
-    #[allow(clippy::too_many_lines)]
     pub fn generate(
         &self,
         prompt: &str,
@@ -114,50 +110,94 @@ impl TextModel {
         max_new_tokens: usize,
     ) -> Result<Generation> {
         let image_tokens = validate_image(image)?;
-        let prefix = format!("{IM_START}user\n{VISION_START}");
-        let suffix = format!("{VISION_END}{prompt}{IM_END}\n{IM_START}assistant\n");
         let prefix_tokens = self
             .tokenizer
-            .encode(&prefix, true)
+            .encode(&format!("{IM_START}user\n{VISION_START}"), true)
             .context("tokenize chat prefix")?;
         let suffix_tokens = self
             .tokenizer
-            .encode(&suffix, true)
+            .encode(
+                &format!("{VISION_END}{prompt}{IM_END}\n{IM_START}assistant\n"),
+                true,
+            )
             .context("tokenize chat suffix")?;
         let prompt_tokens = prefix_tokens
             .len()
             .checked_add(image_tokens)
             .and_then(|count| count.checked_add(suffix_tokens.len()))
             .context("prompt token count overflow")?;
-
         let cache_tokens = prompt_tokens
             .checked_add(max_new_tokens)
             .context("key/value cache token count overflow")?;
         let mut cache = KvCache::new(cache_tokens)?;
-        let mut attention_scratch = TextAttentionScratch::new(cache_tokens)?;
-        let mut scalar_position = 0_usize;
-        let mut last_hidden = None;
-        let prefill_started = Instant::now();
+        let mut scratch = TextAttentionScratch::new(cache_tokens)?;
+        let mut position = 0_usize;
 
-        for token in prefix_tokens {
-            let embedding = self.token_embedding(token)?;
-            let position = text_position(scalar_position)?;
-            last_hidden = Some(self.forward_token(
-                &embedding,
-                position,
-                None,
-                1,
-                &mut cache,
-                &mut attention_scratch,
-            )?);
-            scalar_position = scalar_position
+        let prefill_started = Instant::now();
+        let after_prefix =
+            self.prefill_text(&prefix_tokens, &mut cache, &mut scratch, &mut position)?;
+        let after_image = self.prefill_image(image, &mut cache, &mut scratch, &mut position)?;
+        let after_suffix =
+            self.prefill_text(&suffix_tokens, &mut cache, &mut scratch, &mut position)?;
+        let hidden = after_suffix
+            .or(after_image)
+            .or(after_prefix)
+            .context("chat prompt produced no decoder input")?;
+        let token = self.greedy_token(&hidden)?;
+        let prefill_duration = prefill_started.elapsed();
+
+        let decode_started = Instant::now();
+        let (text, generated_tokens) = self.decode(
+            token,
+            max_new_tokens,
+            &mut cache,
+            &mut scratch,
+            &mut position,
+        )?;
+        let decode_duration = decode_started.elapsed();
+
+        Ok(Generation {
+            text,
+            prompt_tokens,
+            generated_tokens,
+            prefill_duration,
+            decode_duration,
+        })
+    }
+
+    /// Feed `tokens` through the decoder, advancing `position` by one per token.
+    fn prefill_text(
+        &self,
+        tokens: &[u32],
+        cache: &mut KvCache,
+        scratch: &mut TextAttentionScratch,
+        position: &mut usize,
+    ) -> Result<Option<Vec<f32>>> {
+        let mut last_hidden = None;
+        for token in tokens {
+            let embedding = self.token_embedding(*token)?;
+            let current = text_position(*position)?;
+            last_hidden = Some(self.forward_token(&embedding, current, None, 1, cache, scratch)?);
+            *position = (*position)
                 .checked_add(1)
                 .context("text position overflow")?;
         }
+        Ok(last_hidden)
+    }
 
+    /// Project image patch embeddings through the decoder, advancing `position`
+    /// by the larger grid dimension at the end.
+    fn prefill_image(
+        &self,
+        image: &VisionEmbedding,
+        cache: &mut KvCache,
+        scratch: &mut TextAttentionScratch,
+        position: &mut usize,
+    ) -> Result<Option<Vec<f32>>> {
+        let mut last_hidden: Option<Vec<f32>> = None;
         for (index, row) in image.values.chunks_exact(IMAGE_EMBEDDING_SIZE).enumerate() {
-            let position = image_position(
-                scalar_position,
+            let current = image_position(
+                *position,
                 image.positions[index],
                 image.grid_width,
                 image.grid_height,
@@ -166,38 +206,28 @@ impl TextModel {
             let auxiliaries = &row[EMBEDDING_SIZE..];
             last_hidden = Some(self.forward_token(
                 base,
-                position,
+                current,
                 Some(auxiliaries),
                 image.masses[index],
-                &mut cache,
-                &mut attention_scratch,
+                cache,
+                scratch,
             )?);
         }
-        scalar_position = scalar_position
+        *position = (*position)
             .checked_add(image.grid_width.max(image.grid_height))
             .context("image position overflow")?;
+        Ok(last_hidden)
+    }
 
-        for token in suffix_tokens {
-            let embedding = self.token_embedding(token)?;
-            let position = text_position(scalar_position)?;
-            last_hidden = Some(self.forward_token(
-                &embedding,
-                position,
-                None,
-                1,
-                &mut cache,
-                &mut attention_scratch,
-            )?);
-            scalar_position = scalar_position
-                .checked_add(1)
-                .context("text position overflow")?;
-        }
-
-        let hidden = last_hidden.context("chat prompt produced no decoder input")?;
-        let mut token = self.greedy_token(&hidden)?;
-        let prefill_duration = prefill_started.elapsed();
-
-        let decode_started = Instant::now();
+    /// Greedily decode up to `max_new_tokens`, threading the shared cache.
+    fn decode(
+        &self,
+        mut token: u32,
+        max_new_tokens: usize,
+        cache: &mut KvCache,
+        scratch: &mut TextAttentionScratch,
+        position: &mut usize,
+    ) -> Result<(String, usize)> {
         let mut decoder = Utf8Decoder::new();
         let mut json = JsonObjectTracker::default();
         let mut text = String::new();
@@ -223,30 +253,16 @@ impl TextModel {
             }
 
             let embedding = self.token_embedding(token)?;
-            let position = text_position(scalar_position)?;
-            let hidden = self.forward_token(
-                &embedding,
-                position,
-                None,
-                1,
-                &mut cache,
-                &mut attention_scratch,
-            )?;
-            scalar_position = scalar_position
+            let current = text_position(*position)?;
+            let hidden = self.forward_token(&embedding, current, None, 1, cache, scratch)?;
+            *position = (*position)
                 .checked_add(1)
                 .context("text position overflow")?;
             token = self.greedy_token(&hidden)?;
         }
 
         text.push_str(&decoder.finish()?);
-        let decode_duration = decode_started.elapsed();
-        Ok(Generation {
-            text,
-            prompt_tokens,
-            generated_tokens,
-            prefill_duration,
-            decode_duration,
-        })
+        Ok((text, generated_tokens))
     }
 
     fn token_embedding(&self, token: u32) -> Result<Vec<f32>> {
@@ -396,12 +412,18 @@ struct ImRope {
     cosine: [f32; HEAD_SIZE / 2],
     sine: [f32; HEAD_SIZE / 2],
 }
-
+/// `u32 -> f32` for `RoPE` positions. Positions are token/grid offsets that may
+/// exceed `u16`, so the exact-dimension helper does not apply; the checked
+/// `to_f32()` is total for `u32` (every value is representable in `f32`)
+/// while keeping the lossiness explicit at the call site.
+fn position_to_f32(position: u32) -> f32 {
+    position.to_f32().expect("any u32 maps to a finite f32")
+}
 impl ImRope {
     fn new(position: Position) -> Self {
-        let temporal = position[0] as f32;
-        let height = position[1] as f32;
-        let width = position[2] as f32;
+        let temporal = position_to_f32(position[0]);
+        let height = position_to_f32(position[1]);
+        let width = position_to_f32(position[2]);
         let mut rope = Self {
             cosine: [0.0; HEAD_SIZE / 2],
             sine: [0.0; HEAD_SIZE / 2],
@@ -415,7 +437,7 @@ impl ImRope {
             } else {
                 temporal
             };
-            let frequency = ROPE_BASE.powf(-((2 * pair) as f32) / HEAD_SIZE as f32);
+            let frequency = ROPE_BASE.powf(-(dim_to_f32(2 * pair) / dim_to_f32(HEAD_SIZE)));
             let angle = coordinate * frequency;
             rope.cosine[pair] = angle.cos();
             rope.sine[pair] = angle.sin();
@@ -492,7 +514,8 @@ impl LayerCache {
             .context("grow attention mass cache")?;
         self.keys.extend(key.iter().copied().map(f32_to_fp16));
         self.values.extend(value.iter().copied().map(f32_to_fp16));
-        self.log_masses.push((mass as f32).ln());
+        self.log_masses
+            .push((f32::from(u16::try_from(mass).expect("attention mass fits u16"))).ln());
         Ok(())
     }
 
@@ -557,7 +580,7 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
     scratch.output.resize(EMBEDDING_SIZE, 0.0);
     scratch.output.fill(0.0);
     scratch.scores.resize(score_count, 0.0);
-    let scale = (HEAD_SIZE as f32).sqrt().recip();
+    let scale = dim_to_f32(HEAD_SIZE).sqrt().recip();
     let kernel = Fp16AttentionKernel::detect();
 
     scratch
@@ -666,37 +689,25 @@ fn validate_image(image: &VisionEmbedding) -> Result<usize> {
     );
     Ok(image.token_count)
 }
-#[allow(clippy::cast_possible_truncation)]
+
 fn validate_metadata(gguf: &Gguf) -> Result<()> {
     ensure!(
         gguf.architecture() == "qwen3vl",
         "model architecture is `{}`, expected `qwen3vl`",
         gguf.architecture()
     );
-    validate_u32(gguf, "qwen3vl.block_count", LAYER_COUNT as u32)?;
-    validate_u32(gguf, "qwen3vl.embedding_length", EMBEDDING_SIZE as u32)?;
-    validate_u32(
-        gguf,
-        "qwen3vl.feed_forward_length",
-        FEED_FORWARD_SIZE as u32,
-    )?;
-    validate_u32(
-        gguf,
-        "qwen3vl.attention.head_count",
-        QUERY_HEAD_COUNT as u32,
-    )?;
+    validate_u32(gguf, "qwen3vl.block_count", LAYER_COUNT)?;
+    validate_u32(gguf, "qwen3vl.embedding_length", EMBEDDING_SIZE)?;
+    validate_u32(gguf, "qwen3vl.feed_forward_length", FEED_FORWARD_SIZE)?;
+    validate_u32(gguf, "qwen3vl.attention.head_count", QUERY_HEAD_COUNT)?;
     validate_u32(
         gguf,
         "qwen3vl.attention.head_count_kv",
-        KEY_VALUE_HEAD_COUNT as u32,
+        KEY_VALUE_HEAD_COUNT,
     )?;
-    validate_u32(gguf, "qwen3vl.attention.key_length", HEAD_SIZE as u32)?;
-    validate_u32(gguf, "qwen3vl.attention.value_length", HEAD_SIZE as u32)?;
-    validate_u32(
-        gguf,
-        "qwen3vl.n_deepstack_layers",
-        DEEPSTACK_LAYER_COUNT as u32,
-    )?;
+    validate_u32(gguf, "qwen3vl.attention.key_length", HEAD_SIZE)?;
+    validate_u32(gguf, "qwen3vl.attention.value_length", HEAD_SIZE)?;
+    validate_u32(gguf, "qwen3vl.n_deepstack_layers", DEEPSTACK_LAYER_COUNT)?;
 
     let rope_base = gguf.f32("qwen3vl.rope.freq_base")?;
     ensure!(
@@ -718,8 +729,8 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
     Ok(())
 }
 
-fn validate_u32(gguf: &Gguf, key: &str, expected: u32) -> Result<()> {
-    let value = gguf.u32(key)?;
+fn validate_u32(gguf: &Gguf, key: &str, expected: usize) -> Result<()> {
+    let value = usize::try_from(gguf.u32(key)?).expect("metadata value fits usize");
     ensure!(value == expected, "{key} is {value}, expected {expected}");
     Ok(())
 }
@@ -850,52 +861,72 @@ fn validate_special_tokens(tokenizer: &Tokenizer) -> Result<()> {
 }
 
 #[derive(Default)]
-#[allow(clippy::struct_excessive_bools)]
+enum JsonState {
+    #[default]
+    NotStarted,
+    Normal,
+    String {
+        escaped: bool,
+    },
+    Invalid,
+}
+
+#[derive(Default)]
 struct JsonObjectTracker {
     stack: Vec<char>,
-    started: bool,
-    in_string: bool,
-    escaped: bool,
-    invalid: bool,
+    state: JsonState,
 }
 
 impl JsonObjectTracker {
     fn push(&mut self, text: &str) -> Option<usize> {
         for (offset, character) in text.char_indices() {
-            if !self.started {
-                if character == '{' {
-                    self.started = true;
-                    self.stack.push(character);
-                }
-                continue;
-            }
-            if self.invalid {
-                continue;
-            }
-            if self.in_string {
-                if self.escaped {
-                    self.escaped = false;
-                } else if character == '\\' {
-                    self.escaped = true;
-                } else if character == '"' {
-                    self.in_string = false;
-                }
-                continue;
-            }
-
-            match character {
-                '"' => self.in_string = true,
-                '{' | '[' => self.stack.push(character),
-                '}' => {
-                    if self.stack.pop() != Some('{') {
-                        self.invalid = true;
-                    } else if self.stack.is_empty() {
-                        return Some(offset + character.len_utf8());
+            let state = std::mem::take(&mut self.state);
+            self.state = match state {
+                JsonState::NotStarted => {
+                    if character == '{' {
+                        self.stack.push(character);
+                        JsonState::Normal
+                    } else {
+                        JsonState::NotStarted
                     }
                 }
-                ']' => self.invalid = self.stack.pop() != Some('['),
-                _ => {}
-            }
+                JsonState::Invalid => JsonState::Invalid,
+                JsonState::Normal => match character {
+                    '"' => JsonState::String { escaped: false },
+                    '{' | '[' => {
+                        self.stack.push(character);
+                        JsonState::Normal
+                    }
+                    '}' => {
+                        if self.stack.pop() != Some('{') {
+                            JsonState::Invalid
+                        } else if self.stack.is_empty() {
+                            return Some(offset + character.len_utf8());
+                        } else {
+                            JsonState::Normal
+                        }
+                    }
+                    ']' => {
+                        if self.stack.pop() == Some('[') {
+                            JsonState::Normal
+                        } else {
+                            JsonState::Invalid
+                        }
+                    }
+                    _ => JsonState::Normal,
+                },
+                JsonState::String { escaped } => {
+                    if escaped {
+                        JsonState::String { escaped: false }
+                    } else if character == '\\' {
+                        JsonState::String { escaped: true }
+                    } else if character == '"' {
+                        JsonState::Normal
+                    } else {
+                        JsonState::String { escaped: false }
+                    }
+                }
+            };
         }
         None
     }
@@ -909,9 +940,7 @@ mod tests {
     #[test]
     fn cached_rope_matches_direct_calculation() {
         let position = [17, 3, 11, 0];
-        let mut expected = (0..EMBEDDING_SIZE)
-            .map(|value| value as f32)
-            .collect::<Vec<_>>();
+        let mut expected = (0..EMBEDDING_SIZE).map(dim_to_f32).collect::<Vec<_>>();
         let mut actual = expected.clone();
         apply_im_rope_direct(&mut expected, position);
         apply_im_rope(&mut actual, &ImRope::new(position)).expect("apply cached RoPE");
@@ -936,15 +965,15 @@ mod tests {
         let mut cache = LayerCache::default();
         for token in 0..3 {
             let key = (0..KEY_VALUE_SIZE)
-                .map(|value| (token * KEY_VALUE_SIZE + value) as f32 * 0.001)
+                .map(|value| dim_to_f32(token * KEY_VALUE_SIZE + value) * 0.001)
                 .collect::<Vec<_>>();
             let value = (0..KEY_VALUE_SIZE)
-                .map(|value| (token * KEY_VALUE_SIZE + value) as f32 * -0.002)
+                .map(|value| dim_to_f32(token * KEY_VALUE_SIZE + value) * -0.002)
                 .collect::<Vec<_>>();
             cache.append(&key, &value, 1).expect("append cache token");
         }
         let query = (0..EMBEDDING_SIZE)
-            .map(|value| value as f32 * 0.003)
+            .map(|value| dim_to_f32(value) * 0.003)
             .collect::<Vec<_>>();
         let expected = causal_gqa_reference(&query, &cache);
         let mut scratch = TextAttentionScratch::default();
@@ -958,14 +987,21 @@ mod tests {
         for head in values.chunks_exact_mut(HEAD_SIZE) {
             let (first, second) = head.split_at_mut(HEAD_SIZE / 2);
             for pair in 0..HEAD_SIZE / 2 {
-                let coordinate = if pair % 3 == 1 && pair < 3 * ROPE_SECTIONS[1] as usize {
-                    position[1] as f32
-                } else if pair % 3 == 2 && pair < 3 * ROPE_SECTIONS[2] as usize {
-                    position[2] as f32
+                let coordinate = if pair % 3 == 1
+                    && pair
+                        < 3 * usize::try_from(ROPE_SECTIONS[1]).expect("rope section fits usize")
+                {
+                    position_to_f32(position[1])
+                } else if pair % 3 == 2
+                    && pair
+                        < 3 * usize::try_from(ROPE_SECTIONS[2]).expect("rope section fits usize")
+                {
+                    position_to_f32(position[2])
                 } else {
-                    position[0] as f32
+                    position_to_f32(position[0])
                 };
-                let angle = coordinate * ROPE_BASE.powf(-((2 * pair) as f32) / HEAD_SIZE as f32);
+                let angle =
+                    coordinate * ROPE_BASE.powf(-(dim_to_f32(2 * pair) / dim_to_f32(HEAD_SIZE)));
                 let cosine = angle.cos();
                 let sine = angle.sin();
                 let left = first[pair];
@@ -978,7 +1014,7 @@ mod tests {
 
     fn causal_gqa_reference(query: &[f32], cache: &LayerCache) -> Vec<f32> {
         let token_count = cache.token_count();
-        let scale = (HEAD_SIZE as f32).sqrt().recip();
+        let scale = dim_to_f32(HEAD_SIZE).sqrt().recip();
         let mut output = vec![0.0; EMBEDDING_SIZE];
         for (query_head, output_head) in output.chunks_exact_mut(HEAD_SIZE).enumerate() {
             let key_value_head = query_head / QUERY_GROUP_SIZE;

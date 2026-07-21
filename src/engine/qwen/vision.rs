@@ -3,17 +3,51 @@
 
 //! Fixed CPU vision encoder for the pinned Qwen3-VL-2B multimodal projector.
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss
-)]
+/// Narrow a small model dimension/index to `f32` losslessly. Exact for any
+/// value that fits `u16` (the 24-bit `f32` mantissa holds every `u16`).
+fn dim_to_f32(value: usize) -> f32 {
+    f32::from(u16::try_from(value).expect("dimension/index exceeds u16"))
+}
+
+/// Narrow a model dimension to `u32` for GGUF metadata comparison.
+fn dim_to_u32(value: usize) -> u32 {
+    u32::try_from(value).expect("dimension fits u32")
+}
+
+/// Lossy `usize -> f32` for image pixel counts and dimensions that may exceed
+/// `u16`. Used only in geometric scale-factor math (`sqrt`, `/beta`) where the
+/// resulting float is consumed approximately, so precision loss is harmless.
+fn count_to_f32(value: usize) -> f32 {
+    value.to_f32().expect("usize always maps to a finite f32")
+}
+
+/// Floor a non-negative `f32` (bounded by the caller) to `usize`. The callers
+/// pass clamped/positive values (coordinates and aligned dimensions); the
+/// checked `to_usize()` rejects NaN/negative/out-of-range instead of silently
+/// saturating like an `as` cast.
+fn floor_to_usize(value: f32) -> usize {
+    value
+        .floor()
+        .to_usize()
+        .expect("coordinate is finite, non-negative and in range")
+}
+
+/// Ceiling of a non-negative `f32` (bounded by the caller) to `usize`. The
+/// checked `to_usize()` rejects NaN/negative/out-of-range instead of silently
+/// saturating like an `as` cast.
+fn ceil_to_usize(value: f32) -> usize {
+    value
+        .ceil()
+        .to_usize()
+        .expect("coordinate is finite, non-negative and in range")
+}
 
 use std::path::Path;
 
 use anyhow::{Context as _, Result, ensure};
 use image::imageops::FilterType;
 use image::{RgbImage, load_from_memory};
+use num_traits::ToPrimitive;
 use rayon::prelude::*;
 
 use super::gguf::{Gguf, Tensor, TensorType};
@@ -172,7 +206,6 @@ impl VisionModel {
         Self::reduce_spatial_tokens(&values, grid_width, grid_height, reduction)
     }
 
-    #[allow(clippy::too_many_lines)]
     fn reduce_spatial_tokens(
         values: &[f32],
         grid_width: usize,
@@ -371,12 +404,12 @@ impl VisionModel {
                 let (x, y) = grouped_patch_coordinates(token, patch_width);
                 let x_coordinate = interpolation_coordinate(x, patch_width, POSITION_SIDE);
                 let y_coordinate = interpolation_coordinate(y, patch_height, POSITION_SIDE);
-                let x0 = x_coordinate.floor() as usize;
-                let y0 = y_coordinate.floor() as usize;
+                let x0 = floor_to_usize(x_coordinate);
+                let y0 = floor_to_usize(y_coordinate);
                 let x1 = (x0 + 1).min(POSITION_SIDE - 1);
                 let y1 = (y0 + 1).min(POSITION_SIDE - 1);
-                let x_weight = x_coordinate - x0 as f32;
-                let y_weight = y_coordinate - y0 as f32;
+                let x_weight = x_coordinate - dim_to_f32(x0);
+                let y_weight = y_coordinate - dim_to_f32(y0);
                 for (channel, value) in row.iter_mut().enumerate() {
                     let top_left = position_value(source, x0, y0, channel);
                     let top_right = position_value(source, x1, y0, channel);
@@ -532,13 +565,13 @@ fn smart_resize(image: RgbImage, image_max_tokens: usize) -> Result<RgbImage> {
         .context("aligned image pixel count overflow")?;
 
     if aligned_pixels > max_pixels {
-        let beta = ((height as f32 * width as f32) / max_pixels as f32).sqrt();
-        target_height = floor_to_multiple(height as f32 / beta, ALIGN_SIZE).max(ALIGN_SIZE);
-        target_width = floor_to_multiple(width as f32 / beta, ALIGN_SIZE).max(ALIGN_SIZE);
+        let beta = ((count_to_f32(height) * count_to_f32(width)) / count_to_f32(max_pixels)).sqrt();
+        target_height = floor_to_multiple(count_to_f32(height) / beta, ALIGN_SIZE).max(ALIGN_SIZE);
+        target_width = floor_to_multiple(count_to_f32(width) / beta, ALIGN_SIZE).max(ALIGN_SIZE);
     } else if aligned_pixels < min_pixels {
-        let beta = (min_pixels as f32 / (height as f32 * width as f32)).sqrt();
-        target_height = ceil_to_multiple(height as f32 * beta, ALIGN_SIZE);
-        target_width = ceil_to_multiple(width as f32 * beta, ALIGN_SIZE);
+        let beta = (count_to_f32(min_pixels) / (count_to_f32(height) * count_to_f32(width))).sqrt();
+        target_height = ceil_to_multiple(count_to_f32(height) * beta, ALIGN_SIZE);
+        target_width = ceil_to_multiple(count_to_f32(width) * beta, ALIGN_SIZE);
     }
     ensure!(
         target_width.is_multiple_of(ALIGN_SIZE) && target_height.is_multiple_of(ALIGN_SIZE),
@@ -563,11 +596,11 @@ fn round_to_multiple(value: usize, factor: usize) -> usize {
 }
 
 fn floor_to_multiple(value: f32, factor: usize) -> usize {
-    (value / factor as f32).floor() as usize * factor
+    floor_to_usize(value / dim_to_f32(factor)) * factor
 }
 
 fn ceil_to_multiple(value: f32, factor: usize) -> usize {
-    (value / factor as f32).ceil() as usize * factor
+    ceil_to_usize(value / dim_to_f32(factor)) * factor
 }
 
 fn grouped_patch_coordinates(token: usize, patch_width: usize) -> (usize, usize) {
@@ -583,8 +616,9 @@ fn grouped_patch_coordinates(token: usize, patch_width: usize) -> (usize, usize)
 }
 
 fn interpolation_coordinate(index: usize, output_size: usize, input_size: usize) -> f32 {
-    let coordinate = (index as f32 + 0.5) * input_size as f32 / output_size as f32 - 0.5;
-    coordinate.clamp(0.0, (input_size - 1) as f32)
+    let coordinate =
+        (dim_to_f32(index) + 0.5) * dim_to_f32(input_size) / dim_to_f32(output_size) - 0.5;
+    coordinate.clamp(0.0, dim_to_f32(input_size - 1))
 }
 
 fn position_value(values: &[f32], x: usize, y: usize, channel: usize) -> f32 {
@@ -604,7 +638,7 @@ impl VisionRope {
             .context("vision RoPE table size overflow")?;
         let mut frequencies = [0.0; HEAD_WIDTH / 4];
         for (pair, frequency) in frequencies.iter_mut().enumerate() {
-            *frequency = ROPE_THETA.powf(-(pair as f32) / (HEAD_WIDTH / 4) as f32);
+            *frequency = ROPE_THETA.powf(-(dim_to_f32(pair)) / dim_to_f32(HEAD_WIDTH / 4));
         }
         let mut cosine = vec![0.0; table_len];
         let mut sine = vec![0.0; table_len];
@@ -617,7 +651,7 @@ impl VisionRope {
                 for pair in 0..HEAD_WIDTH / 2 {
                     let position = if pair < HEAD_WIDTH / 4 { y } else { x };
                     let frequency = frequencies[pair % (HEAD_WIDTH / 4)];
-                    let angle = position as f32 * frequency;
+                    let angle = dim_to_f32(position) * frequency;
                     cosine[pair] = angle.cos();
                     sine[pair] = angle.sin();
                 }
@@ -809,7 +843,7 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
         "GGUF has no vision encoder"
     );
     ensure!(
-        gguf.u32("clip.vision.projection_dim")? == PROJECTED_WIDTH as u32,
+        gguf.u32("clip.vision.projection_dim")? == dim_to_u32(PROJECTED_WIDTH),
         "invalid projection width"
     );
     ensure!(
@@ -817,23 +851,23 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
         "invalid base image size"
     );
     ensure!(
-        gguf.u32("clip.vision.patch_size")? == PATCH_SIZE as u32,
+        gguf.u32("clip.vision.patch_size")? == dim_to_u32(PATCH_SIZE),
         "invalid patch size"
     );
     ensure!(
-        gguf.u32("clip.vision.embedding_length")? == EMBEDDING_WIDTH as u32,
+        gguf.u32("clip.vision.embedding_length")? == dim_to_u32(EMBEDDING_WIDTH),
         "invalid embedding width"
     );
     ensure!(
-        gguf.u32("clip.vision.feed_forward_length")? == FFN_WIDTH as u32,
+        gguf.u32("clip.vision.feed_forward_length")? == dim_to_u32(FFN_WIDTH),
         "invalid feed-forward width"
     );
     ensure!(
-        gguf.u32("clip.vision.block_count")? == LAYER_COUNT as u32,
+        gguf.u32("clip.vision.block_count")? == dim_to_u32(LAYER_COUNT),
         "invalid layer count"
     );
     ensure!(
-        gguf.u32("clip.vision.attention.head_count")? == HEAD_COUNT as u32,
+        gguf.u32("clip.vision.attention.head_count")? == dim_to_u32(HEAD_COUNT),
         "invalid attention head count"
     );
     ensure!(
@@ -845,7 +879,7 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
         "vision projector must use GELU"
     );
     ensure!(
-        gguf.u32("clip.vision.spatial_merge_size")? == MERGE_SIZE as u32,
+        gguf.u32("clip.vision.spatial_merge_size")? == dim_to_u32(MERGE_SIZE),
         "invalid spatial merge size"
     );
     let epsilon = gguf.f32("clip.vision.attention.layer_norm_epsilon")?;
@@ -858,121 +892,12 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
 fn validate_tensors(gguf: &Gguf) -> Result<()> {
     for layer in 0..LAYER_COUNT {
-        let prefix = format!("v.blk.{layer}");
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.attn_out.bias"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.attn_out.weight"),
-            &[EMBEDDING_WIDTH, EMBEDDING_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.attn_qkv.bias"),
-            &[QKV_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.attn_qkv.weight"),
-            &[EMBEDDING_WIDTH, QKV_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ffn_up.bias"),
-            &[FFN_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ffn_up.weight"),
-            &[EMBEDDING_WIDTH, FFN_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ffn_down.bias"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ffn_down.weight"),
-            &[FFN_WIDTH, EMBEDDING_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ln1.bias"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ln1.weight"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ln2.bias"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.ln2.weight"),
-            &[EMBEDDING_WIDTH],
-            TensorType::F32,
-        )?;
+        validate_block_tensors(gguf, layer)?;
     }
     for layer in DEEPSTACK_LAYERS {
-        let prefix = format!("v.deepstack.{layer}");
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.fc1.bias"),
-            &[FFN_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.fc1.weight"),
-            &[FFN_WIDTH, FFN_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.fc2.bias"),
-            &[PROJECTED_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.fc2.weight"),
-            &[FFN_WIDTH, PROJECTED_WIDTH],
-            TensorType::Q8_0,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.norm.bias"),
-            &[FFN_WIDTH],
-            TensorType::F32,
-        )?;
-        expect_tensor(
-            gguf,
-            &format!("{prefix}.norm.weight"),
-            &[FFN_WIDTH],
-            TensorType::F32,
-        )?;
+        validate_deepstack_tensors(gguf, layer)?;
     }
     expect_tensor(gguf, "mm.0.bias", &[FFN_WIDTH], TensorType::F32)?;
     expect_tensor(
@@ -1022,6 +947,124 @@ fn validate_tensors(gguf: &Gguf) -> Result<()> {
     Ok(())
 }
 
+fn validate_block_tensors(gguf: &Gguf, layer: usize) -> Result<()> {
+    let prefix = format!("v.blk.{layer}");
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.attn_out.bias"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.attn_out.weight"),
+        &[EMBEDDING_WIDTH, EMBEDDING_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.attn_qkv.bias"),
+        &[QKV_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.attn_qkv.weight"),
+        &[EMBEDDING_WIDTH, QKV_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ffn_up.bias"),
+        &[FFN_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ffn_up.weight"),
+        &[EMBEDDING_WIDTH, FFN_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ffn_down.bias"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ffn_down.weight"),
+        &[FFN_WIDTH, EMBEDDING_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ln1.bias"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ln1.weight"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ln2.bias"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.ln2.weight"),
+        &[EMBEDDING_WIDTH],
+        TensorType::F32,
+    )?;
+    Ok(())
+}
+
+fn validate_deepstack_tensors(gguf: &Gguf, layer: usize) -> Result<()> {
+    let prefix = format!("v.deepstack.{layer}");
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.fc1.bias"),
+        &[FFN_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.fc1.weight"),
+        &[FFN_WIDTH, FFN_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.fc2.bias"),
+        &[PROJECTED_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.fc2.weight"),
+        &[FFN_WIDTH, PROJECTED_WIDTH],
+        TensorType::Q8_0,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.norm.bias"),
+        &[FFN_WIDTH],
+        TensorType::F32,
+    )?;
+    expect_tensor(
+        gguf,
+        &format!("{prefix}.norm.weight"),
+        &[FFN_WIDTH],
+        TensorType::F32,
+    )?;
+    Ok(())
+}
+
 fn expect_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorType) -> Result<()> {
     let tensor: Tensor<'_> = gguf.tensor(name)?;
     ensure!(
@@ -1054,7 +1097,7 @@ mod tests {
     fn attention_matches_reference() {
         let token_count = ATTENTION_KEY_TILE + 1;
         let qkv = (0..token_count * QKV_WIDTH)
-            .map(|value| value as f32 * 0.0001 - 0.25)
+            .map(|value| count_to_f32(value) * 0.0001 - 0.25)
             .collect::<Vec<_>>();
         let expected = attention_reference(&qkv, token_count);
         let actual = attention(&qkv, token_count).expect("compute attention");

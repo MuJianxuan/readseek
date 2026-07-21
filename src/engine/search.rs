@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 // Copyright (c) 2026 Jarkko Sakkinen
 
-use crate::engine::lang::{AnalysisEngine, Language};
+use crate::engine::lang::{AnalysisEngine, EngineField, Language};
 use crate::engine::output::{SearchCapture, SearchFileOutput, SearchMatch};
 use crate::engine::source::{ContentCategory, SourceFile, line_hash, load_source, range_hashlines};
 use crate::engine::symbols;
@@ -129,7 +129,7 @@ pub(crate) fn search_file(
     Ok(Some(SearchFileOutput {
         file: source.path,
         language: detected_language,
-        engine: source.detection.engine,
+        engine: EngineField(source.detection.engine),
         file_hash: source.file_hash,
         matches,
     }))
@@ -264,24 +264,34 @@ fn nodes_match<'a>(
         pattern,
         pattern_node,
         source_node,
-        0,
-        0,
+        Cursor {
+            pattern_index: 0,
+            source_index: 0,
+        },
         captures,
         budget,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy)]
+struct Cursor {
+    pattern_index: usize,
+    source_index: usize,
+}
+
 fn child_nodes_match<'a>(
     source: &'a SourceFile,
     pattern: &'a SearchPattern,
     pattern_node: Node<'_>,
     source_node: Node<'_>,
-    pattern_index: usize,
-    source_index: usize,
+    cursor: Cursor,
     captures: &mut Vec<SearchCaptureRange<'a>>,
     budget: &mut MatchBudget,
 ) -> bool {
+    let Cursor {
+        pattern_index,
+        source_index,
+    } = cursor;
     if !budget.consume() {
         return false;
     }
@@ -321,8 +331,10 @@ fn child_nodes_match<'a>(
                 pattern,
                 pattern_node,
                 source_node,
-                pattern_index + 1,
-                source_index + count,
+                Cursor {
+                    pattern_index: pattern_index + 1,
+                    source_index: source_index + count,
+                },
                 captures,
                 budget,
             ) {
@@ -356,8 +368,10 @@ fn child_nodes_match<'a>(
         pattern,
         pattern_node,
         source_node,
-        pattern_index + 1,
-        source_index + 1,
+        Cursor {
+            pattern_index: pattern_index + 1,
+            source_index: source_index + 1,
+        },
         captures,
         budget,
     ) {

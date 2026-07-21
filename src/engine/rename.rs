@@ -17,7 +17,7 @@
 use crate::engine::binding::{self, OccurrenceKind};
 use crate::engine::flags::GitFlags;
 use crate::engine::hash::hash_bytes;
-use crate::engine::lang::Language;
+use crate::engine::lang::{EngineField, Language};
 use crate::engine::output::{RenameConflict, RenameEdit, RenameFileOutput, RenameOutput};
 use crate::engine::paths::{command_paths, identifier_spans};
 use crate::engine::source::{
@@ -45,7 +45,6 @@ pub(crate) struct Request {
     pub(crate) flags: GitFlags,
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     let line = request.line;
     let column = request.column.unwrap_or(1);
@@ -72,62 +71,9 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
         ContentCategory::Text,
         None,
     );
-
     let cursor_byte = source.cursor_byte(line, column)?;
 
-    // The cursor file is binding-accurate when its symbol resolves to a local
-    // declaration. Symbols without a lexical binding (macros, top-level functions
-    // and types) fall back to the same name-based plan used for the other files,
-    // so they rename in a single file as well as across a workspace.
-    let (old_name, conflicts, edits, is_binding) = if let Some((binding, raw_conflicts)) =
-        binding::resolve_with_conflicts(&source, cursor_byte, Some(&request.to))
-    {
-        if binding.name == request.to {
-            bail!("new name is identical to the current name");
-        }
-        let conflicts = raw_conflicts
-            .into_iter()
-            .map(|conflict| {
-                let (line, column) = source.line_column(conflict.byte);
-                RenameConflict {
-                    line,
-                    column,
-                    reason: conflict.reason,
-                }
-            })
-            .collect();
-        let edits = binding
-            .occurrences
-            .iter()
-            .filter(|occurrence| occurrence.kind != OccurrenceKind::Shadowed)
-            .map(|occurrence| {
-                rename_edit(
-                    &source,
-                    occurrence.start_byte,
-                    occurrence.end_byte,
-                    occurrence.kind,
-                )
-            })
-            .collect();
-        (binding.name, conflicts, edits, true)
-    } else {
-        let name = binding::identifier_at(&source, cursor_byte).with_context(|| {
-            format!(
-                "no identifier at {}:{line}:{column}",
-                request.target.display()
-            )
-        })?;
-        if name == request.to {
-            bail!("new name is identical to the current name");
-        }
-        let plan = build_other(&source, &name, &request.to, false).with_context(|| {
-            format!(
-                "`{name}` has no renamable occurrences in {}",
-                request.target.display()
-            )
-        })?;
-        (name, plan.conflicts, plan.edits, false)
-    };
+    let (old_name, conflicts, edits, is_binding) = resolve_cursor(&source, request, cursor_byte)?;
 
     let others = workspace_others(request, &old_name, is_binding)?;
     let plan_hash = rename_plan_hash(
@@ -161,7 +107,7 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
     Ok(RenameOutput {
         file: source.path,
         language: source.detection.language,
-        engine: source.detection.engine,
+        engine: EngineField(source.detection.engine),
         file_hash: source.file_hash,
         old_name,
         new_name: request.to.clone(),
@@ -171,6 +117,69 @@ pub(crate) fn output(request: &Request) -> Result<RenameOutput> {
         edits,
         others,
     })
+}
+
+/// Resolve the cursor to a rename plan: binding-accurate when the symbol has a
+/// local declaration, otherwise a name-based plan covering free occurrences.
+fn resolve_cursor(
+    source: &SourceFile,
+    request: &Request,
+    cursor_byte: usize,
+) -> Result<(String, Vec<RenameConflict>, Vec<RenameEdit>, bool)> {
+    let (line, column) = (request.line, request.column.unwrap_or(1));
+    // The cursor file is binding-accurate when its symbol resolves to a local
+    // declaration. Symbols without a lexical binding (macros, top-level functions
+    // and types) fall back to the same name-based plan used for the other files,
+    // so they rename in a single file as well as across a workspace.
+    if let Some((binding, raw_conflicts)) =
+        binding::resolve_with_conflicts(source, cursor_byte, Some(&request.to))
+    {
+        if binding.name == request.to {
+            bail!("new name is identical to the current name");
+        }
+        let conflicts = raw_conflicts
+            .into_iter()
+            .map(|conflict| {
+                let (line, column) = source.line_column(conflict.byte);
+                RenameConflict {
+                    line,
+                    column,
+                    reason: conflict.reason,
+                }
+            })
+            .collect();
+        let edits = binding
+            .occurrences
+            .iter()
+            .filter(|occurrence| occurrence.kind != OccurrenceKind::Shadowed)
+            .map(|occurrence| {
+                rename_edit(
+                    source,
+                    occurrence.start_byte,
+                    occurrence.end_byte,
+                    occurrence.kind,
+                )
+            })
+            .collect();
+        Ok((binding.name, conflicts, edits, true))
+    } else {
+        let name = binding::identifier_at(source, cursor_byte).with_context(|| {
+            format!(
+                "no identifier at {}:{line}:{column}",
+                request.target.display()
+            )
+        })?;
+        if name == request.to {
+            bail!("new name is identical to the current name");
+        }
+        let plan = build_other(source, &name, &request.to, false).with_context(|| {
+            format!(
+                "`{name}` has no renamable occurrences in {}",
+                request.target.display()
+            )
+        })?;
+        Ok((name, plan.conflicts, plan.edits, false))
+    }
 }
 
 fn rename_plan_hash(
@@ -277,7 +286,7 @@ fn build_other(
     Some(RenameFileOutput {
         file: source.path.clone(),
         language: source.detection.language,
-        engine: source.detection.engine,
+        engine: EngineField(source.detection.engine),
         file_hash: source.file_hash.clone(),
         conflicts,
         edits,

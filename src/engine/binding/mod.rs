@@ -234,7 +234,6 @@ pub(crate) fn cross_file_matches(
 /// Walk the tree collecting uses of `name` that do not resolve to a local
 /// declaration, marking same-named local declarations and shadowed uses so a
 /// caller can exclude them from a byte-level name scan.
-#[allow(clippy::too_many_arguments)]
 fn collect_free_occurrences(
     root: Node<'_>,
     src: &[u8],
@@ -423,7 +422,6 @@ fn resolve_node(
     None
 }
 
-#[allow(clippy::too_many_arguments)]
 fn collect_occurrences(
     root: Node<'_>,
     src: &[u8],

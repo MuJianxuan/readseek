@@ -32,22 +32,22 @@ readseek \- structural source and PDF reader with stable line hashing
     [\fB--column\fR \fIcolumn\fR]
     \fItarget\fR
 
-\fBreadseek def\fR [\fB--format\fR \fIformat\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
-    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+\fBreadseek def\fR [\fB--format\fR \fIformat\fR] [\fB\-g\fR|\fB--git\fR \fIscopes\fR]
+    [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
 
 \fBreadseek refs\fR [\fB--format\fR \fIformat\fR] [\fB--scope\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR]]
-    [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
-    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+    [\fB\-g\fR|\fB--git\fR \fIscopes\fR]
+    [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIname\fR
 
 \fBreadseek rename\fR \fB--line\fR \fIline\fR [\fB--column\fR \fIcolumn\fR] \fB--to\fR \fIname\fR
-    [\fB--workspace\fR \fIdir\fR] [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
-    [\fB\-i\fR|\fB--ignored\fR] [\fB--apply\fR] [\fB--plan-hash\fR \fIhash\fR]
+    [\fB--workspace\fR \fIdir\fR] [\fB\-g\fR|\fB--git\fR \fIscopes\fR]
+    [\fB--apply\fR] [\fB--plan-hash\fR \fIhash\fR]
     [\fB--language\fR \fIlanguage\fR] \fItarget\fR
 
-\fBreadseek search\fR [\fB\-c\fR|\fB--cached\fR] [\fB\-o\fR|\fB--others\fR]
-    [\fB\-i\fR|\fB--ignored\fR] [\fB--language\fR \fIlanguage\fR]
+\fBreadseek search\fR [\fB\-g\fR|\fB--git\fR \fIscopes\fR]
+    [\fB--language\fR \fIlanguage\fR]
     \fItarget\fR \fIpattern\fR
 
 \fBreadseek init\fR [\fIpath\fR]
@@ -304,17 +304,10 @@ For \fBview\fR, limit output to this depth below the selected roots.
 \fB--outline\fR
 For \fBview\fR, return outline nodes only.
 .TP
-\fB\-c\fR, \fB--cached\fR
-For Git-aware directory searches and workspace renames, include tracked and indexed
-files.
-.TP
-\fB\-o\fR, \fB--others\fR
-For Git-aware directory searches and workspace renames, include untracked,
-non-ignored files.
-.TP
-\fB\-i\fR, \fB--ignored\fR
-With \fB--others\fR, also include ignored untracked files. Inside a Git repository
-\fB--ignored\fR requires \fB--others\fR.
+\fB\-g\fR, \fB--git\fR \fIscopes\fR
+Comma-list of Git search scopes: \fBcached\fR (tracked and indexed
+files), \fBothers\fR (untracked, non-ignored files), \fBignored\fR (ignored
+untracked files; requires \fBothers\fR). Default is none.
 .SH ENVIRONMENT
 .TP
 .B READSEEK_VISION_THREADS
@@ -324,8 +317,8 @@ Positive Rayon worker count for CPU inference. Rayon chooses the default.
 
 \fBdef\fR, \fBrefs\fR, and \fBsearch\fR accept a file or recursively search a
 directory. Inside a Git work tree, the default includes tracked/indexed and
-untracked, non-ignored files. \fB--cached\fR or \fB--others\fR restricts the set.
-Outside Git, selection flags are ignored and a normal recursive walk is used.
+untracked, non-ignored files. \fB--git cached\fR or \fB--git others\fR restricts the set.
+Outside Git, \fB--git\fR is ignored and a normal recursive walk is used.
 
 .SH EXIT STATUS
 .TP
