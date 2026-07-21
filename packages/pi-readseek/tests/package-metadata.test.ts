@@ -45,8 +45,8 @@ describe("package metadata", () => {
     expect(pluginLock.version).toBe(version);
     expect(pluginLock.packages[""].version).toBe(version);
     expect(pluginPackage.dependencies?.["@jarkkojs/readseek"]).toBe(`^${version}`);
-    expect(pluginPackage.exports?.["."]).toBe("./dist/index.js");
-    expect(pluginPackage.pi?.extensions).toEqual(["./dist/index.js"]);
+    expect(pluginPackage.exports?.["."]).toBe("./dist/index.ts");
+    expect(pluginPackage.pi?.extensions).toEqual(["./dist/index.ts"]);
     expect(pluginPackage.files).toContain("dist/");
     expect(pluginPackage.files).toContain("prompts/");
     expect(pluginLock.packages[""].dependencies?.["@jarkkojs/readseek"]).toBe(`^${version}`);
