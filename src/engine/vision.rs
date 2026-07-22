@@ -32,7 +32,7 @@ use crate::engine::qwen::{SpatialReduction, TextModel, VisionEmbedding, VisionIn
 const MODEL_FILE: &str = "Qwen3VL-2B-Instruct-Q4_K_M.gguf";
 const MMPROJ_FILE: &str = "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf";
 const CAPTION_MAX_NEW_TOKENS: usize = 512;
-const OBJECTS_MAX_NEW_TOKENS: usize = 1024;
+const OBJECTS_MAX_NEW_TOKENS: usize = 2048;
 const OCR_MAX_NEW_TOKENS: usize = 4096;
 const LOCATION_BINS: i32 = 1000;
 const PROGRESS_DEADLINE: Duration = Duration::from_secs(2);
@@ -362,8 +362,16 @@ struct CombinedJson {
 
 fn parse_analysis(raw: &str, request: Request, width: u32, height: u32) -> Result<Analysis> {
     let json = extract_json(raw).context("vision response did not contain JSON")?;
-    let parsed =
-        serde_json::from_str::<CombinedJson>(json).context("parse vision JSON response")?;
+    let parsed = match serde_json::from_str::<CombinedJson>(json) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let Some(parsed) = recover_json(raw) else {
+                return Err(error).context("parse vision JSON response");
+            };
+            tracing::warn!("vision response was truncated; returning completed JSON prefix");
+            parsed
+        }
+    };
 
     Ok(Analysis {
         caption: request
@@ -415,6 +423,63 @@ fn extract_json(raw: &str) -> Option<&str> {
     let start = raw.find('{')?;
     let end = raw.rfind('}')?;
     raw.get(start..=end)
+}
+
+/// Recover the longest valid JSON prefix from a truncated model response.
+fn recover_json(raw: &str) -> Option<CombinedJson> {
+    let json = raw.get(raw.find('{')?..)?.trim_end();
+    if let Some(parsed) = parse_completed_json(json) {
+        return Some(parsed);
+    }
+    json.char_indices()
+        .rev()
+        .filter(|(_, character)| *character == '}')
+        .find_map(|(offset, _)| parse_completed_json(&json[..=offset]))
+}
+
+fn parse_completed_json(json: &str) -> Option<CombinedJson> {
+    let json = complete_json(json)?;
+    serde_json::from_str(&json).ok()
+}
+
+fn complete_json(json: &str) -> Option<String> {
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for character in json.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' | '[' => stack.push(character),
+            '}' if stack.pop() == Some('{') => {}
+            ']' if stack.pop() == Some('[') => {}
+            '}' | ']' => return None,
+            _ => {}
+        }
+    }
+    if in_string || stack.is_empty() {
+        return None;
+    }
+
+    let mut completed = json.trim_end_matches(',').trim_end().to_owned();
+    for opening in stack.iter().rev() {
+        completed.push(match opening {
+            '{' => '}',
+            '[' => ']',
+            _ => return None,
+        });
+    }
+    Some(completed)
 }
 
 fn strip_special(raw: &str) -> String {
