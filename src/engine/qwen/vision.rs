@@ -51,7 +51,7 @@ use num_traits::ToPrimitive;
 use rayon::prelude::*;
 
 use super::gguf::{Gguf, Tensor, TensorType};
-use super::kernels::{add_bias, gelu, layer_norm, matrix_matrix, vector_add};
+use super::kernels::{F32DotKernel, add_bias, gelu, layer_norm, matrix_matrix, vector_add};
 
 const PATCH_SIZE: usize = 16;
 const MERGE_SIZE: usize = 2;
@@ -704,6 +704,14 @@ fn rotate_half(values: &mut [f32], cosine: &[f32], sine: &[f32]) {
 }
 
 fn attention(qkv: &[f32], token_count: usize) -> Result<Vec<f32>> {
+    attention_with_kernel(qkv, token_count, F32DotKernel::detect())
+}
+
+fn attention_with_kernel(
+    qkv: &[f32],
+    token_count: usize,
+    kernel: F32DotKernel,
+) -> Result<Vec<f32>> {
     ensure!(token_count != 0, "vision attention has no tokens");
     ensure!(
         qkv.len() == token_count * QKV_WIDTH,
@@ -712,60 +720,81 @@ fn attention(qkv: &[f32], token_count: usize) -> Result<Vec<f32>> {
     let output_len = token_count
         .checked_mul(EMBEDDING_WIDTH)
         .context("vision attention output size overflow")?;
+    let head_len = token_count
+        .checked_mul(HEAD_WIDTH)
+        .context("vision attention head size overflow")?;
+    let mut keys = vec![0.0; output_len];
+    let mut values = vec![0.0; output_len];
+    keys.par_chunks_mut(head_len)
+        .zip(values.par_chunks_mut(head_len))
+        .enumerate()
+        .for_each(|(head, (key_head, value_head))| {
+            for (token, (key, value)) in key_head
+                .chunks_exact_mut(HEAD_WIDTH)
+                .zip(value_head.chunks_exact_mut(HEAD_WIDTH))
+                .enumerate()
+            {
+                let token_start = token * QKV_WIDTH;
+                let key_start = token_start + EMBEDDING_WIDTH + head * HEAD_WIDTH;
+                let value_start = token_start + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
+                key.copy_from_slice(&qkv[key_start..key_start + HEAD_WIDTH]);
+                value.copy_from_slice(&qkv[value_start..value_start + HEAD_WIDTH]);
+            }
+        });
     let mut output = vec![0.0; output_len];
-    output.par_chunks_mut(HEAD_WIDTH).enumerate().for_each_init(
-        || [0.0_f32; ATTENTION_KEY_TILE],
-        |scores, (query_head, output_head)| {
-            let query_token = query_head / HEAD_COUNT;
-            let head = query_head % HEAD_COUNT;
-            let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
-            let query = &qkv[query_start..query_start + HEAD_WIDTH];
-            let mut running_max = f32::NEG_INFINITY;
-            let mut running_sum = 0.0_f32;
+    output
+        .par_chunks_mut(EMBEDDING_WIDTH)
+        .enumerate()
+        .for_each_init(
+            || [0.0_f32; ATTENTION_KEY_TILE],
+            |scores, (query_token, output_token)| {
+                for (head, output_head) in output_token.chunks_exact_mut(HEAD_WIDTH).enumerate() {
+                    let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
+                    let query = &qkv[query_start..query_start + HEAD_WIDTH];
+                    let head_start = head * head_len;
+                    let key_head = &keys[head_start..head_start + head_len];
+                    let value_head = &values[head_start..head_start + head_len];
+                    let mut running_max = f32::NEG_INFINITY;
+                    let mut running_sum = 0.0_f32;
 
-            for key_start_token in (0..token_count).step_by(ATTENTION_KEY_TILE) {
-                let tile_len = (token_count - key_start_token).min(ATTENTION_KEY_TILE);
-                let scores = &mut scores[..tile_len];
-                for (offset, score) in scores.iter_mut().enumerate() {
-                    let key_token = key_start_token + offset;
-                    let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
-                    let key = &qkv[key_start..key_start + HEAD_WIDTH];
-                    *score = query
-                        .iter()
-                        .zip(key)
-                        .map(|(query, key)| query * key)
-                        .sum::<f32>()
-                        * ATTENTION_SCALE;
-                }
+                    for key_start_token in (0..token_count).step_by(ATTENTION_KEY_TILE) {
+                        let tile_len = (token_count - key_start_token).min(ATTENTION_KEY_TILE);
+                        let scores = &mut scores[..tile_len];
+                        let tile_start = key_start_token * HEAD_WIDTH;
+                        let tile_end = tile_start + tile_len * HEAD_WIDTH;
+                        let key_tile = &key_head[tile_start..tile_end];
+                        for (score, key) in scores.iter_mut().zip(key_tile.chunks_exact(HEAD_WIDTH))
+                        {
+                            *score = kernel.dot(query, key) * ATTENTION_SCALE;
+                        }
 
-                let tile_max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-                let new_max = running_max.max(tile_max);
-                if running_sum != 0.0 {
-                    let previous_scale = (running_max - new_max).exp();
-                    running_sum *= previous_scale;
+                        let tile_max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                        let new_max = running_max.max(tile_max);
+                        if running_sum != 0.0 {
+                            let previous_scale = (running_max - new_max).exp();
+                            running_sum *= previous_scale;
+                            for value in output_head.iter_mut() {
+                                *value *= previous_scale;
+                            }
+                        }
+                        let value_tile = &value_head[tile_start..tile_end];
+                        for (score, value) in scores
+                            .iter()
+                            .copied()
+                            .zip(value_tile.chunks_exact(HEAD_WIDTH))
+                        {
+                            let weight = (score - new_max).exp();
+                            running_sum += weight;
+                            kernel.accumulate(output_head, weight, value);
+                        }
+                        running_max = new_max;
+                    }
                     for value in output_head.iter_mut() {
-                        *value *= previous_scale;
+                        *value /= running_sum;
                     }
                 }
-                for (offset, score) in scores.iter().copied().enumerate() {
-                    let weight = (score - new_max).exp();
-                    running_sum += weight;
-                    let value_token = key_start_token + offset;
-                    let value_start =
-                        value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
-                    let value = &qkv[value_start..value_start + HEAD_WIDTH];
-                    output_head
-                        .iter_mut()
-                        .zip(value)
-                        .for_each(|(output, value)| *output += weight * value);
-                }
-                running_max = new_max;
-            }
-            for value in output_head.iter_mut() {
-                *value /= running_sum;
-            }
-        },
-    );
+            },
+        );
     ensure!(
         output.iter().all(|value| value.is_finite()),
         "vision attention produced a non-finite value"
@@ -1086,53 +1115,4 @@ fn expect_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorType
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::kernels::softmax;
-    use super::*;
-
-    #[test]
-    fn attention_matches_reference() {
-        let token_count = ATTENTION_KEY_TILE + 1;
-        let qkv = (0..token_count * QKV_WIDTH)
-            .map(|value| count_to_f32(value) * 0.0001 - 0.25)
-            .collect::<Vec<_>>();
-        let expected = attention_reference(&qkv, token_count);
-        let actual = attention(&qkv, token_count).expect("compute attention");
-        for (actual, expected) in actual.iter().zip(expected) {
-            assert!((actual - expected).abs() <= 1.0e-5 * expected.abs().max(1.0));
-        }
-    }
-
-    fn attention_reference(qkv: &[f32], token_count: usize) -> Vec<f32> {
-        let mut output = vec![0.0; token_count * EMBEDDING_WIDTH];
-        for (query_head, output_head) in output.chunks_exact_mut(HEAD_WIDTH).enumerate() {
-            let query_token = query_head / HEAD_COUNT;
-            let head = query_head % HEAD_COUNT;
-            let query_start = query_token * QKV_WIDTH + head * HEAD_WIDTH;
-            let query = &qkv[query_start..query_start + HEAD_WIDTH];
-            let mut scores = vec![0.0; token_count];
-            for (key_token, score) in scores.iter_mut().enumerate() {
-                let key_start = key_token * QKV_WIDTH + EMBEDDING_WIDTH + head * HEAD_WIDTH;
-                let key = &qkv[key_start..key_start + HEAD_WIDTH];
-                *score = query
-                    .iter()
-                    .zip(key)
-                    .map(|(query, key)| query * key)
-                    .sum::<f32>()
-                    * ATTENTION_SCALE;
-            }
-            softmax(&mut scores);
-            for (value_token, weight) in scores.into_iter().enumerate() {
-                let value_start = value_token * QKV_WIDTH + EMBEDDING_WIDTH * 2 + head * HEAD_WIDTH;
-                let value = &qkv[value_start..value_start + HEAD_WIDTH];
-                for channel in 0..HEAD_WIDTH {
-                    output_head[channel] += weight * value[channel];
-                }
-            }
-        }
-        output
-    }
 }

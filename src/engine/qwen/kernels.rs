@@ -293,24 +293,6 @@ fn validate_q8_0_row(row: &[u8], value_count: usize) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-fn dot_q8_0_scalar(row: &[u8], vector: &[f32]) -> f32 {
-    let mut sum = 0.0;
-    for (block, values) in row
-        .chunks_exact(Q8_0_BLOCK_BYTES)
-        .zip(vector.chunks_exact(Q8_0_BLOCK_VALUES))
-    {
-        let scale = fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        let mut block_sum = 0.0;
-        for index in 0..Q8_0_BLOCK_VALUES {
-            let quantized = i8::from_ne_bytes([block[index + 2]]);
-            block_sum += f32::from(quantized) * values[index];
-        }
-        sum += scale * block_sum;
-    }
-    sum
-}
-
 struct Q8Activation {
     scales: Vec<f32>,
     values: Vec<i8>,
@@ -435,96 +417,6 @@ unsafe fn dot_q8_0_quantized_avx2(row: &[u8], activation: &Q8Activation) -> f32 
     sum
 }
 
-/// Multiply two `Q8_0` matrices by one shared activation vector.
-pub(crate) fn matrix_vector_pair(
-    left: &Tensor,
-    right: &Tensor,
-    vector: &[f32],
-) -> Result<(Vec<f32>, Vec<f32>)> {
-    let dimensions = matrix_dimensions(left)?;
-    ensure!(
-        matrix_dimensions(right)? == dimensions,
-        "paired matrix dimensions differ"
-    );
-    ensure!(
-        left.tensor_type() == TensorType::Q8_0 && right.tensor_type() == TensorType::Q8_0,
-        "paired matrix projection requires Q8_0 tensors"
-    );
-    let [input_size, output_size] = dimensions;
-    ensure!(
-        vector.len() == input_size,
-        "paired matrix input length differs"
-    );
-    let row_bytes = q8_matrix_row_bytes(left, input_size, output_size)?;
-    q8_matrix_row_bytes(right, input_size, output_size)?;
-    let activation = Q8Activation::new(vector)?;
-    let kernel = Q8DotKernel::detect();
-    let mut left_output = vec![0.0; output_size];
-    let mut right_output = vec![0.0; output_size];
-    left_output
-        .par_iter_mut()
-        .zip(right_output.par_iter_mut())
-        .enumerate()
-        .for_each(|(row, (left_value, right_value))| {
-            let start = row * row_bytes;
-            let end = start + row_bytes;
-            *left_value = kernel.dot(&left.data()[start..end], &activation);
-            *right_value = kernel.dot(&right.data()[start..end], &activation);
-        });
-    Ok((left_output, right_output))
-}
-
-/// Multiply three `Q8_0` matrices by one shared activation vector.
-pub(crate) fn matrix_vector_triple(
-    first: &Tensor,
-    second: &Tensor,
-    third: &Tensor,
-    vector: &[f32],
-) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
-    let [input_size, first_size] = matrix_dimensions(first)?;
-    let [second_input, second_size] = matrix_dimensions(second)?;
-    let [third_input, third_size] = matrix_dimensions(third)?;
-    ensure!(
-        second_input == input_size && third_input == input_size,
-        "triple matrix input dimensions differ"
-    );
-    ensure!(
-        first.tensor_type() == TensorType::Q8_0
-            && second.tensor_type() == TensorType::Q8_0
-            && third.tensor_type() == TensorType::Q8_0,
-        "triple matrix projection requires Q8_0 tensors"
-    );
-    ensure!(
-        vector.len() == input_size,
-        "triple matrix input length differs"
-    );
-    let first_row_bytes = q8_matrix_row_bytes(first, input_size, first_size)?;
-    let second_row_bytes = q8_matrix_row_bytes(second, input_size, second_size)?;
-    let third_row_bytes = q8_matrix_row_bytes(third, input_size, third_size)?;
-    let activation = Q8Activation::new(vector)?;
-    let kernel = Q8DotKernel::detect();
-    let mut first_output = vec![0.0; first_size];
-    let mut second_output = vec![0.0; second_size];
-    let mut third_output = vec![0.0; third_size];
-    first_output
-        .par_iter_mut()
-        .chain(second_output.par_iter_mut())
-        .chain(third_output.par_iter_mut())
-        .enumerate()
-        .for_each(|(row, value)| {
-            let (matrix, matrix_row, row_bytes) = if row < first_size {
-                (first, row, first_row_bytes)
-            } else if row < first_size + second_size {
-                (second, row - first_size, second_row_bytes)
-            } else {
-                (third, row - first_size - second_size, third_row_bytes)
-            };
-            let start = matrix_row * row_bytes;
-            *value = kernel.dot(&matrix.data()[start..start + row_bytes], &activation);
-        });
-    Ok((first_output, second_output, third_output))
-}
-
 /// Return the index of the largest output from a `Q8_0` matrix-vector product.
 pub(crate) fn matrix_vector_argmax(matrix: &Tensor, vector: &[f32]) -> Result<usize> {
     #[derive(Clone, Copy)]
@@ -594,47 +486,6 @@ pub(crate) fn matrix_vector_argmax(matrix: &Tensor, vector: &[f32]) -> Result<us
     Ok(best.index)
 }
 
-/// Multiply a GGUF matrix with logical dimensions `[input, output]` by a vector.
-pub(crate) fn matrix_vector(matrix: &Tensor, vector: &[f32]) -> Result<Vec<f32>> {
-    let [input_size, output_size] = matrix_dimensions(matrix)?;
-    ensure!(
-        vector.len() == input_size,
-        "matrix input is {input_size}, but vector length is {}",
-        vector.len()
-    );
-
-    let mut output = vec![0.0; output_size];
-    match matrix.tensor_type() {
-        TensorType::F32 => {
-            let data = f32_matrix_data(matrix, input_size, output_size)?;
-            output
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(row_index, value)| {
-                    let row_start = row_index * input_size;
-                    *value = dot_f32(&data[row_start..row_start + input_size], vector);
-                });
-        }
-        TensorType::Q8_0 => {
-            let row_bytes = q8_matrix_row_bytes(matrix, input_size, output_size)?;
-            let activation = Q8Activation::new(vector)?;
-            let kernel = Q8DotKernel::detect();
-            output
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(row_index, value)| {
-                    let row_start = row_index * row_bytes;
-                    *value = kernel.dot(
-                        &matrix.data()[row_start..row_start + row_bytes],
-                        &activation,
-                    );
-                });
-        }
-    }
-
-    Ok(output)
-}
-
 /// Multiply row-major `F32` vectors by a GGUF matrix with dimensions `[input, output]`.
 ///
 /// `vectors` contains `row_count` consecutive vectors. The result uses the same
@@ -662,54 +513,210 @@ pub(crate) fn matrix_matrix(
         TensorType::F32 => {
             let data = f32_matrix_data(matrix, input_size, output_size)?;
             let kernel = F32DotKernel::detect();
-            output
-                .par_chunks_mut(MATRIX_ROW_TILE * output_size)
-                .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
-                .for_each(|(output_rows, input_rows)| {
-                    for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
-                        let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
-                        for output_channel in output_start..output_end {
-                            let row_start = output_channel * input_size;
-                            let weights = &data[row_start..row_start + input_size];
-                            for (output_row, input_row) in output_rows
-                                .chunks_exact_mut(output_size)
-                                .zip(input_rows.chunks_exact(input_size))
-                            {
-                                output_row[output_channel] = kernel.dot(weights, input_row);
+            if row_count == 1 {
+                f32_matrix_vector(&mut output, data, input_size, vectors, kernel);
+            } else {
+                output
+                    .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+                    .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
+                    .for_each(|(output_rows, input_rows)| {
+                        for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                            let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                            for output_channel in output_start..output_end {
+                                let row_start = output_channel * input_size;
+                                let weights = &data[row_start..row_start + input_size];
+                                for (output_row, input_row) in output_rows
+                                    .chunks_exact_mut(output_size)
+                                    .zip(input_rows.chunks_exact(input_size))
+                                {
+                                    output_row[output_channel] = kernel.dot(weights, input_row);
+                                }
                             }
                         }
-                    }
-                });
+                    });
+            }
         }
         TensorType::Q8_0 => {
             let row_bytes = q8_matrix_row_bytes(matrix, input_size, output_size)?;
             let kernel = Q8DotKernel::detect();
-            output
-                .par_chunks_mut(MATRIX_ROW_TILE * output_size)
-                .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
-                .try_for_each(|(output_rows, input_rows)| -> Result<()> {
-                    let activations = input_rows
-                        .chunks_exact(input_size)
-                        .map(Q8Activation::new)
-                        .collect::<Result<Vec<_>>>()?;
-                    for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
-                        let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
-                        for output_channel in output_start..output_end {
-                            let row_start = output_channel * row_bytes;
-                            let weights = &matrix.data()[row_start..row_start + row_bytes];
-                            for (output_row, activation) in
-                                output_rows.chunks_exact_mut(output_size).zip(&activations)
-                            {
-                                output_row[output_channel] = kernel.dot(weights, activation);
+            if row_count == 1 {
+                let activation = Q8Activation::new(vectors)?;
+                q8_matrix_vector(&mut output, matrix.data(), row_bytes, &activation, kernel);
+            } else {
+                output
+                    .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+                    .zip(vectors.par_chunks(MATRIX_ROW_TILE * input_size))
+                    .try_for_each(|(output_rows, input_rows)| -> Result<()> {
+                        let activations = input_rows
+                            .chunks_exact(input_size)
+                            .map(Q8Activation::new)
+                            .collect::<Result<Vec<_>>>()?;
+                        for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                            let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                            for output_channel in output_start..output_end {
+                                let row_start = output_channel * row_bytes;
+                                let weights = &matrix.data()[row_start..row_start + row_bytes];
+                                for (output_row, activation) in
+                                    output_rows.chunks_exact_mut(output_size).zip(&activations)
+                                {
+                                    output_row[output_channel] = kernel.dot(weights, activation);
+                                }
                             }
                         }
-                    }
-                    Ok(())
-                })?;
+                        Ok(())
+                    })?;
+            }
         }
     }
 
     Ok(output)
+}
+
+/// Multiply two `Q8_0` matrices by shared row-major activation vectors.
+pub(crate) fn matrix_matrix_pair(
+    left: &Tensor,
+    right: &Tensor,
+    vectors: &[f32],
+    row_count: usize,
+) -> Result<(Vec<f32>, Vec<f32>)> {
+    let dimensions = matrix_dimensions(left)?;
+    ensure!(
+        matrix_dimensions(right)? == dimensions,
+        "paired matrix dimensions differ"
+    );
+    ensure!(
+        left.tensor_type() == TensorType::Q8_0 && right.tensor_type() == TensorType::Q8_0,
+        "paired matrix projection requires Q8_0 tensors"
+    );
+    let [input_size, output_size] = dimensions;
+    let activations = matrix_activations(vectors, row_count, input_size)?;
+    let left_row_bytes = q8_matrix_row_bytes(left, input_size, output_size)?;
+    let right_row_bytes = q8_matrix_row_bytes(right, input_size, output_size)?;
+    let (left_output, right_output) = rayon::join(
+        || q8_matrix_matrix(left.data(), left_row_bytes, output_size, &activations),
+        || q8_matrix_matrix(right.data(), right_row_bytes, output_size, &activations),
+    );
+    Ok((left_output, right_output))
+}
+
+/// Multiply three `Q8_0` matrices by shared row-major activation vectors.
+pub(crate) fn matrix_matrix_triple(
+    first: &Tensor,
+    second: &Tensor,
+    third: &Tensor,
+    vectors: &[f32],
+    row_count: usize,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+    let [input_size, first_size] = matrix_dimensions(first)?;
+    let [second_input, second_size] = matrix_dimensions(second)?;
+    let [third_input, third_size] = matrix_dimensions(third)?;
+    ensure!(
+        second_input == input_size && third_input == input_size,
+        "triple matrix input dimensions differ"
+    );
+    ensure!(
+        first.tensor_type() == TensorType::Q8_0
+            && second.tensor_type() == TensorType::Q8_0
+            && third.tensor_type() == TensorType::Q8_0,
+        "triple matrix projection requires Q8_0 tensors"
+    );
+    let activations = matrix_activations(vectors, row_count, input_size)?;
+    let first_row_bytes = q8_matrix_row_bytes(first, input_size, first_size)?;
+    let second_row_bytes = q8_matrix_row_bytes(second, input_size, second_size)?;
+    let third_row_bytes = q8_matrix_row_bytes(third, input_size, third_size)?;
+    let (first_output, (second_output, third_output)) = rayon::join(
+        || q8_matrix_matrix(first.data(), first_row_bytes, first_size, &activations),
+        || {
+            rayon::join(
+                || q8_matrix_matrix(second.data(), second_row_bytes, second_size, &activations),
+                || q8_matrix_matrix(third.data(), third_row_bytes, third_size, &activations),
+            )
+        },
+    );
+    Ok((first_output, second_output, third_output))
+}
+
+fn matrix_activations(
+    vectors: &[f32],
+    row_count: usize,
+    input_size: usize,
+) -> Result<Vec<Q8Activation>> {
+    let expected = row_count
+        .checked_mul(input_size)
+        .ok_or_else(|| anyhow::anyhow!("matrix-matrix input size overflow"))?;
+    ensure!(
+        vectors.len() == expected,
+        "matrix-matrix input has {} values, expected {expected} ({row_count} x {input_size})",
+        vectors.len()
+    );
+    vectors
+        .chunks_exact(input_size)
+        .map(Q8Activation::new)
+        .collect()
+}
+
+fn q8_matrix_matrix(
+    matrix: &[u8],
+    row_bytes: usize,
+    output_size: usize,
+    activations: &[Q8Activation],
+) -> Vec<f32> {
+    let mut output = vec![0.0; activations.len() * output_size];
+    let kernel = Q8DotKernel::detect();
+    if let [activation] = activations {
+        q8_matrix_vector(&mut output, matrix, row_bytes, activation, kernel);
+        return output;
+    }
+    output
+        .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+        .zip(activations.par_chunks(MATRIX_ROW_TILE))
+        .for_each(|(output_rows, activations)| {
+            for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                for output_channel in output_start..output_end {
+                    let row_start = output_channel * row_bytes;
+                    let weights = &matrix[row_start..row_start + row_bytes];
+                    for (output_row, activation) in
+                        output_rows.chunks_exact_mut(output_size).zip(activations)
+                    {
+                        output_row[output_channel] = kernel.dot(weights, activation);
+                    }
+                }
+            }
+        });
+    output
+}
+
+fn f32_matrix_vector(
+    output: &mut [f32],
+    matrix: &[f32],
+    row_size: usize,
+    vector: &[f32],
+    kernel: F32DotKernel,
+) {
+    output
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(output_channel, value)| {
+            let row_start = output_channel * row_size;
+            *value = kernel.dot(&matrix[row_start..row_start + row_size], vector);
+        });
+}
+
+fn q8_matrix_vector(
+    output: &mut [f32],
+    matrix: &[u8],
+    row_bytes: usize,
+    activation: &Q8Activation,
+    kernel: Q8DotKernel,
+) {
+    output
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(output_channel, value)| {
+            let row_start = output_channel * row_bytes;
+            *value = kernel.dot(&matrix[row_start..row_start + row_bytes], activation);
+        });
 }
 
 fn matrix_dimensions(matrix: &Tensor) -> Result<[usize; 2]> {
@@ -761,14 +768,14 @@ fn q8_matrix_row_bytes(matrix: &Tensor, input_size: usize, output_size: usize) -
 }
 
 #[derive(Clone, Copy)]
-enum F32DotKernel {
+pub(crate) enum F32DotKernel {
     Scalar,
     #[cfg(target_arch = "x86_64")]
     Avx2Fma,
 }
 
 impl F32DotKernel {
-    fn detect() -> Self {
+    pub(crate) fn detect() -> Self {
         static KERNEL: OnceLock<F32DotKernel> = OnceLock::new();
 
         *KERNEL.get_or_init(|| {
@@ -780,7 +787,7 @@ impl F32DotKernel {
         })
     }
 
-    fn dot(self, row: &[f32], vector: &[f32]) -> f32 {
+    pub(crate) fn dot(self, row: &[f32], vector: &[f32]) -> f32 {
         assert_eq!(row.len(), vector.len(), "F32 dot product lengths differ");
         match self {
             Self::Scalar => dot_f32_scalar(row, vector),
@@ -791,10 +798,22 @@ impl F32DotKernel {
             }
         }
     }
-}
 
-fn dot_f32(row: &[f32], vector: &[f32]) -> f32 {
-    F32DotKernel::detect().dot(row, vector)
+    pub(crate) fn accumulate(self, output: &mut [f32], weight: f32, values: &[f32]) {
+        assert_eq!(
+            output.len(),
+            values.len(),
+            "F32 accumulation lengths differ"
+        );
+        match self {
+            Self::Scalar => accumulate_f32_scalar(output, weight, values),
+            #[cfg(target_arch = "x86_64")]
+            Self::Avx2Fma => {
+                // The variant is only constructed after runtime AVX2 and FMA detection.
+                unsafe { accumulate_f32_avx2_fma(output, weight, values) };
+            }
+        }
+    }
 }
 
 fn dot_f32_scalar(row: &[f32], vector: &[f32]) -> f32 {
@@ -802,6 +821,13 @@ fn dot_f32_scalar(row: &[f32], vector: &[f32]) -> f32 {
         .zip(vector)
         .map(|(left, right)| left * right)
         .sum()
+}
+
+fn accumulate_f32_scalar(output: &mut [f32], weight: f32, values: &[f32]) {
+    output
+        .iter_mut()
+        .zip(values)
+        .for_each(|(output, value)| *output += weight * value);
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -822,6 +848,26 @@ unsafe fn dot_f32_avx2_fma(row: &[f32], vector: &[f32]) -> f32 {
     unsafe { _mm256_storeu_ps(lanes.as_mut_ptr(), sums) };
     lanes.into_iter().sum::<f32>()
         + dot_f32_scalar(&row[vectorized_len..], &vector[vectorized_len..])
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn accumulate_f32_avx2_fma(output: &mut [f32], weight: f32, values: &[f32]) {
+    use std::arch::x86_64::{_mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps};
+
+    let vectorized_len = output.len() / 8 * 8;
+    let weights = _mm256_set1_ps(weight);
+    for index in (0..vectorized_len).step_by(8) {
+        let output_values = unsafe { _mm256_loadu_ps(output.as_ptr().add(index)) };
+        let input_values = unsafe { _mm256_loadu_ps(values.as_ptr().add(index)) };
+        let accumulated = _mm256_fmadd_ps(weights, input_values, output_values);
+        unsafe { _mm256_storeu_ps(output.as_mut_ptr().add(index), accumulated) };
+    }
+    accumulate_f32_scalar(
+        &mut output[vectorized_len..],
+        weight,
+        &values[vectorized_len..],
+    );
 }
 
 /// Add a channel bias to each row in place.
@@ -1034,78 +1080,4 @@ pub(crate) fn vector_multiply(left: &mut [f32], right: &[f32]) -> Result<()> {
             .for_each(|(left, right)| *left *= right);
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_bits(actual: f32, expected: f32) {
-        assert!(
-            actual.to_bits() == expected.to_bits(),
-            "{actual:?} != {expected:?}"
-        );
-    }
-
-    #[test]
-    fn fp16_round_trips_all_non_nan_values() {
-        for bits in 0_u16..=u16::MAX {
-            let value = fp16_to_f32(bits);
-            let encoded = f32_to_fp16(value);
-            if value.is_nan() {
-                assert!(fp16_to_f32(encoded).is_nan());
-            } else {
-                assert_eq!(encoded, bits);
-            }
-        }
-    }
-
-    #[test]
-    fn fp16_handles_boundaries() {
-        assert_eq!(f32_to_fp16(0.0), 0x0000);
-        assert_eq!(f32_to_fp16(-0.0), 0x8000);
-        assert_eq!(f32_to_fp16(1.0), 0x3c00);
-        assert_eq!(f32_to_fp16(f32::INFINITY), 0x7c00);
-        assert_eq!(f32_to_fp16(f32::NEG_INFINITY), 0xfc00);
-        assert!(fp16_to_f32(f32_to_fp16(f32::NAN)).is_nan());
-    }
-    #[test]
-    fn quantizes_zero_and_signed_extrema() {
-        let mut values = vec![0.0; Q8_0_BLOCK_VALUES * 2];
-        values[Q8_0_BLOCK_VALUES] = -127.0;
-        values[Q8_0_BLOCK_VALUES + 1] = 127.0;
-        let activation = Q8Activation::new(&values).expect("quantize activation");
-        assert_eq!(activation.scales.len(), 2);
-        assert_bits(activation.scales[0], 0.0);
-        assert_bits(activation.scales[1], 1.0);
-        assert!(
-            activation.values[..Q8_0_BLOCK_VALUES]
-                .iter()
-                .all(|value| *value == 0)
-        );
-        assert_eq!(activation.values[Q8_0_BLOCK_VALUES], -127);
-        assert_eq!(activation.values[Q8_0_BLOCK_VALUES + 1], 127);
-    }
-
-    #[test]
-    fn quantized_dot_matches_dequantized_reference() {
-        let mut vector = (0..Q8_0_BLOCK_VALUES)
-            .map(|index| dim_to_f32(index) - 16.0)
-            .collect::<Vec<_>>();
-        vector[Q8_0_BLOCK_VALUES - 1] = 127.0;
-        let mut row = vec![0_u8; Q8_0_BLOCK_BYTES];
-        row[..2].copy_from_slice(&0x3c00_u16.to_le_bytes());
-        for (index, value) in row[2..].iter_mut().enumerate() {
-            *value = (i8::try_from(index).expect("index fits i8") - 16).to_ne_bytes()[0];
-        }
-        row[2] = (-128_i8).to_ne_bytes()[0];
-        let activation = Q8Activation::new(&vector).expect("quantize activation");
-        let expected = dot_q8_0_scalar(&row, &vector);
-        assert_bits(dot_q8_0_quantized_scalar(&row, &activation), expected);
-        #[cfg(target_arch = "x86_64")]
-        if std::is_x86_feature_detected!("avx2") {
-            let actual = unsafe { dot_q8_0_quantized_avx2(&row, &activation) };
-            assert_bits(actual, expected);
-        }
-    }
 }

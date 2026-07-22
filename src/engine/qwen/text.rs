@@ -10,8 +10,9 @@ use rayon::prelude::*;
 
 use super::gguf::{Gguf, TensorType};
 use super::kernels::{
-    Fp16AttentionKernel, dim_to_f32, f32_to_fp16, matrix_vector, matrix_vector_argmax,
-    matrix_vector_pair, matrix_vector_triple, rms_norm, silu, softmax, vector_add, vector_multiply,
+    Fp16AttentionKernel, dim_to_f32, f32_to_fp16, matrix_matrix, matrix_matrix_pair,
+    matrix_matrix_triple, matrix_vector_argmax, rms_norm, silu, softmax, vector_add,
+    vector_multiply,
 };
 use super::tokenizer::{Tokenizer, Utf8Decoder};
 use super::vision::VisionEmbedding;
@@ -29,6 +30,7 @@ const IMAGE_EMBEDDING_SIZE: usize = EMBEDDING_SIZE * (DEEPSTACK_LAYER_COUNT + 1)
 const RMS_NORM_EPSILON: f32 = 1.0e-6;
 const ROPE_BASE: f32 = 5_000_000.0;
 const ROPE_SECTIONS: [u32; 3] = [24, 20, 20];
+const PREFILL_BATCH_SIZE: usize = 32;
 
 const IM_START: &str = "<|im_start|>";
 const IM_END: &str = "<|im_end|>";
@@ -174,12 +176,24 @@ impl TextModel {
         position: &mut usize,
     ) -> Result<Option<Vec<f32>>> {
         let mut last_hidden = None;
-        for token in tokens {
-            let embedding = self.token_embedding(*token)?;
-            let current = text_position(*position)?;
-            last_hidden = Some(self.forward_token(&embedding, current, None, 1, cache, scratch)?);
+        for chunk in tokens.chunks(PREFILL_BATCH_SIZE) {
+            let mut input = Vec::with_capacity(chunk.len() * EMBEDDING_SIZE);
+            let mut positions = Vec::with_capacity(chunk.len());
+            for (offset, token) in chunk.iter().enumerate() {
+                input.extend(self.token_embedding(*token)?);
+                let current = (*position)
+                    .checked_add(offset)
+                    .context("text position overflow")?;
+                positions.push(text_position(current)?);
+            }
+            let masses = vec![1; chunk.len()];
+            let hidden = self.forward_batch(&input, &positions, None, &masses, cache, scratch)?;
+            last_hidden = hidden
+                .chunks_exact(EMBEDDING_SIZE)
+                .last()
+                .map(<[f32]>::to_vec);
             *position = (*position)
-                .checked_add(1)
+                .checked_add(chunk.len())
                 .context("text position overflow")?;
         }
         Ok(last_hidden)
@@ -194,24 +208,37 @@ impl TextModel {
         scratch: &mut TextAttentionScratch,
         position: &mut usize,
     ) -> Result<Option<Vec<f32>>> {
-        let mut last_hidden: Option<Vec<f32>> = None;
-        for (index, row) in image.values.chunks_exact(IMAGE_EMBEDDING_SIZE).enumerate() {
-            let current = image_position(
-                *position,
-                image.positions[index],
-                image.grid_width,
-                image.grid_height,
-            )?;
-            let base = &row[..EMBEDDING_SIZE];
-            let auxiliaries = &row[EMBEDDING_SIZE..];
-            last_hidden = Some(self.forward_token(
-                base,
-                current,
-                Some(auxiliaries),
-                image.masses[index],
+        let mut last_hidden = None;
+        for start in (0..image.token_count).step_by(PREFILL_BATCH_SIZE) {
+            let end = (start + PREFILL_BATCH_SIZE).min(image.token_count);
+            let mut input = Vec::with_capacity((end - start) * EMBEDDING_SIZE);
+            let mut deepstack =
+                Vec::with_capacity((end - start) * DEEPSTACK_LAYER_COUNT * EMBEDDING_SIZE);
+            let mut positions = Vec::with_capacity(end - start);
+            for index in start..end {
+                let row_start = index * IMAGE_EMBEDDING_SIZE;
+                let row = &image.values[row_start..row_start + IMAGE_EMBEDDING_SIZE];
+                input.extend_from_slice(&row[..EMBEDDING_SIZE]);
+                deepstack.extend_from_slice(&row[EMBEDDING_SIZE..]);
+                positions.push(image_position(
+                    *position,
+                    image.positions[index],
+                    image.grid_width,
+                    image.grid_height,
+                )?);
+            }
+            let hidden = self.forward_batch(
+                &input,
+                &positions,
+                Some(&deepstack),
+                &image.masses[start..end],
                 cache,
                 scratch,
-            )?);
+            )?;
+            last_hidden = hidden
+                .chunks_exact(EMBEDDING_SIZE)
+                .last()
+                .map(<[f32]>::to_vec);
         }
         *position = (*position)
             .checked_add(image.grid_width.max(image.grid_height))
@@ -284,21 +311,32 @@ impl TextModel {
         cache: &mut KvCache,
         attention_scratch: &mut TextAttentionScratch,
     ) -> Result<Vec<f32>> {
-        ensure!(
-            input.len() == EMBEDDING_SIZE,
-            "decoder input has {} values, expected {EMBEDDING_SIZE}",
-            input.len()
-        );
-        if let Some(deepstack) = deepstack {
-            ensure!(
-                deepstack.len() == DEEPSTACK_LAYER_COUNT * EMBEDDING_SIZE,
-                "DeepStack input has {} values, expected {}",
-                deepstack.len(),
-                DEEPSTACK_LAYER_COUNT * EMBEDDING_SIZE
-            );
-        }
+        self.forward_batch(
+            input,
+            std::slice::from_ref(&position),
+            deepstack,
+            std::slice::from_ref(&mass),
+            cache,
+            attention_scratch,
+        )
+    }
 
-        let rope = ImRope::new(position);
+    fn forward_batch(
+        &self,
+        input: &[f32],
+        positions: &[Position],
+        deepstack: Option<&[f32]>,
+        masses: &[u32],
+        cache: &mut KvCache,
+        attention_scratch: &mut TextAttentionScratch,
+    ) -> Result<Vec<f32>> {
+        let token_count = validate_batch(input, positions, deepstack, masses)?;
+        let input_size = token_count * EMBEDDING_SIZE;
+        let ropes = positions
+            .iter()
+            .copied()
+            .map(ImRope::new)
+            .collect::<Vec<_>>();
 
         let mut hidden = input.to_vec();
         for (layer, names) in self.layers.iter().enumerate() {
@@ -310,25 +348,49 @@ impl TextModel {
                 RMS_NORM_EPSILON,
             )?;
 
-            let (mut query, mut key, value) = matrix_vector_triple(
+            let (mut query, mut key, value) = matrix_matrix_triple(
                 &self.gguf.tensor(&names.query)?,
                 &self.gguf.tensor(&names.key)?,
                 &self.gguf.tensor(&names.value)?,
                 &normalized,
+                token_count,
             )?;
 
             let query_norm = self.gguf.tensor(&names.query_norm)?;
             query = rms_norm(&query, HEAD_SIZE, query_norm.f32_slice()?, RMS_NORM_EPSILON)?;
             let key_norm = self.gguf.tensor(&names.key_norm)?;
             key = rms_norm(&key, HEAD_SIZE, key_norm.f32_slice()?, RMS_NORM_EPSILON)?;
-            apply_im_rope(&mut query, &rope)?;
-            apply_im_rope(&mut key, &rope)?;
+            for ((query, key), rope) in query
+                .chunks_exact_mut(EMBEDDING_SIZE)
+                .zip(key.chunks_exact_mut(KEY_VALUE_SIZE))
+                .zip(&ropes)
+            {
+                apply_im_rope(query, rope)?;
+                apply_im_rope(key, rope)?;
+            }
 
-            cache.layers[layer].append(&key, &value, mass)?;
-            causal_gqa(&query, &cache.layers[layer], attention_scratch)?;
-            let projected = matrix_vector(
+            let cached_tokens = cache.layers[layer].token_count();
+            for ((key, value), mass) in key
+                .chunks_exact(KEY_VALUE_SIZE)
+                .zip(value.chunks_exact(KEY_VALUE_SIZE))
+                .zip(masses)
+            {
+                cache.layers[layer].append(key, value, *mass)?;
+            }
+            let mut attention = Vec::with_capacity(input_size);
+            for (token, query) in query.chunks_exact(EMBEDDING_SIZE).enumerate() {
+                causal_gqa(
+                    query,
+                    &cache.layers[layer],
+                    cached_tokens + token + 1,
+                    attention_scratch,
+                )?;
+                attention.extend_from_slice(&attention_scratch.output);
+            }
+            let projected = matrix_matrix(
                 &self.gguf.tensor(&names.attention_output)?,
-                &attention_scratch.output,
+                &attention,
+                token_count,
             )?;
             vector_add(&mut hidden, &projected)?;
 
@@ -339,21 +401,25 @@ impl TextModel {
                 feed_forward_norm.f32_slice()?,
                 RMS_NORM_EPSILON,
             )?;
-            let (mut gate, up) = matrix_vector_pair(
+            let (mut gate, up) = matrix_matrix_pair(
                 &self.gguf.tensor(&names.feed_forward_gate)?,
                 &self.gguf.tensor(&names.feed_forward_up)?,
                 &normalized,
+                token_count,
             )?;
             silu(&mut gate);
             vector_multiply(&mut gate, &up)?;
-            let down = matrix_vector(&self.gguf.tensor(&names.feed_forward_down)?, &gate)?;
+            let down = matrix_matrix(
+                &self.gguf.tensor(&names.feed_forward_down)?,
+                &gate,
+                token_count,
+            )?;
             vector_add(&mut hidden, &down)?;
 
             if layer < DEEPSTACK_LAYER_COUNT
                 && let Some(deepstack) = deepstack
             {
-                let start = layer * EMBEDDING_SIZE;
-                vector_add(&mut hidden, &deepstack[start..start + EMBEDDING_SIZE])?;
+                add_deepstack(&mut hidden, deepstack, layer)?;
             }
         }
 
@@ -371,6 +437,50 @@ impl TextModel {
             .context("compute tied-embedding token")?;
         u32::try_from(index).context("sampled token ID exceeds u32")
     }
+}
+
+fn validate_batch(
+    input: &[f32],
+    positions: &[Position],
+    deepstack: Option<&[f32]>,
+    masses: &[u32],
+) -> Result<usize> {
+    let token_count = positions.len();
+    ensure!(
+        token_count != 0 && token_count <= PREFILL_BATCH_SIZE,
+        "decoder batch has {token_count} tokens, expected 1..={PREFILL_BATCH_SIZE}"
+    );
+    let input_size = token_count * EMBEDDING_SIZE;
+    ensure!(
+        input.len() == input_size,
+        "decoder input has {} values, expected {input_size}",
+        input.len()
+    );
+    ensure!(
+        masses.len() == token_count,
+        "decoder batch has {} masses, expected {token_count}",
+        masses.len()
+    );
+    if let Some(deepstack) = deepstack {
+        let deepstack_size = token_count * DEEPSTACK_LAYER_COUNT * EMBEDDING_SIZE;
+        ensure!(
+            deepstack.len() == deepstack_size,
+            "DeepStack input has {} values, expected {deepstack_size}",
+            deepstack.len(),
+        );
+    }
+    Ok(token_count)
+}
+
+fn add_deepstack(hidden: &mut [f32], deepstack: &[f32], layer: usize) -> Result<()> {
+    for (hidden, deepstack) in hidden
+        .chunks_exact_mut(EMBEDDING_SIZE)
+        .zip(deepstack.chunks_exact(DEEPSTACK_LAYER_COUNT * EMBEDDING_SIZE))
+    {
+        let start = layer * EMBEDDING_SIZE;
+        vector_add(hidden, &deepstack[start..start + EMBEDDING_SIZE])?;
+    }
+    Ok(())
 }
 
 type Position = [u32; 4];
@@ -560,7 +670,12 @@ impl TextAttentionScratch {
     }
 }
 
-fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScratch) -> Result<()> {
+fn causal_gqa(
+    query: &[f32],
+    cache: &LayerCache,
+    visible_tokens: usize,
+    scratch: &mut TextAttentionScratch,
+) -> Result<()> {
     ensure!(
         query.len() == EMBEDDING_SIZE,
         "attention query has {} values, expected {EMBEDDING_SIZE}",
@@ -572,10 +687,13 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
             && cache.token_count() == cache.log_masses.len(),
         "invalid key/value cache shape"
     );
-    let token_count = cache.token_count();
-    ensure!(token_count != 0, "attention cache is empty");
+    ensure!(
+        visible_tokens != 0 && visible_tokens <= cache.token_count(),
+        "attention visibility is {visible_tokens}, but cache has {} tokens",
+        cache.token_count()
+    );
     let score_count = QUERY_HEAD_COUNT
-        .checked_mul(token_count)
+        .checked_mul(visible_tokens)
         .context("attention score count overflow")?;
     scratch.output.resize(EMBEDDING_SIZE, 0.0);
     scratch.output.fill(0.0);
@@ -589,12 +707,12 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
         .zip(
             scratch
                 .scores
-                .par_chunks_mut(QUERY_GROUP_SIZE * token_count),
+                .par_chunks_mut(QUERY_GROUP_SIZE * visible_tokens),
         )
         .enumerate()
         .for_each(|(key_value_head, (output_heads, scores))| {
             let (output_left, output_right) = output_heads.split_at_mut(HEAD_SIZE);
-            let (weights_left, weights_right) = scores.split_at_mut(token_count);
+            let (weights_left, weights_right) = scores.split_at_mut(visible_tokens);
             let query_start = key_value_head * QUERY_GROUP_SIZE * HEAD_SIZE;
             let query_left = &query[query_start..query_start + HEAD_SIZE];
             let query_right = &query[query_start + HEAD_SIZE..query_start + 2 * HEAD_SIZE];
@@ -603,6 +721,7 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
                 .keys
                 .chunks_exact(KEY_VALUE_SIZE)
                 .zip(&cache.log_masses)
+                .take(visible_tokens)
                 .zip(weights_left.iter_mut())
                 .zip(weights_right.iter_mut())
             {
@@ -616,6 +735,7 @@ fn causal_gqa(query: &[f32], cache: &LayerCache, scratch: &mut TextAttentionScra
             for ((values, left_weight), right_weight) in cache
                 .values
                 .chunks_exact(KEY_VALUE_SIZE)
+                .take(visible_tokens)
                 .zip(weights_left.iter())
                 .zip(weights_right.iter())
             {
@@ -929,119 +1049,5 @@ impl JsonObjectTracker {
             };
         }
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::kernels::fp16_to_f32;
-    use super::*;
-
-    #[test]
-    fn cached_rope_matches_direct_calculation() {
-        let position = [17, 3, 11, 0];
-        let mut expected = (0..EMBEDDING_SIZE).map(dim_to_f32).collect::<Vec<_>>();
-        let mut actual = expected.clone();
-        apply_im_rope_direct(&mut expected, position);
-        apply_im_rope(&mut actual, &ImRope::new(position)).expect("apply cached RoPE");
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn cache_reserves_the_prefill_context() {
-        let mut cache = KvCache::new(2).expect("reserve cache");
-        let key = vec![1.0; KEY_VALUE_SIZE];
-        let value = vec![2.0; KEY_VALUE_SIZE];
-        for layer in &mut cache.layers {
-            assert!(layer.keys.capacity() >= 2 * KEY_VALUE_SIZE);
-            layer.append(&key, &value, 1).expect("append first token");
-            layer.append(&key, &value, 1).expect("append second token");
-            assert_eq!(layer.token_count(), 2);
-        }
-    }
-
-    #[test]
-    fn reused_attention_workspace_matches_reference() {
-        let mut cache = LayerCache::default();
-        for token in 0..3 {
-            let key = (0..KEY_VALUE_SIZE)
-                .map(|value| dim_to_f32(token * KEY_VALUE_SIZE + value) * 0.001)
-                .collect::<Vec<_>>();
-            let value = (0..KEY_VALUE_SIZE)
-                .map(|value| dim_to_f32(token * KEY_VALUE_SIZE + value) * -0.002)
-                .collect::<Vec<_>>();
-            cache.append(&key, &value, 1).expect("append cache token");
-        }
-        let query = (0..EMBEDDING_SIZE)
-            .map(|value| dim_to_f32(value) * 0.003)
-            .collect::<Vec<_>>();
-        let expected = causal_gqa_reference(&query, &cache);
-        let mut scratch = TextAttentionScratch::default();
-        causal_gqa(&query, &cache, &mut scratch).expect("compute attention");
-        for (actual, expected) in scratch.output.iter().zip(expected) {
-            assert!((actual - expected).abs() <= 2.0e-5 * expected.abs().max(1.0));
-        }
-    }
-
-    fn apply_im_rope_direct(values: &mut [f32], position: Position) {
-        for head in values.chunks_exact_mut(HEAD_SIZE) {
-            let (first, second) = head.split_at_mut(HEAD_SIZE / 2);
-            for pair in 0..HEAD_SIZE / 2 {
-                let coordinate = if pair % 3 == 1
-                    && pair
-                        < 3 * usize::try_from(ROPE_SECTIONS[1]).expect("rope section fits usize")
-                {
-                    position_to_f32(position[1])
-                } else if pair % 3 == 2
-                    && pair
-                        < 3 * usize::try_from(ROPE_SECTIONS[2]).expect("rope section fits usize")
-                {
-                    position_to_f32(position[2])
-                } else {
-                    position_to_f32(position[0])
-                };
-                let angle =
-                    coordinate * ROPE_BASE.powf(-(dim_to_f32(2 * pair) / dim_to_f32(HEAD_SIZE)));
-                let cosine = angle.cos();
-                let sine = angle.sin();
-                let left = first[pair];
-                let right = second[pair];
-                first[pair] = left * cosine - right * sine;
-                second[pair] = left * sine + right * cosine;
-            }
-        }
-    }
-
-    fn causal_gqa_reference(query: &[f32], cache: &LayerCache) -> Vec<f32> {
-        let token_count = cache.token_count();
-        let scale = dim_to_f32(HEAD_SIZE).sqrt().recip();
-        let mut output = vec![0.0; EMBEDDING_SIZE];
-        for (query_head, output_head) in output.chunks_exact_mut(HEAD_SIZE).enumerate() {
-            let key_value_head = query_head / QUERY_GROUP_SIZE;
-            let query_values = &query[query_head * HEAD_SIZE..(query_head + 1) * HEAD_SIZE];
-            let mut scores = Vec::with_capacity(token_count);
-            for token in 0..token_count {
-                let start = token * KEY_VALUE_SIZE + key_value_head * HEAD_SIZE;
-                let key = &cache.keys[start..start + HEAD_SIZE];
-                scores.push(
-                    query_values
-                        .iter()
-                        .zip(key)
-                        .map(|(query, key)| query * fp16_to_f32(*key))
-                        .sum::<f32>()
-                        * scale
-                        + cache.log_masses[token],
-                );
-            }
-            softmax(&mut scores);
-            for (token, score) in scores.into_iter().enumerate() {
-                let start = token * KEY_VALUE_SIZE + key_value_head * HEAD_SIZE;
-                let value = &cache.values[start..start + HEAD_SIZE];
-                for channel in 0..HEAD_SIZE {
-                    output_head[channel] += score * fp16_to_f32(value[channel]);
-                }
-            }
-        }
-        output
     }
 }

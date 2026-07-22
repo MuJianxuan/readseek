@@ -14,16 +14,17 @@
     clippy::cast_possible_wrap
 )]
 
-use std::cell::{OnceCell, RefCell};
 use std::env;
 use std::io::IsTerminal as _;
 use std::str::FromStr;
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result, anyhow, ensure};
+use anyhow::{Context as _, Result, anyhow, bail};
 use indicatif::ProgressBar;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::qwen::{SpatialReduction, TextModel, VisionEmbedding, VisionInput, VisionModel};
@@ -71,7 +72,7 @@ impl FromStr for VisionLevel {
 impl VisionLevel {
     fn image_max_tokens(self, request: Request) -> usize {
         let (caption, objects, ocr) = match self {
-            Self::Low => (512, 768, 1024),
+            Self::Low => (256, 768, 1024),
             Self::Medium => (768, 1024, 1536),
             Self::High => return 2048,
         };
@@ -160,9 +161,8 @@ struct VisionRuntime {
 }
 
 impl VisionRuntime {
-    fn load() -> Result<Self> {
+    fn load(threads: usize) -> Result<Self> {
         let started = Instant::now();
-        let threads = configure_threads()?;
         let model_path = crate::engine::model::file(MODEL_FILE)?;
         let mmproj_path = crate::engine::model::file(MMPROJ_FILE)?;
         let text = TextModel::load(model_path).context("load Qwen3-VL text model")?;
@@ -176,21 +176,29 @@ impl VisionRuntime {
     }
 }
 
-thread_local! {
-    static RUNTIME: OnceCell<RefCell<std::result::Result<VisionRuntime, String>>> =
-        const { OnceCell::new() };
+static INFERENCE_POOL: OnceLock<std::result::Result<ThreadPool, String>> = OnceLock::new();
+static RUNTIME: OnceLock<std::result::Result<Mutex<VisionRuntime>, String>> = OnceLock::new();
+
+fn inference_pool() -> Result<&'static ThreadPool> {
+    INFERENCE_POOL
+        .get_or_init(|| build_inference_pool().map_err(|error| format!("{error:#}")))
+        .as_ref()
+        .map_err(|error| anyhow!(error.clone()))
 }
 
-fn with_runtime<T>(run: impl FnOnce(&mut VisionRuntime) -> Result<T>) -> Result<T> {
-    RUNTIME.with(|slot| {
-        let runtime = slot.get_or_init(|| {
-            RefCell::new(VisionRuntime::load().map_err(|error| format!("{error:#}")))
+fn with_runtime<T: Send>(run: impl FnOnce(&mut VisionRuntime) -> Result<T> + Send) -> Result<T> {
+    let pool = inference_pool()?;
+    pool.install(|| {
+        let runtime = RUNTIME.get_or_init(|| {
+            VisionRuntime::load(pool.current_num_threads())
+                .map(Mutex::new)
+                .map_err(|error| format!("{error:#}"))
         });
+        let runtime = runtime.as_ref().map_err(|error| anyhow!(error.clone()))?;
         let mut runtime = runtime
-            .try_borrow_mut()
-            .map_err(|_| anyhow!("vision runtime is already in use"))?;
-        let runtime = runtime.as_mut().map_err(|error| anyhow!(error.clone()))?;
-        run(runtime)
+            .lock()
+            .map_err(|_| anyhow!("vision runtime mutex is poisoned"))?;
+        run(&mut runtime)
     })
 }
 
@@ -413,24 +421,31 @@ fn strip_special(raw: &str) -> String {
     raw.replace("<|im_end|>", "").trim().to_owned()
 }
 
-fn configure_threads() -> Result<usize> {
-    if let Some(value) = env::var_os("READSEEK_VISION_THREADS") {
-        let value = value
-            .into_string()
-            .map_err(|_| anyhow!("READSEEK_VISION_THREADS is not valid UTF-8"))?;
-        let threads = value
-            .parse::<usize>()
-            .context("parse READSEEK_VISION_THREADS as a positive integer")?;
-        ensure!(
-            threads > 0,
-            "READSEEK_VISION_THREADS must be greater than zero"
-        );
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build_global()
-            .context("configure vision inference thread pool")?;
+fn build_inference_pool() -> Result<ThreadPool> {
+    let threads = inference_threads()?;
+    ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .context("create vision inference thread pool")
+}
+
+fn inference_threads() -> Result<usize> {
+    let available = std::thread::available_parallelism()
+        .context("detect available parallelism for vision inference")?
+        .get();
+    let Some(value) = env::var_os("READSEEK_VISION_THREADS") else {
+        return Ok(available);
+    };
+    let value = value
+        .into_string()
+        .map_err(|_| anyhow!("READSEEK_VISION_THREADS is not valid UTF-8"))?;
+    let threads = value
+        .parse::<usize>()
+        .context("parse READSEEK_VISION_THREADS as a positive integer")?;
+    if threads == 0 {
+        bail!("READSEEK_VISION_THREADS must be greater than zero");
     }
-    Ok(rayon::current_num_threads())
+    Ok(threads)
 }
 
 #[cfg(target_os = "linux")]
