@@ -20,14 +20,21 @@ const DEFAULT_ALIGNMENT: usize = 32;
 const MAX_DIMENSIONS: usize = 4;
 const GGML_TYPE_F32: u32 = 0;
 const GGML_TYPE_Q8_0: u32 = 8;
+const GGML_TYPE_Q4_K: u32 = 12;
+const GGML_TYPE_Q6_K: u32 = 14;
 const Q8_0_BLOCK_ELEMENTS: usize = 32;
 const Q8_0_BLOCK_BYTES: usize = 34;
+const K_BLOCK_ELEMENTS: usize = 256;
+const Q4_K_BLOCK_BYTES: usize = 144;
+const Q6_K_BLOCK_BYTES: usize = 210;
 
 /// Tensor storage formats supported by the CPU implementation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TensorType {
     F32,
     Q8_0,
+    Q4K,
+    Q6K,
 }
 
 /// An immutable tensor view into a loaded GGUF file.
@@ -77,17 +84,34 @@ impl<'a> Tensor<'a> {
         Ok(columns / Q8_0_BLOCK_ELEMENTS * Q8_0_BLOCK_BYTES)
     }
 
-    /// Return one encoded `Q8_0` row (`f16` scale followed by 32 i8 values per block).
-    pub(crate) fn q8_row_bytes(&self, row: usize) -> Result<&[u8]> {
-        let row_size = self.q8_row_size()?;
+    /// Number of encoded bytes in one row of a supported quantized tensor.
+    pub(crate) fn quantized_row_size(&self) -> Result<usize> {
+        let (block_elements, block_bytes) = match self.kind {
+            TensorType::Q8_0 => (Q8_0_BLOCK_ELEMENTS, Q8_0_BLOCK_BYTES),
+            TensorType::Q4K => (K_BLOCK_ELEMENTS, Q4_K_BLOCK_BYTES),
+            TensorType::Q6K => (K_BLOCK_ELEMENTS, Q6_K_BLOCK_BYTES),
+            TensorType::F32 => bail!("tensor is F32, not quantized"),
+        };
+        let columns = self.dims[0];
+        if !columns.is_multiple_of(block_elements) {
+            bail!(
+                "{:?} tensor row width {columns} is not divisible by {block_elements}",
+                self.kind
+            );
+        }
+        Ok(columns / block_elements * block_bytes)
+    }
+
+    /// Return one encoded row of a supported quantized tensor.
+    pub(crate) fn quantized_row_bytes(&self, row: usize) -> Result<&[u8]> {
+        let row_size = self.quantized_row_size()?;
         let rows = self.data.len() / row_size;
         if row >= rows {
-            bail!("Q8_0 row {row} is out of range for {rows} rows");
+            bail!("{:?} row {row} is out of range for {rows} rows", self.kind);
         }
-
         let start = row
             .checked_mul(row_size)
-            .ok_or_else(|| anyhow!("Q8_0 row offset overflow"))?;
+            .ok_or_else(|| anyhow!("quantized row offset overflow"))?;
         Ok(&self.data[start..start + row_size])
     }
 }
@@ -167,6 +191,8 @@ impl Gguf {
             let kind = match reader.u32()? {
                 GGML_TYPE_F32 => TensorType::F32,
                 GGML_TYPE_Q8_0 => TensorType::Q8_0,
+                GGML_TYPE_Q4_K => TensorType::Q4K,
+                GGML_TYPE_Q6_K => TensorType::Q6K,
                 value => bail!("tensor `{name}` uses unsupported GGML type {value}"),
             };
             let offset = reader.usize("tensor offset")?;
@@ -627,19 +653,51 @@ fn tensor_byte_len(name: &str, dims: &[usize], kind: TensorType) -> Result<usize
         TensorType::F32 => elements
             .checked_mul(size_of::<f32>())
             .ok_or_else(|| anyhow!("tensor `{name}` byte size overflow")),
-        TensorType::Q8_0 => {
-            if !dims[0].is_multiple_of(Q8_0_BLOCK_ELEMENTS) {
-                bail!(
-                    "Q8_0 tensor `{name}` row width {} is not divisible by {Q8_0_BLOCK_ELEMENTS}",
-                    dims[0]
-                );
-            }
-            let blocks = elements / Q8_0_BLOCK_ELEMENTS;
-            blocks
-                .checked_mul(Q8_0_BLOCK_BYTES)
-                .ok_or_else(|| anyhow!("tensor `{name}` byte size overflow"))
-        }
+        TensorType::Q8_0 => quantized_tensor_byte_len(
+            name,
+            dims,
+            elements,
+            Q8_0_BLOCK_ELEMENTS,
+            Q8_0_BLOCK_BYTES,
+            "Q8_0",
+        ),
+        TensorType::Q4K => quantized_tensor_byte_len(
+            name,
+            dims,
+            elements,
+            K_BLOCK_ELEMENTS,
+            Q4_K_BLOCK_BYTES,
+            "Q4_K",
+        ),
+        TensorType::Q6K => quantized_tensor_byte_len(
+            name,
+            dims,
+            elements,
+            K_BLOCK_ELEMENTS,
+            Q6_K_BLOCK_BYTES,
+            "Q6_K",
+        ),
     }
+}
+
+fn quantized_tensor_byte_len(
+    name: &str,
+    dims: &[usize],
+    elements: usize,
+    block_elements: usize,
+    block_bytes: usize,
+    kind: &str,
+) -> Result<usize> {
+    if !dims[0].is_multiple_of(block_elements) {
+        bail!(
+            "{kind} tensor `{name}` row width {} is not divisible by {block_elements}",
+            dims[0]
+        );
+    }
+    let blocks = elements / block_elements;
+    blocks
+        .checked_mul(block_bytes)
+        .ok_or_else(|| anyhow!("tensor `{name}` byte size overflow"))
 }
 
 fn align_up(value: usize, alignment: usize) -> Result<usize> {

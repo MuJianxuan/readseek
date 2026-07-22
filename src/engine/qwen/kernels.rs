@@ -2,6 +2,8 @@
 // Copyright (c) 2026 Jarkko Sakkinen
 
 //! Scalar CPU kernels used by the fixed Qwen inference path.
+//!
+//! `Q4_K`/`Q6_K` block decoding is derived from Dwarf Seek 4.
 
 use std::sync::OnceLock;
 
@@ -20,6 +22,10 @@ pub(crate) fn dim_to_f32(value: usize) -> f32 {
 
 const Q8_0_BLOCK_VALUES: usize = 32;
 const Q8_0_BLOCK_BYTES: usize = 2 + Q8_0_BLOCK_VALUES;
+const K_BLOCK_VALUES: usize = 256;
+const Q4_K_BLOCK_BYTES: usize = 144;
+const Q6_K_BLOCK_BYTES: usize = 210;
+const Q8_K_SUM_VALUES: usize = 16;
 const PARALLEL_MIN_VALUES: usize = 16 * 1_024;
 const MATRIX_ROW_TILE: usize = 4;
 const MATRIX_OUTPUT_TILE: usize = 16;
@@ -262,35 +268,381 @@ pub(crate) fn f32_to_fp16(value: f32) -> u16 {
         | u16::try_from(rounded_fraction).expect("rounded_fraction fits u16")
 }
 
-/// Dequantize one `Q8_0` row into a caller-provided buffer.
-pub(crate) fn dequantize_q8_0_row(row: &[u8], output: &mut [f32]) -> Result<()> {
-    validate_q8_0_row(row, output.len())?;
-
+/// Dequantize one `Q4_K` row into a caller-provided buffer.
+pub(crate) fn dequantize_q4_k_row(row: &[u8], output: &mut [f32]) -> Result<()> {
+    validate_k_row(row, output.len(), Q4_K_BLOCK_BYTES, "Q4_K")?;
     for (block, values) in row
-        .chunks_exact(Q8_0_BLOCK_BYTES)
-        .zip(output.chunks_exact_mut(Q8_0_BLOCK_VALUES))
+        .chunks_exact(Q4_K_BLOCK_BYTES)
+        .zip(output.chunks_exact_mut(K_BLOCK_VALUES))
     {
         let scale = fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        for (value, quantized) in values.iter_mut().zip(&block[2..]) {
-            *value = scale * f32::from(i8::from_ne_bytes([*quantized]));
+        let minimum = fp16_to_f32(u16::from_le_bytes([block[2], block[3]]));
+        let scales = &block[4..16];
+        let quantized = &block[16..];
+        for group in 0..8 {
+            let (group_scale, group_minimum) = q4_k_scale_min(scales, group);
+            let byte_offset = group / 2 * 32;
+            let shift = group % 2 * 4;
+            for index in 0..32 {
+                let value = (quantized[byte_offset + index] >> shift) & 0x0f;
+                values[group * 32 + index] = scale * f32::from(group_scale) * f32::from(value)
+                    - minimum * f32::from(group_minimum);
+            }
         }
     }
-
     Ok(())
 }
 
-fn validate_q8_0_row(row: &[u8], value_count: usize) -> Result<()> {
+/// Dequantize one `Q6_K` row into a caller-provided buffer.
+pub(crate) fn dequantize_q6_k_row(row: &[u8], output: &mut [f32]) -> Result<()> {
+    validate_k_row(row, output.len(), Q6_K_BLOCK_BYTES, "Q6_K")?;
+    for (block, values) in row
+        .chunks_exact(Q6_K_BLOCK_BYTES)
+        .zip(output.chunks_exact_mut(K_BLOCK_VALUES))
+    {
+        let low = &block[..128];
+        let high = &block[128..192];
+        let scales = &block[192..208];
+        let scale = fp16_to_f32(u16::from_le_bytes([block[208], block[209]]));
+        for half in 0..2 {
+            let low = &low[half * 64..];
+            let high = &high[half * 32..];
+            let scales = &scales[half * 8..];
+            let output_offset = half * 128;
+            for index in 0..32 {
+                let scale_index = index / 16;
+                let q1 = i16::from(low[index] & 0x0f) | (i16::from(high[index] & 3) << 4);
+                let q2 =
+                    i16::from(low[index + 32] & 0x0f) | (i16::from((high[index] >> 2) & 3) << 4);
+                let q3 = i16::from(low[index] >> 4) | (i16::from((high[index] >> 4) & 3) << 4);
+                let q4 = i16::from(low[index + 32] >> 4) | (i16::from((high[index] >> 6) & 3) << 4);
+                for (group, quantized) in [q1, q2, q3, q4].into_iter().enumerate() {
+                    let group_scale = i8::from_ne_bytes([scales[group * 2 + scale_index]]);
+                    values[output_offset + group * 32 + index] =
+                        scale * f32::from(group_scale) * f32::from(quantized - 32);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn q4_k_scale_min(scales: &[u8], group: usize) -> (u8, u8) {
+    if group < 4 {
+        (scales[group] & 0x3f, scales[group + 4] & 0x3f)
+    } else {
+        (
+            (scales[group + 4] & 0x0f) | ((scales[group - 4] >> 6) << 4),
+            (scales[group + 4] >> 4) | ((scales[group] >> 6) << 4),
+        )
+    }
+}
+
+fn validate_k_row(row: &[u8], value_count: usize, block_bytes: usize, kind: &str) -> Result<()> {
     ensure!(
-        value_count.is_multiple_of(Q8_0_BLOCK_VALUES),
-        "Q8_0 row length {value_count} is not a multiple of {Q8_0_BLOCK_VALUES}"
+        value_count.is_multiple_of(K_BLOCK_VALUES),
+        "{kind} row length {value_count} is not a multiple of {K_BLOCK_VALUES}"
     );
-    let expected = value_count / Q8_0_BLOCK_VALUES * Q8_0_BLOCK_BYTES;
+    let expected = value_count / K_BLOCK_VALUES * block_bytes;
     ensure!(
         row.len() == expected,
-        "Q8_0 row has {} bytes, expected {expected} for {value_count} values",
+        "{kind} row has {} bytes, expected {expected} for {value_count} values",
         row.len()
     );
     Ok(())
+}
+
+struct Q8KActivation {
+    scales: Vec<f32>,
+    values: Vec<i8>,
+    sums: Vec<i16>,
+}
+
+impl Q8KActivation {
+    fn new(vector: &[f32]) -> Result<Self> {
+        ensure!(
+            vector.len().is_multiple_of(K_BLOCK_VALUES),
+            "Q8_K activation length {} is not a multiple of {K_BLOCK_VALUES}",
+            vector.len()
+        );
+        ensure!(
+            vector.iter().all(|value| value.is_finite()),
+            "Q8_K activation contains a non-finite value"
+        );
+        let block_count = vector.len() / K_BLOCK_VALUES;
+        let mut scales = Vec::with_capacity(block_count);
+        let mut values = Vec::with_capacity(vector.len());
+        let mut sums = Vec::with_capacity(block_count * (K_BLOCK_VALUES / Q8_K_SUM_VALUES));
+        for block in vector.chunks_exact(K_BLOCK_VALUES) {
+            let maximum = block.iter().copied().fold(0.0_f32, |maximum, value| {
+                if value.abs() > maximum.abs() {
+                    value
+                } else {
+                    maximum
+                }
+            });
+            if maximum == 0.0 {
+                scales.push(0.0);
+                values.resize(values.len() + K_BLOCK_VALUES, 0);
+                sums.resize(sums.len() + K_BLOCK_VALUES / Q8_K_SUM_VALUES, 0);
+                continue;
+            }
+            scales.push(-maximum / 127.0);
+            let start = values.len();
+            values.extend(block.iter().map(|value| {
+                (-127.0 * (value / maximum))
+                    .round_ties_even()
+                    .clamp(-128.0, 127.0)
+                    .to_i8()
+                    .expect("normalized Q8_K value is in i8 range")
+            }));
+            sums.extend(
+                values[start..]
+                    .chunks_exact(Q8_K_SUM_VALUES)
+                    .map(|group| group.iter().map(|value| i16::from(*value)).sum::<i16>()),
+            );
+        }
+        Ok(Self {
+            scales,
+            values,
+            sums,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+enum KDotKernel {
+    Scalar,
+    #[cfg(target_arch = "x86_64")]
+    Avx2,
+}
+
+impl KDotKernel {
+    fn detect() -> Self {
+        static KERNEL: OnceLock<KDotKernel> = OnceLock::new();
+        *KERNEL.get_or_init(|| {
+            #[cfg(target_arch = "x86_64")]
+            if std::is_x86_feature_detected!("avx2") {
+                return Self::Avx2;
+            }
+            Self::Scalar
+        })
+    }
+
+    fn dot(self, kind: TensorType, row: &[u8], activation: &Q8KActivation) -> f32 {
+        match (self, kind) {
+            (Self::Scalar, TensorType::Q4K) => dot_q4_k_q8_k_scalar(row, activation),
+            (Self::Scalar, TensorType::Q6K) => dot_q6_k_q8_k_scalar(row, activation),
+            #[cfg(target_arch = "x86_64")]
+            (Self::Avx2, TensorType::Q4K) => unsafe { dot_q4_k_q8_k_avx2(row, activation) },
+            #[cfg(target_arch = "x86_64")]
+            (Self::Avx2, TensorType::Q6K) => unsafe { dot_q6_k_q8_k_avx2(row, activation) },
+            (_, kind) => unreachable!("unsupported K-quantized tensor type {kind:?}"),
+        }
+    }
+}
+
+fn dot_q4_k_q8_k_scalar(row: &[u8], activation: &Q8KActivation) -> f32 {
+    let mut sum = 0.0;
+    for (block_index, block) in row.chunks_exact(Q4_K_BLOCK_BYTES).enumerate() {
+        let scale =
+            activation.scales[block_index] * fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
+        let minimum =
+            -activation.scales[block_index] * fp16_to_f32(u16::from_le_bytes([block[2], block[3]]));
+        let scales = &block[4..16];
+        let quantized = &block[16..];
+        let values = &activation.values[block_index * K_BLOCK_VALUES..][..K_BLOCK_VALUES];
+        let sums = &activation.sums[block_index * 16..][..16];
+        let mut product_sum = 0_i32;
+        let mut minimum_sum = 0_i32;
+        for group in 0..8 {
+            let (group_scale, group_minimum) = q4_k_scale_min(scales, group);
+            minimum_sum += i32::from(group_minimum)
+                * (i32::from(sums[group * 2]) + i32::from(sums[group * 2 + 1]));
+            let byte_offset = group / 2 * 32;
+            let shift = group % 2 * 4;
+            for index in 0..32 {
+                let weight = (quantized[byte_offset + index] >> shift) & 0x0f;
+                product_sum += i32::from(group_scale)
+                    * i32::from(weight)
+                    * i32::from(values[group * 32 + index]);
+            }
+        }
+        sum += scale * product_sum.to_f32().expect("i32 converts to f32")
+            + minimum * minimum_sum.to_f32().expect("i32 converts to f32");
+    }
+    sum
+}
+
+fn dot_q6_k_q8_k_scalar(row: &[u8], activation: &Q8KActivation) -> f32 {
+    let mut sum = 0.0;
+    for (block_index, block) in row.chunks_exact(Q6_K_BLOCK_BYTES).enumerate() {
+        let low = &block[..128];
+        let high = &block[128..192];
+        let scales = &block[192..208];
+        let scale = activation.scales[block_index]
+            * fp16_to_f32(u16::from_le_bytes([block[208], block[209]]));
+        let values = &activation.values[block_index * K_BLOCK_VALUES..][..K_BLOCK_VALUES];
+        let mut product_sum = 0_i64;
+        for half in 0..2 {
+            let low = &low[half * 64..];
+            let high = &high[half * 32..];
+            let scales = &scales[half * 8..];
+            let values = &values[half * 128..];
+            for index in 0..32 {
+                let scale_index = index / 16;
+                let q1 = i16::from(low[index] & 0x0f) | (i16::from(high[index] & 3) << 4);
+                let q2 =
+                    i16::from(low[index + 32] & 0x0f) | (i16::from((high[index] >> 2) & 3) << 4);
+                let q3 = i16::from(low[index] >> 4) | (i16::from((high[index] >> 4) & 3) << 4);
+                let q4 = i16::from(low[index + 32] >> 4) | (i16::from((high[index] >> 6) & 3) << 4);
+                for (group, quantized) in [q1, q2, q3, q4].into_iter().enumerate() {
+                    let group_scale = i8::from_ne_bytes([scales[group * 2 + scale_index]]);
+                    product_sum += i64::from(group_scale)
+                        * i64::from(quantized - 32)
+                        * i64::from(values[group * 32 + index]);
+                }
+            }
+        }
+        sum += scale * product_sum.to_f32().expect("i64 converts to f32");
+    }
+    sum
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_q4_k_q8_k_avx2(row: &[u8], activation: &Q8KActivation) -> f32 {
+    use std::arch::x86_64::{
+        _mm256_and_si256, _mm256_loadu_si256, _mm256_set1_epi8, _mm256_srli_epi16,
+    };
+
+    let mask = _mm256_set1_epi8(0x0f);
+    let mut sum = 0.0;
+    for (block_index, block) in row.chunks_exact(Q4_K_BLOCK_BYTES).enumerate() {
+        let scale =
+            activation.scales[block_index] * fp16_to_f32(u16::from_le_bytes([block[0], block[1]]));
+        let minimum =
+            -activation.scales[block_index] * fp16_to_f32(u16::from_le_bytes([block[2], block[3]]));
+        let scales = &block[4..16];
+        let quantized = &block[16..];
+        let values = &activation.values[block_index * K_BLOCK_VALUES..][..K_BLOCK_VALUES];
+        let sums = &activation.sums[block_index * 16..][..16];
+        let mut product_sum = 0_i32;
+        let mut minimum_sum = 0_i32;
+        for group in 0..8 {
+            let (group_scale, group_minimum) = q4_k_scale_min(scales, group);
+            minimum_sum += i32::from(group_minimum)
+                * (i32::from(sums[group * 2]) + i32::from(sums[group * 2 + 1]));
+            let packed =
+                unsafe { _mm256_loadu_si256(quantized.as_ptr().add(group / 2 * 32).cast()) };
+            let unpacked = if group % 2 == 0 {
+                _mm256_and_si256(packed, mask)
+            } else {
+                _mm256_and_si256(_mm256_srli_epi16::<4>(packed), mask)
+            };
+            let activation_values =
+                unsafe { _mm256_loadu_si256(values.as_ptr().add(group * 32).cast()) };
+            product_sum +=
+                i32::from(group_scale) * unsafe { dot_u8_i8_avx2(unpacked, activation_values) };
+        }
+        sum += scale * product_sum.to_f32().expect("i32 converts to f32")
+            + minimum * minimum_sum.to_f32().expect("i32 converts to f32");
+    }
+    sum
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_q6_k_q8_k_avx2(row: &[u8], activation: &Q8KActivation) -> f32 {
+    use std::arch::x86_64::_mm256_loadu_si256;
+
+    let mut sum = 0.0;
+    for (block_index, block) in row.chunks_exact(Q6_K_BLOCK_BYTES).enumerate() {
+        let low = &block[..128];
+        let high = &block[128..192];
+        let scales = &block[192..208];
+        let scale = activation.scales[block_index]
+            * fp16_to_f32(u16::from_le_bytes([block[208], block[209]]));
+        let values = &activation.values[block_index * K_BLOCK_VALUES..][..K_BLOCK_VALUES];
+        let mut product_sum = 0_i64;
+        for half in 0..2 {
+            let low = &low[half * 64..];
+            let high = &high[half * 32..];
+            let scales = &scales[half * 8..];
+            let values = &values[half * 128..];
+            for group in 0..4 {
+                let mut unpacked = [0_i8; 32];
+                for index in 0..32 {
+                    let low_value = match group {
+                        0 => low[index] & 0x0f,
+                        1 => low[index + 32] & 0x0f,
+                        2 => low[index] >> 4,
+                        3 => low[index + 32] >> 4,
+                        _ => unreachable!(),
+                    };
+                    unpacked[index] = i8::try_from(
+                        i16::from(low_value) | (i16::from((high[index] >> (group * 2)) & 3) << 4),
+                    )
+                    .expect("six-bit value fits i8")
+                        - 32;
+                }
+                let weights = unsafe { _mm256_loadu_si256(unpacked.as_ptr().cast()) };
+                let activation_values =
+                    unsafe { _mm256_loadu_si256(values.as_ptr().add(group * 32).cast()) };
+                let (first, second) = unsafe { dot_i8_i8_halves_avx2(weights, activation_values) };
+                product_sum += i64::from(i8::from_ne_bytes([scales[group * 2]])) * i64::from(first);
+                product_sum +=
+                    i64::from(i8::from_ne_bytes([scales[group * 2 + 1]])) * i64::from(second);
+            }
+        }
+        sum += scale * product_sum.to_f32().expect("i64 converts to f32");
+    }
+    sum
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_u8_i8_avx2(
+    left: std::arch::x86_64::__m256i,
+    right: std::arch::x86_64::__m256i,
+) -> i32 {
+    use std::arch::x86_64::{
+        _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_storeu_si256,
+    };
+    let pairs = _mm256_maddubs_epi16(left, right);
+    let lanes = _mm256_madd_epi16(pairs, _mm256_set1_epi16(1));
+    let mut sums = [0_i32; 8];
+    unsafe { _mm256_storeu_si256(sums.as_mut_ptr().cast(), lanes) };
+    sums.into_iter().sum()
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_i8_i8_halves_avx2(
+    left: std::arch::x86_64::__m256i,
+    right: std::arch::x86_64::__m256i,
+) -> (i32, i32) {
+    use std::arch::x86_64::{_mm256_abs_epi8, _mm256_sign_epi8};
+    let absolute = _mm256_abs_epi8(left);
+    let signed = _mm256_sign_epi8(right, left);
+    let pairs = unsafe { dot_u8_i8_lanes_avx2(absolute, signed) };
+    (pairs[..4].iter().sum(), pairs[4..].iter().sum())
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_u8_i8_lanes_avx2(
+    left: std::arch::x86_64::__m256i,
+    right: std::arch::x86_64::__m256i,
+) -> [i32; 8] {
+    use std::arch::x86_64::{
+        _mm256_madd_epi16, _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_storeu_si256,
+    };
+    let pairs = _mm256_maddubs_epi16(left, right);
+    let lanes = _mm256_madd_epi16(pairs, _mm256_set1_epi16(1));
+    let mut sums = [0_i32; 8];
+    unsafe { _mm256_storeu_si256(sums.as_mut_ptr().cast(), lanes) };
+    sums
 }
 
 struct Q8Activation {
@@ -417,13 +769,18 @@ unsafe fn dot_q8_0_quantized_avx2(row: &[u8], activation: &Q8Activation) -> f32 
     sum
 }
 
-/// Return the index of the largest output from a `Q8_0` matrix-vector product.
+/// Return the index of the largest output from a quantized matrix-vector product.
 pub(crate) fn matrix_vector_argmax(matrix: &Tensor, vector: &[f32]) -> Result<usize> {
     #[derive(Clone, Copy)]
     struct Candidate {
         invalid: Option<usize>,
         index: usize,
         value: f32,
+    }
+
+    enum Activation {
+        Q8(Q8Activation, Q8DotKernel),
+        K(Q8KActivation, KDotKernel),
     }
 
     let [input_size, output_size] = matrix_dimensions(matrix)?;
@@ -436,19 +793,29 @@ pub(crate) fn matrix_vector_argmax(matrix: &Tensor, vector: &[f32]) -> Result<us
         "matrix input is {input_size}, but vector length is {}",
         vector.len()
     );
-    ensure!(
-        matrix.tensor_type() == TensorType::Q8_0,
-        "fused matrix argmax requires a Q8_0 tensor"
-    );
-    let row_bytes = q8_matrix_row_bytes(matrix, input_size, output_size)?;
-    let activation = Q8Activation::new(vector)?;
-    let kernel = Q8DotKernel::detect();
+    let row_bytes = match matrix.tensor_type() {
+        TensorType::Q8_0 => q8_matrix_row_bytes(matrix, input_size, output_size)?,
+        TensorType::Q4K | TensorType::Q6K => k_matrix_row_bytes(matrix, input_size, output_size)?,
+        TensorType::F32 => bail!("fused matrix argmax requires a quantized tensor"),
+    };
+    let activation = match matrix.tensor_type() {
+        TensorType::Q8_0 => Activation::Q8(Q8Activation::new(vector)?, Q8DotKernel::detect()),
+        TensorType::Q4K | TensorType::Q6K => {
+            Activation::K(Q8KActivation::new(vector)?, KDotKernel::detect())
+        }
+        TensorType::F32 => unreachable!(),
+    };
     let best = (0..output_size)
         .into_par_iter()
         .map(|index| {
             let start = index * row_bytes;
             let row = &matrix.data()[start..start + row_bytes];
-            let value = kernel.dot(row, &activation);
+            let value = match &activation {
+                Activation::Q8(activation, kernel) => kernel.dot(row, activation),
+                Activation::K(activation, kernel) => {
+                    kernel.dot(matrix.tensor_type(), row, activation)
+                }
+            };
             Candidate {
                 invalid: (!value.is_finite()).then_some(index),
                 index,
@@ -504,6 +871,10 @@ pub(crate) fn matrix_matrix(
         "matrix-matrix input has {} values, expected {expected} ({row_count} x {input_size})",
         vectors.len()
     );
+    if is_k_quantized(matrix.tensor_type()) {
+        let activations = k_matrix_activations(vectors, row_count, input_size)?;
+        return k_matrix_matrix(matrix, output_size, &activations);
+    }
     let output_len = row_count
         .checked_mul(output_size)
         .ok_or_else(|| anyhow::anyhow!("matrix-matrix output size overflow"))?;
@@ -567,12 +938,13 @@ pub(crate) fn matrix_matrix(
                     })?;
             }
         }
+        TensorType::Q4K | TensorType::Q6K => unreachable!(),
     }
 
     Ok(output)
 }
 
-/// Multiply two `Q8_0` matrices by shared row-major activation vectors.
+/// Multiply two matrices by shared row-major activation vectors.
 pub(crate) fn matrix_matrix_pair(
     left: &Tensor,
     right: &Tensor,
@@ -584,22 +956,30 @@ pub(crate) fn matrix_matrix_pair(
         matrix_dimensions(right)? == dimensions,
         "paired matrix dimensions differ"
     );
-    ensure!(
-        left.tensor_type() == TensorType::Q8_0 && right.tensor_type() == TensorType::Q8_0,
-        "paired matrix projection requires Q8_0 tensors"
-    );
     let [input_size, output_size] = dimensions;
-    let activations = matrix_activations(vectors, row_count, input_size)?;
-    let left_row_bytes = q8_matrix_row_bytes(left, input_size, output_size)?;
-    let right_row_bytes = q8_matrix_row_bytes(right, input_size, output_size)?;
-    let (left_output, right_output) = rayon::join(
-        || q8_matrix_matrix(left.data(), left_row_bytes, output_size, &activations),
-        || q8_matrix_matrix(right.data(), right_row_bytes, output_size, &activations),
+    if left.tensor_type() == TensorType::Q8_0 && right.tensor_type() == TensorType::Q8_0 {
+        let activations = matrix_activations(vectors, row_count, input_size)?;
+        let left_row_bytes = q8_matrix_row_bytes(left, input_size, output_size)?;
+        let right_row_bytes = q8_matrix_row_bytes(right, input_size, output_size)?;
+        let outputs = rayon::join(
+            || q8_matrix_matrix(left.data(), left_row_bytes, output_size, &activations),
+            || q8_matrix_matrix(right.data(), right_row_bytes, output_size, &activations),
+        );
+        return Ok(outputs);
+    }
+    ensure!(
+        is_k_quantized(left.tensor_type()) && is_k_quantized(right.tensor_type()),
+        "paired matrix projection requires matching quantization families"
     );
-    Ok((left_output, right_output))
+    let activations = k_matrix_activations(vectors, row_count, input_size)?;
+    let (left_output, right_output) = rayon::join(
+        || k_matrix_matrix(left, output_size, &activations),
+        || k_matrix_matrix(right, output_size, &activations),
+    );
+    Ok((left_output?, right_output?))
 }
 
-/// Multiply three `Q8_0` matrices by shared row-major activation vectors.
+/// Multiply three matrices by shared row-major activation vectors.
 pub(crate) fn matrix_matrix_triple(
     first: &Tensor,
     second: &Tensor,
@@ -614,26 +994,42 @@ pub(crate) fn matrix_matrix_triple(
         second_input == input_size && third_input == input_size,
         "triple matrix input dimensions differ"
     );
+    if first.tensor_type() == TensorType::Q8_0
+        && second.tensor_type() == TensorType::Q8_0
+        && third.tensor_type() == TensorType::Q8_0
+    {
+        let activations = matrix_activations(vectors, row_count, input_size)?;
+        let first_row_bytes = q8_matrix_row_bytes(first, input_size, first_size)?;
+        let second_row_bytes = q8_matrix_row_bytes(second, input_size, second_size)?;
+        let third_row_bytes = q8_matrix_row_bytes(third, input_size, third_size)?;
+        let (first_output, (second_output, third_output)) = rayon::join(
+            || q8_matrix_matrix(first.data(), first_row_bytes, first_size, &activations),
+            || {
+                rayon::join(
+                    || q8_matrix_matrix(second.data(), second_row_bytes, second_size, &activations),
+                    || q8_matrix_matrix(third.data(), third_row_bytes, third_size, &activations),
+                )
+            },
+        );
+        return Ok((first_output, second_output, third_output));
+    }
     ensure!(
-        first.tensor_type() == TensorType::Q8_0
-            && second.tensor_type() == TensorType::Q8_0
-            && third.tensor_type() == TensorType::Q8_0,
-        "triple matrix projection requires Q8_0 tensors"
+        is_k_quantized(first.tensor_type())
+            && is_k_quantized(second.tensor_type())
+            && is_k_quantized(third.tensor_type()),
+        "triple matrix projection requires matching quantization families"
     );
-    let activations = matrix_activations(vectors, row_count, input_size)?;
-    let first_row_bytes = q8_matrix_row_bytes(first, input_size, first_size)?;
-    let second_row_bytes = q8_matrix_row_bytes(second, input_size, second_size)?;
-    let third_row_bytes = q8_matrix_row_bytes(third, input_size, third_size)?;
+    let activations = k_matrix_activations(vectors, row_count, input_size)?;
     let (first_output, (second_output, third_output)) = rayon::join(
-        || q8_matrix_matrix(first.data(), first_row_bytes, first_size, &activations),
+        || k_matrix_matrix(first, first_size, &activations),
         || {
             rayon::join(
-                || q8_matrix_matrix(second.data(), second_row_bytes, second_size, &activations),
-                || q8_matrix_matrix(third.data(), third_row_bytes, third_size, &activations),
+                || k_matrix_matrix(second, second_size, &activations),
+                || k_matrix_matrix(third, third_size, &activations),
             )
         },
     );
-    Ok((first_output, second_output, third_output))
+    Ok((first_output?, second_output?, third_output?))
 }
 
 fn matrix_activations(
@@ -653,6 +1049,63 @@ fn matrix_activations(
         .chunks_exact(input_size)
         .map(Q8Activation::new)
         .collect()
+}
+
+fn k_matrix_activations(
+    vectors: &[f32],
+    row_count: usize,
+    input_size: usize,
+) -> Result<Vec<Q8KActivation>> {
+    let expected = row_count
+        .checked_mul(input_size)
+        .ok_or_else(|| anyhow::anyhow!("matrix-matrix input size overflow"))?;
+    ensure!(
+        vectors.len() == expected,
+        "matrix-matrix input has {} values, expected {expected} ({row_count} x {input_size})",
+        vectors.len()
+    );
+    vectors
+        .chunks_exact(input_size)
+        .map(Q8KActivation::new)
+        .collect()
+}
+
+fn k_matrix_matrix(
+    matrix: &Tensor,
+    output_size: usize,
+    activations: &[Q8KActivation],
+) -> Result<Vec<f32>> {
+    let input_size = matrix.dimensions()[0];
+    let row_bytes = k_matrix_row_bytes(matrix, input_size, output_size)?;
+    let kernel = KDotKernel::detect();
+    let kind = matrix.tensor_type();
+    let output_len = activations
+        .len()
+        .checked_mul(output_size)
+        .ok_or_else(|| anyhow::anyhow!("K-quantized matrix output size overflow"))?;
+    let mut output = vec![0.0; output_len];
+    output
+        .par_chunks_mut(MATRIX_ROW_TILE * output_size)
+        .zip(activations.par_chunks(MATRIX_ROW_TILE))
+        .for_each(|(output_rows, activations)| {
+            for output_start in (0..output_size).step_by(MATRIX_OUTPUT_TILE) {
+                let output_end = (output_start + MATRIX_OUTPUT_TILE).min(output_size);
+                for output_channel in output_start..output_end {
+                    let row_start = output_channel * row_bytes;
+                    let weights = &matrix.data()[row_start..row_start + row_bytes];
+                    for (output_row, activation) in
+                        output_rows.chunks_exact_mut(output_size).zip(activations)
+                    {
+                        output_row[output_channel] = kernel.dot(kind, weights, activation);
+                    }
+                }
+            }
+        });
+    Ok(output)
+}
+
+fn is_k_quantized(kind: TensorType) -> bool {
+    matches!(kind, TensorType::Q4K | TensorType::Q6K)
 }
 
 fn q8_matrix_matrix(
@@ -762,6 +1215,28 @@ fn q8_matrix_row_bytes(matrix: &Tensor, input_size: usize, output_size: usize) -
     ensure!(
         matrix.data().len() == expected,
         "Q8_0 matrix has {} data bytes, expected {expected}",
+        matrix.data().len()
+    );
+    Ok(row_bytes)
+}
+
+fn k_matrix_row_bytes(matrix: &Tensor, input_size: usize, output_size: usize) -> Result<usize> {
+    ensure!(
+        input_size.is_multiple_of(K_BLOCK_VALUES),
+        "K-quantized matrix input dimension {input_size} is not a multiple of {K_BLOCK_VALUES}"
+    );
+    let block_bytes = match matrix.tensor_type() {
+        TensorType::Q4K => Q4_K_BLOCK_BYTES,
+        TensorType::Q6K => Q6_K_BLOCK_BYTES,
+        kind => bail!("tensor is {kind:?}, not K-quantized"),
+    };
+    let row_bytes = input_size / K_BLOCK_VALUES * block_bytes;
+    let expected = row_bytes
+        .checked_mul(output_size)
+        .ok_or_else(|| anyhow::anyhow!("K-quantized matrix byte size overflow"))?;
+    ensure!(
+        matrix.data().len() == expected,
+        "K-quantized matrix has {} data bytes, expected {expected}",
         matrix.data().len()
     );
     Ok(row_bytes)

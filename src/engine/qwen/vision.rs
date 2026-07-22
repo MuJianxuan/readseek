@@ -1113,6 +1113,9 @@ fn expect_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorType
         TensorType::Q8_0 => {
             tensor.q8_row_size()?;
         }
+        TensorType::Q4K | TensorType::Q6K => {
+            tensor.quantized_row_size()?;
+        }
     }
     Ok(())
 }

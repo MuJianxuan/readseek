@@ -21,7 +21,8 @@
   "license": "Apache-2.0",
   "files": [
     "index.ts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit"

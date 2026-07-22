@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::qwen::{SpatialReduction, TextModel, VisionEmbedding, VisionInput, VisionModel};
 
-const MODEL_FILE: &str = "Qwen3VL-2B-Instruct-Q8_0.gguf";
+const MODEL_FILE: &str = "Qwen3VL-2B-Instruct-Q4_K_M.gguf";
 const MMPROJ_FILE: &str = "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf";
 const CAPTION_MAX_NEW_TOKENS: usize = 512;
 const OBJECTS_MAX_NEW_TOKENS: usize = 1024;

@@ -130,7 +130,7 @@ page; `--vision-mode` applies to each embedded image. After `readseek init`, `vi
 or reuses a structural PDF index that can be narrowed by page, node, kind, or depth.
 Line/hash suffixes, `--end`, `--limit`, and `--language` do not apply to visual files.
 
-The Qwen3-VL-2B Q8_0 model and multimodal projector download lazily to the user
+The Qwen3-VL-2B Q4_K_M model and Q8_0 multimodal projector download lazily to the user
 cache and are checksum-verified. Inference uses ReadSeek's built-in CPU engine and
 can be slow.
 
@@ -154,7 +154,12 @@ Pass `--help` to any command for command-specific usage.
 
 ## Licensing
 
-The native `readseek` crate is licensed under `LGPL-2.1-or-later`. The npm wrapper
-and platform packages declare `Apache-2.0 AND LGPL-2.1-or-later`; plugin licenses
-are listed in their package directories. The downloaded Qwen model is licensed
-under `Apache-2.0`.
+The Rust program is under LGPL 2.1+ license. The NPM distribution also contains
+Apache 2.0 licensed components.
+
+### Third Party Attribution
+
+The downloaded Qwen model under Apache 2.0 license.
+
+Q4\_K and Q6\_K block decoding and dot-product implementation are derived from
+[Dwarf Seek 4](https://github.com/antirez/ds4) under MIT license.

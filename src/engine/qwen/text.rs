@@ -10,9 +10,9 @@ use rayon::prelude::*;
 
 use super::gguf::{Gguf, TensorType};
 use super::kernels::{
-    Fp16AttentionKernel, dim_to_f32, f32_to_fp16, matrix_matrix, matrix_matrix_pair,
-    matrix_matrix_triple, matrix_vector_argmax, rms_norm, silu, softmax, vector_add,
-    vector_multiply,
+    Fp16AttentionKernel, dequantize_q4_k_row, dequantize_q6_k_row, dim_to_f32, f32_to_fp16,
+    matrix_matrix, matrix_matrix_pair, matrix_matrix_triple, matrix_vector_argmax, rms_norm, silu,
+    softmax, vector_add, vector_multiply,
 };
 use super::tokenizer::{Tokenizer, Utf8Decoder};
 use super::vision::VisionEmbedding;
@@ -295,10 +295,14 @@ impl TextModel {
     fn token_embedding(&self, token: u32) -> Result<Vec<f32>> {
         let tensor = self.gguf.tensor("token_embd.weight")?;
         let row = tensor
-            .q8_row_bytes(token as usize)
+            .quantized_row_bytes(token as usize)
             .with_context(|| format!("read token embedding {token}"))?;
         let mut embedding = vec![0.0; EMBEDDING_SIZE];
-        super::kernels::dequantize_q8_0_row(row, &mut embedding)?;
+        match tensor.tensor_type() {
+            TensorType::Q4K => dequantize_q4_k_row(row, &mut embedding)?,
+            TensorType::Q6K => dequantize_q6_k_row(row, &mut embedding)?,
+            kind => anyhow::bail!("token embedding uses unsupported tensor type {kind:?}"),
+        }
         Ok(embedding)
     }
 
@@ -816,6 +820,10 @@ fn validate_metadata(gguf: &Gguf) -> Result<()> {
         "model architecture is `{}`, expected `qwen3vl`",
         gguf.architecture()
     );
+    ensure!(
+        gguf.u32("general.file_type")? == 15,
+        "GGUF file type must be Q4_K_M"
+    );
     validate_u32(gguf, "qwen3vl.block_count", LAYER_COUNT)?;
     validate_u32(gguf, "qwen3vl.embedding_length", EMBEDDING_SIZE)?;
     validate_u32(gguf, "qwen3vl.feed_forward_length", FEED_FORWARD_SIZE)?;
@@ -860,7 +868,7 @@ fn validate_tensors(gguf: &Gguf) -> Result<()> {
         gguf,
         "token_embd.weight",
         &[EMBEDDING_SIZE, tokenizer_vocabulary_size(gguf)?],
-        TensorType::Q8_0,
+        TensorType::Q6K,
     )?;
     validate_tensor(
         gguf,
@@ -880,25 +888,25 @@ fn validate_tensors(gguf: &Gguf) -> Result<()> {
             gguf,
             &format!("blk.{layer}.attn_q.weight"),
             &[EMBEDDING_SIZE, EMBEDDING_SIZE],
-            TensorType::Q8_0,
+            TensorType::Q4K,
         )?;
         validate_tensor(
             gguf,
             &format!("blk.{layer}.attn_k.weight"),
             &[EMBEDDING_SIZE, KEY_VALUE_SIZE],
-            TensorType::Q8_0,
+            TensorType::Q4K,
         )?;
         validate_tensor(
             gguf,
             &format!("blk.{layer}.attn_v.weight"),
             &[EMBEDDING_SIZE, KEY_VALUE_SIZE],
-            TensorType::Q8_0,
+            mixed_weight_kind(layer),
         )?;
         validate_tensor(
             gguf,
             &format!("blk.{layer}.attn_output.weight"),
             &[EMBEDDING_SIZE, EMBEDDING_SIZE],
-            TensorType::Q8_0,
+            TensorType::Q4K,
         )?;
         validate_tensor(
             gguf,
@@ -922,22 +930,33 @@ fn validate_tensors(gguf: &Gguf) -> Result<()> {
             gguf,
             &format!("blk.{layer}.ffn_gate.weight"),
             &[EMBEDDING_SIZE, FEED_FORWARD_SIZE],
-            TensorType::Q8_0,
+            TensorType::Q4K,
         )?;
         validate_tensor(
             gguf,
             &format!("blk.{layer}.ffn_up.weight"),
             &[EMBEDDING_SIZE, FEED_FORWARD_SIZE],
-            TensorType::Q8_0,
+            TensorType::Q4K,
         )?;
         validate_tensor(
             gguf,
             &format!("blk.{layer}.ffn_down.weight"),
             &[FEED_FORWARD_SIZE, EMBEDDING_SIZE],
-            TensorType::Q8_0,
+            mixed_weight_kind(layer),
         )?;
     }
     Ok(())
+}
+
+fn mixed_weight_kind(layer: usize) -> TensorType {
+    if matches!(
+        layer,
+        0 | 1 | 2 | 5 | 8 | 11 | 14 | 17 | 20 | 23 | 24 | 25 | 26 | 27
+    ) {
+        TensorType::Q6K
+    } else {
+        TensorType::Q4K
+    }
 }
 
 fn tokenizer_vocabulary_size(gguf: &Gguf) -> Result<usize> {
@@ -956,6 +975,14 @@ fn validate_tensor(gguf: &Gguf, name: &str, dimensions: &[usize], kind: TensorTy
         "tensor `{name}` is {:?}, expected {kind:?}",
         tensor.tensor_type()
     );
+    match kind {
+        TensorType::F32 => {
+            tensor.f32_slice()?;
+        }
+        TensorType::Q8_0 | TensorType::Q4K | TensorType::Q6K => {
+            tensor.quantized_row_size()?;
+        }
+    }
     Ok(())
 }
 
